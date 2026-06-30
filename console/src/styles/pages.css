@@ -1,0 +1,869 @@
+/* ============================================================
+   Read-only render pages — TASK-006
+   Net-new styles only. Card / column / badge classes are reused
+   from components.css (already themed); this file adds what those
+   don't cover: async state panels, the verify-card link variant,
+   the spec two-pane layout, and the markdown body.
+   Imported per-page (not via globals.css) so ownership stays clean.
+   All colours come from the vendored Harvey tokens (theme.css).
+   ============================================================ */
+
+@layer components {
+  /* ── Loading / error state panels ───────────────────────────── */
+  .state-panel {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 18px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-1);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .state-panel--loading {
+    color: var(--text-subtle);
+  }
+
+  .state-panel--error {
+    background: var(--crit-soft);
+    border-color: var(--crit-border);
+    color: var(--text-primary);
+  }
+
+  .state-panel-icon {
+    color: var(--status-error);
+    flex-shrink: 0;
+  }
+
+  .state-panel-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .state-panel-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .state-panel-text {
+    font-size: 12.5px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  .state-spinner {
+    color: var(--color-accent);
+    flex-shrink: 0;
+    animation: state-spin 0.9s linear infinite;
+  }
+
+  @keyframes state-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .state-spinner {
+      animation: none;
+    }
+  }
+
+  .state-retry-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-button);
+    cursor: pointer;
+    flex-shrink: 0;
+    transition:
+      border-color var(--duration-fast) var(--ease-snappy),
+      background var(--duration-fast) var(--ease-snappy);
+  }
+
+  .state-retry-btn:hover {
+    border-color: color-mix(in oklch, var(--color-accent) 45%, var(--border-subtle));
+    background: var(--surface-3);
+  }
+
+  /* ── Kanban: Ready-for-Test cards become links ──────────────── */
+  .task-card--link {
+    text-decoration: none;
+    cursor: pointer;
+    color: inherit;
+    border-color: color-mix(in oklch, var(--color-accent) 30%, var(--border-subtle));
+  }
+
+  .task-card--link:hover {
+    border-color: var(--color-accent);
+    background: var(--surface-accent-tint-strong);
+  }
+
+  .task-card-verify-cue {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--color-accent);
+    background: var(--pill-neutral-bg);
+    border: 1px solid var(--pill-neutral-border);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
+  }
+
+  /* ── Spec: two-pane layout ──────────────────────────────────── */
+  .spec-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  @media (max-width: 720px) {
+    .spec-layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .spec-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: sticky;
+    top: 0;
+  }
+
+  .spec-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition:
+      background var(--duration-fast) var(--ease-snappy),
+      color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .spec-sidebar-item:hover {
+    background: var(--surface-2);
+    color: var(--text-primary);
+  }
+
+  .spec-sidebar-item.is-active {
+    background: var(--surface-accent-tint);
+    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    color: var(--color-accent);
+  }
+
+  .spec-sidebar-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .spec-content {
+    min-width: 0;
+  }
+
+  .spec-doc,
+  .readme-doc {
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: 24px 28px;
+  }
+
+  /* Centered README figures (BUG-015) — the GitHub <p align="center"><img></p>
+     idiom, reconstructed safely. Center + cap width so large hero images fit. */
+  .readme-figure {
+    margin: 18px 0;
+    text-align: center;
+  }
+
+  .readme-figure img {
+    display: inline-block;
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+  }
+
+  /* ── Markdown body ──────────────────────────────────────────── */
+  .markdown-body {
+    font-size: 13.5px;
+    line-height: 1.7;
+    color: var(--text-primary);
+    word-wrap: break-word;
+  }
+
+  .markdown-body > :first-child {
+    margin-top: 0;
+  }
+
+  .markdown-body > :last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown-body h1,
+  .markdown-body h2,
+  .markdown-body h3,
+  .markdown-body h4,
+  .markdown-body h5,
+  .markdown-body h6 {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--text-primary);
+    margin: 1.6em 0 0.6em;
+  }
+
+  .markdown-body h1 {
+    font-size: 22px;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .markdown-body h2 {
+    font-size: 18px;
+    padding-bottom: 0.25em;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .markdown-body h3 {
+    font-size: 15.5px;
+  }
+
+  .markdown-body h4 {
+    font-size: 14px;
+  }
+
+  .markdown-body h5,
+  .markdown-body h6 {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .markdown-body p {
+    margin: 0 0 1em;
+  }
+
+  .markdown-body a {
+    color: var(--color-accent);
+    text-decoration: none;
+    border-bottom: 1px solid color-mix(in oklch, var(--color-accent) 40%, transparent);
+  }
+
+  .markdown-body a:hover {
+    border-bottom-color: var(--color-accent);
+  }
+
+  .markdown-body strong {
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+
+  .markdown-body em {
+    font-style: italic;
+  }
+
+  /* Restore list markers — Tailwind v4 preflight resets them to none. */
+  .markdown-body ul {
+    margin: 0 0 1em;
+    padding-left: 1.6em;
+    list-style: disc outside;
+  }
+
+  .markdown-body ol {
+    margin: 0 0 1em;
+    padding-left: 1.6em;
+    list-style: decimal outside;
+  }
+
+  .markdown-body ul ul {
+    list-style: circle outside;
+  }
+
+  .markdown-body li {
+    margin: 0.3em 0;
+  }
+
+  .markdown-body li > ul,
+  .markdown-body li > ol {
+    margin: 0.3em 0;
+  }
+
+  .markdown-body code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--surface-3);
+    color: var(--text-primary);
+    padding: 0.15em 0.4em;
+    border-radius: var(--radius-sm);
+  }
+
+  .markdown-body pre {
+    background: var(--surface-0);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 0 0 1em;
+  }
+
+  .markdown-body pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+
+  .markdown-body blockquote {
+    margin: 0 0 1em;
+    padding: 0.4em 1em;
+    border-left: 3px solid var(--color-accent-dim);
+    background: var(--surface-2);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    color: var(--text-muted);
+  }
+
+  .markdown-body blockquote p:last-child {
+    margin-bottom: 0;
+  }
+
+  .markdown-body hr {
+    border: 0;
+    border-top: 1px solid var(--border-subtle);
+    margin: 1.6em 0;
+  }
+
+  .markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0 0 1em;
+    font-size: 12.5px;
+  }
+
+  .markdown-body th,
+  .markdown-body td {
+    border: 1px solid var(--border-subtle);
+    padding: 6px 10px;
+    text-align: left;
+  }
+
+  .markdown-body th {
+    background: var(--surface-2);
+    font-weight: 600;
+  }
+
+  .markdown-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-sm);
+  }
+}
+
+/* ============================================================
+   Gotchas / Findings pages — TASK-027
+   ============================================================ */
+@layer components {
+  /* ── Gotchas page ── */
+  .gotchas-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .gotchas-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    color: var(--text-subtle);
+  }
+  .gotchas-summary svg {
+    color: var(--color-accent);
+  }
+
+  .gotcha-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .gotcha-group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-subtle);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .gotcha-group-count {
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+    background: var(--surface-2);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-pill);
+    padding: 1px 8px;
+  }
+
+  .gotcha-group-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+    gap: 12px;
+    /* Cards in a row share the tallest card's height (no gap below a shorter
+       card next to a taller one) — BUG-012. */
+    align-items: stretch;
+  }
+
+  .gotcha-card {
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .gotcha-card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    /* If a long title + badge can't share a line, the meta wraps below instead of
+       overflowing the card (behind the next one) — BUG-013 safety net. */
+    flex-wrap: wrap;
+  }
+
+  .gotcha-card-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.35;
+  }
+
+  .gotcha-card-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .gotcha-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 2px 7px;
+    border-radius: var(--radius-pill);
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .gotcha-badge--ok {
+    color: var(--pill-success-fg);
+    background: var(--pill-success-bg);
+    border-color: var(--pill-success-border);
+  }
+  .gotcha-badge--warn {
+    color: var(--pill-warning-fg);
+    background: var(--pill-warning-bg);
+    border-color: var(--pill-warning-border);
+  }
+  .gotcha-badge--info {
+    color: var(--pill-neutral-fg);
+    background: var(--pill-neutral-bg);
+    border-color: var(--pill-neutral-border);
+  }
+
+  .gotcha-count {
+    font-size: 10px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-subtle);
+  }
+
+  .gotcha-confidence-detail {
+    margin: 0;
+    font-size: 10.5px;
+    color: var(--text-subtle);
+    font-family: var(--font-mono);
+    line-height: 1.5;
+  }
+
+  .gotcha-card-body {
+    font-size: 12px;
+  }
+  /* Tighten the markdown inside a card (it's a body excerpt, not a full doc). */
+  .gotcha-card-body .markdown-body {
+    font-size: 12px;
+    line-height: 1.55;
+  }
+  .gotcha-card-body .markdown-body > :first-child {
+    margin-top: 0;
+  }
+
+  .gotcha-card-foot {
+    font-size: 10px;
+    color: var(--text-subtle);
+    font-family: var(--font-mono);
+    padding-top: 2px;
+  }
+
+  /* ── Findings page ── */
+  .findings-page {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .findings-summary {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 720px) {
+    .findings-summary {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .findings-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-1);
+  }
+  .findings-stat--ok {
+    border-color: var(--ok-border);
+    background: var(--ok-soft);
+  }
+  .findings-stat--warn {
+    border-color: var(--warn-tint-border);
+    background: var(--warn-soft);
+  }
+  .findings-stat--danger {
+    border-color: var(--crit-border);
+    background: var(--crit-soft);
+  }
+
+  .findings-stat-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+  }
+
+  .findings-stat-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .findings-stat-value--mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .findings-stat-sub {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--status-ok);
+  }
+  .findings-stat--ok .findings-stat-value {
+    color: var(--status-ok);
+  }
+  .findings-stat--warn .findings-stat-value {
+    color: var(--status-blocked);
+  }
+  .findings-stat--danger .findings-stat-value {
+    color: var(--status-error);
+  }
+
+  .findings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .findings-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-subtle);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .findings-section-title svg {
+    color: var(--color-accent);
+  }
+
+  .findings-empty {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-subtle);
+    padding: 4px 0;
+  }
+
+  .findings-doc {
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--surface-1);
+    padding: 12px 18px;
+  }
+}
+
+/* ============================================================
+   Docs browser — TASK-028
+   ============================================================ */
+@layer components {
+  .docs-split {
+    display: grid;
+    grid-template-columns: clamp(220px, 24vw, 300px) 1fr;
+    gap: 16px;
+    align-items: start;
+    min-height: 0;
+  }
+  @media (max-width: 720px) {
+    .docs-split {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* ── Tree ── */
+  .docs-tree {
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    padding: 8px 6px;
+    overflow: auto;
+    max-height: calc(100vh - var(--shell-header-h, 56px) - 90px);
+    position: sticky;
+    top: 0;
+  }
+
+  .docs-tree-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .docs-tree-item {
+    margin: 0;
+  }
+
+  .docs-tree-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 5px 8px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--duration-fast) var(--ease-snappy),
+                color var(--duration-fast) var(--ease-snappy);
+  }
+  .docs-tree-row:hover {
+    background: var(--surface-2);
+    color: var(--text-primary);
+  }
+  .docs-tree-row svg {
+    flex-shrink: 0;
+    color: var(--text-subtle);
+  }
+  .docs-tree-row--dir {
+    font-weight: 600;
+    color: var(--text-subtle);
+  }
+  .docs-tree-row--dir svg {
+    color: var(--color-accent);
+  }
+  .docs-tree-row.is-active {
+    background: var(--surface-accent-tint);
+    color: var(--color-accent);
+  }
+  .docs-tree-row.is-active svg {
+    color: var(--color-accent);
+  }
+
+  .docs-tree-caret {
+    display: inline-flex;
+    color: var(--text-subtle);
+    margin-left: -2px;
+  }
+
+  .docs-tree-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── Content ── */
+  .docs-content {
+    min-width: 0;
+  }
+
+  .docs-viewer {
+    min-width: 0;
+  }
+  .docs-viewer--image {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .docs-image {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-subtle);
+    background: var(--surface-2);
+  }
+
+  .docs-viewer-caption {
+    font-size: 10.5px;
+    font-family: var(--font-mono);
+    color: var(--text-subtle);
+  }
+
+  .docs-pre {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.55;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+  }
+
+  .docs-pick {
+    font-size: 12px;
+    color: var(--text-subtle);
+    padding: 8px 0;
+  }
+}
+
+/* ============================================================
+   Headroom page — TASK-029
+   ============================================================ */
+@layer components {
+  .headroom-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 900px) {
+    .headroom-stats {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+  @media (max-width: 560px) {
+    .headroom-stats {
+      grid-template-columns: 1fr;
+    }
+  }
+  .headroom-stats .findings-stat-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .headroom-table-wrap {
+    overflow-x: auto;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    background: var(--surface-1);
+  }
+
+  .headroom-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11.5px;
+  }
+  .headroom-table th,
+  .headroom-table td {
+    padding: 7px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+    white-space: nowrap;
+  }
+  .headroom-table thead th {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+    background: var(--surface-2);
+    position: sticky;
+    top: 0;
+  }
+  .headroom-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .headroom-table tbody tr:hover {
+    background: var(--surface-2);
+  }
+  .headroom-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  .headroom-table .mono {
+    font-family: var(--font-mono);
+    color: var(--text-muted);
+  }
+}

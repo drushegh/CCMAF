@@ -1,0 +1,4 @@
+CRITICAL|hooks|.claude/hooks/evil.sh:2
+CRITICAL|instructions|CLAUDE.md:3
+WARNING|agents|.claude/agents/spy.md
+WARNING|mcp|.mcp.json::x

@@ -1,0 +1,164 @@
+/*
+ * filter-bar.css — TaskFilterBar (shared across Kanban + Verify).
+ * Tokens from theme.css; no hard-coded colours.
+ */
+
+@layer components {
+  .task-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    background: var(--surface-1);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+  }
+
+  /* ── Search ── */
+  .tfb-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .tfb-search-icon {
+    position: absolute;
+    left: 10px;
+    color: var(--text-subtle);
+    pointer-events: none;
+  }
+
+  .tfb-search-input {
+    width: 100%;
+    padding: 7px 30px 7px 32px;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    color: var(--text-primary);
+    background: var(--surface-0);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    transition: border-color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .tfb-search-input::placeholder {
+    color: var(--text-subtle);
+  }
+
+  .tfb-search-input:focus {
+    outline: none;
+    border-color: color-mix(in oklch, var(--color-accent) 50%, var(--border-subtle));
+  }
+
+  .tfb-search-clear {
+    position: absolute;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-subtle);
+    cursor: pointer;
+    transition: color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .tfb-search-clear:hover {
+    color: var(--text-primary);
+    background: var(--surface-3);
+  }
+
+  /* ── Controls cluster ── */
+  .tfb-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-shrink: 0;
+  }
+
+  .tfb-archived {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .tfb-archived input {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+  }
+
+  .tfb-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .tfb-sort-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-subtle);
+  }
+
+  .tfb-sort-select {
+    padding: 5px 8px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--text-primary);
+    background: var(--surface-0);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+
+  .tfb-sort-dir {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition:
+      background var(--duration-fast) var(--ease-snappy),
+      color var(--duration-fast) var(--ease-snappy),
+      border-color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .tfb-sort-dir:hover {
+    background: var(--surface-3);
+    color: var(--text-primary);
+    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+  }
+
+  .tfb-result {
+    font-size: 11.5px;
+    color: var(--text-subtle);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  /* Narrow viewports: let the controls wrap under the search box. */
+  @media (max-width: 720px) {
+    .tfb-search {
+      min-width: 100%;
+    }
+  }
+}

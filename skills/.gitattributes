@@ -1,0 +1,5 @@
+# Skills are plain Markdown consumed by parsers and synced byte-for-byte
+# into consumer repos (CCMAF skills-sync) — pin LF so Windows checkouts
+# don't introduce CRLF into what consumers receive.
+* text=auto
+*.md text eol=lf

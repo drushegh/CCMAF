@@ -1,0 +1,75 @@
+# Claude Code framework (per-developer, not committed)
+.claude/worktrees/
+.claude/settings.local.json
+.claude/.drift-state
+.claude/telemetry/
+
+# Code graph indexes
+.code-review-graph/
+.codegraph/
+
+# Dependencies & build (adapt to your stack)
+node_modules/
+dist/
+build/
+.next/
+# Bundled Console build output (rebuilt in place on setup; never committed)
+console/dist-server/
+
+# Secrets (never commit)
+.env
+.env.*
+!.env.example
+
+# Framework update system — ephemeral flag file (now lives under .claude/).
+.claude/.framework-update-available.md
+# apply-update staging dir (removed by trap; survives only a hard kill).
+.claude/.update-staging.*
+# Skills sync — ephemeral "skills behind upstream" flag (skills-check.sh).
+.claude/.skills-update-available.md
+# Skills sync — ephemeral non-adopter suggestion flag (skills-check.sh).
+# NOTE: .claude/.skills-declined is deliberately NOT ignored — it's a
+# committed project decision every clone should see.
+.claude/.skills-suggestion.md
+
+# Framework insights — ephemeral alert flag file.
+.claude/.framework-insight-alert.md
+
+# Framework doctor — ephemeral findings file.
+.claude/.framework-doctor-findings.md
+
+# verify-deps hook — ephemeral findings file (per-edit dependency check).
+.claude/.dep-verification-issues.md
+
+# Session-lifecycle hooks (TASK-052) — local, machine-only artefacts.
+# PreCompact marker + dirty-tree snapshot; PostCompact summary archive;
+# watermark throttle state. None are committed (machine-local audit only).
+.claude/.last-compaction
+.claude/.precompact-snapshot/
+.claude/.compaction-archive/
+.claude/.checkpoint-state*
+
+# Console heartbeat throttle marker (TASK-066) — its mtime is the once/minute
+# clock the console-heartbeat hook keeps; machine-local, never committed.
+.claude/.console-heartbeat
+
+# instinct-miner — ephemeral session-correction candidates, proposed for
+# approval at /wrapup. Never committed; deleted once triaged.
+.claude/.instinct-candidates.md
+
+# /security rotated findings archive — same pattern as review-findings/.
+.claude/security-findings/
+.claude/security-findings.md
+
+# Council deliberations — local artefacts (transcripts, HTML reports, intermediate phase files).
+# Each /council run writes to .claude/council/<run-id>/.
+.claude/council/
+
+# /healthcheck rotated findings archive — each run rotates the prior
+# review-findings.md to .claude/review-findings/<timestamp>.md before
+# starting fresh (BUG-001 fix). Archive is local audit history only.
+# NOTE (deliberate asymmetry): the flat .claude/review-findings.md stays
+# TRACKED — checkpoint commits of the current audit are part of the
+# workflow. Only the rotated archive directory is ignored. Don't "fix"
+# this by ignoring the flat file.
+.claude/review-findings/

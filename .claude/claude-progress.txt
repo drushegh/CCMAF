@@ -1,0 +1,14 @@
+## Rolling Summary
+<!-- Auto-generated summary of recent sessions. Regenerated every ~10 sessions. -->
+<!-- Cold Start reads THIS section + the last 3 detailed entries below. -->
+<!-- This gives new sessions a fast skim of recent trajectory without reading 30 entries. -->
+
+(No sessions yet — this section is populated automatically after ~10 sessions.)
+
+---
+
+## Session Log
+<!-- Newest sessions at the top. -->
+<!-- After every ~10 new entries, compress them into 5 bullets in the Rolling Summary above. -->
+<!-- When detailed entries exceed ~30, move older ones to .claude/framework/docs/archives/progress-archive.txt and regenerate the Rolling Summary. -->
+<!-- Each entry must include: task IDs touched, files created/modified, tests status, contract changes, decisions made, and a clear "next session should" directive. -->

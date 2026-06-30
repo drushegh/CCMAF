@@ -1,0 +1,316 @@
+/*
+ * Design tokens — vendored from Harvey
+ * Source: F:\Git\Personal\harvey\01_Project\src\styles\globals.css
+ * Harvey commit: caa8f50
+ * Vendored: 2026-06-23 per ECOSYSTEM.md "Design Tokens" note.
+ *
+ * HOW TO UPDATE: copy the @theme block and the :root OKLCH tiers
+ * from the Harvey source file, update the header comment with the
+ * new commit SHA, and record it in DECISIONS.md.
+ *
+ * DO NOT import from Harvey at runtime — separate origins cannot
+ * share CSS; a copy is the only correct approach.
+ */
+
+/* ============================================================
+   DESIGN TOKENS — Harvey cockpit palette
+   Cockpit teal accent (#7fd6c4) — dark cockpit theme.
+   Three tiers: @theme bridge → :root semantic → component vars.
+   ============================================================ */
+
+@theme {
+  /* ── Bridge layer: @theme names → semantic tier ── */
+  --color-canvas:        var(--surface-0);
+  --color-surface:       var(--surface-2);
+  --color-border:        var(--border-subtle);
+  --color-accent:        var(--p-accent);
+  --color-accent-text:   var(--color-accent);
+  --color-accent-dim:    color-mix(in oklch, var(--color-accent) 60%, var(--surface-0));
+  --color-primary:       var(--text-primary);
+  --color-secondary:     var(--text-muted);
+  --color-tertiary:      var(--text-subtle);
+  --color-success:       var(--status-ok);
+  --color-warning:       var(--status-blocked);
+  --color-error:         var(--status-error);
+  --color-info:          var(--status-info);
+  --color-text-muted:    var(--text-subtle);
+  --color-selection-bg:  color-mix(in oklch, var(--color-accent) 20%, transparent);
+
+  /* Typography */
+  --font-heading:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-body:     Inter, system-ui, sans-serif;
+  --font-mono:     "JetBrains Mono", SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-serif:    "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+
+  /* Border Radius */
+  --radius-sm:    4px;
+  --radius-md:    6px;
+  --radius-lg:    8px;
+  --radius-pill:  9999px;
+
+  /* Spacing base: 8px */
+  --spacing-1:  4px;
+  --spacing-2:  8px;
+  --spacing-3:  12px;
+  --spacing-4:  16px;
+  --spacing-5:  20px;
+  --spacing-6:  24px;
+  --spacing-8:  32px;
+  --spacing-10: 40px;
+  --spacing-12: 48px;
+  --spacing-16: 64px;
+
+  /* Micro-px tier */
+  --size-hairline: 1px;
+  --size-thin:     2px;
+  --size-micro:    4px;
+
+  /* Surface elevation */
+  --color-surface-raised: var(--surface-3);
+
+  /* Lifecycle / pipeline-phase colours */
+  --life-todo:        var(--hue-ops);
+  --life-active:      var(--hue-orch);
+  --life-review:      var(--hue-test);
+  --life-blocked:     var(--status-blocked);
+  --life-done:        var(--hue-arch);
+  --life-todo-soft:    color-mix(in oklch, var(--life-todo) 14%, transparent);
+  --life-active-soft:  color-mix(in oklch, var(--life-active) 16%, transparent);
+  --life-review-soft:  color-mix(in oklch, var(--life-review) 16%, transparent);
+  --life-blocked-soft: color-mix(in oklch, var(--life-blocked) 14%, transparent);
+  --life-done-soft:    color-mix(in oklch, var(--life-done) 16%, transparent);
+  --surface-accent-tint: color-mix(in oklch, var(--color-accent) 6%, var(--surface-2));
+  --surface-accent-tint-strong: color-mix(in oklch, var(--color-accent) 12%, var(--surface-2));
+
+  /* Severity bands */
+  --ok:        var(--status-ok);
+  --ok-soft:   color-mix(in oklch, var(--status-ok) 12%, transparent);
+  --ok-border: color-mix(in oklch, var(--status-ok) 40%, transparent);
+  --info:      var(--status-info);
+  --info-soft: color-mix(in oklch, var(--status-info) 12%, transparent);
+  --warn:      var(--status-blocked);
+  --warn-soft: color-mix(in oklch, var(--status-blocked) 12%, transparent);
+  --crit:      var(--status-error);
+  --crit-soft: color-mix(in oklch, var(--status-error) 12%, transparent);
+  --crit-border: color-mix(in oklch, var(--status-error) 40%, transparent);
+
+  /* Agent hues */
+  --hue-orch: oklch(0.73 0.13 250);
+  --hue-arch: oklch(0.80 0.16 150);
+  --hue-dev:  oklch(0.80 0.13 75);
+  --hue-test: oklch(0.76 0.13 300);
+  --hue-rev:  oklch(0.74 0.16 45);
+  --hue-res:  oklch(0.80 0.10 195);
+  --hue-ops:  oklch(0.70 0.02 250);
+
+  /* Font pairing */
+  --sans: "Inter", -apple-system, system-ui, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  /* Nav rail */
+  --nav-rail-w:           208px;
+  --nav-rail-w-collapsed: 52px;
+  --nav-rail-icon:        18px;
+
+  /* Shell grid */
+  --shell-header-h:    56px;
+  --shell-statusbar-h: 24px;
+  --shell-rail-left:   280px;
+  --shell-rail-right:  340px;
+
+  /* Font sizes */
+  --font-size-body:            14px;
+  --font-size-meta:            12px;
+  --font-size-display:         18px;
+
+  /* Letter-spacing */
+  --tracking-wide:   0.05em;
+  --tracking-wider:  0.15em;
+
+  /* Opacity tokens */
+  --opacity-glass-bg:       0.92;
+  --opacity-disabled:       0.45;
+  --opacity-pane-dim:       0.60;
+  --opacity-edge-divider:   0.35;
+
+  /* Z-index tokens */
+  --z-edge:    10;
+  --z-overlay: 50;
+  --z-toast:   70;
+
+  /* Radius (scope-named) */
+  --radius-overlay: 12px;
+  --radius-card:    8px;
+  --radius-button:  6px;
+
+  /* Role-tint aliases */
+  --role-color-architect:    var(--color-info);
+  --role-color-developer:    var(--color-accent);
+  --role-color-tester:       var(--color-warning);
+  --role-color-reviewer:     var(--color-secondary);
+  --role-color-orchestrator: var(--color-primary);
+
+  /* Tint alpha tokens */
+  --warn-tint-border:   color-mix(in oklch, var(--status-blocked) 40%, transparent);
+  --warn-tint-bg:       color-mix(in oklch, var(--status-blocked) 5%, transparent);
+  --crit-tint-border:   color-mix(in oklch, var(--status-error) 40%, transparent);
+  --crit-tint-bg:       color-mix(in oklch, var(--status-error) 6%, transparent);
+  --info-tint-border:   color-mix(in oklch, var(--status-info) 40%, transparent);
+  --info-tint-bg:       color-mix(in oklch, var(--status-info) 4%, transparent);
+
+  /* StatusPill semantic palette */
+  --pill-neutral-fg:     var(--color-accent);
+  --pill-neutral-bg:     color-mix(in oklch, var(--color-accent) 10%, transparent);
+  --pill-neutral-border: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+  --pill-success-fg:     var(--status-ok);
+  --pill-success-bg:     color-mix(in oklch, var(--status-ok) 10%, transparent);
+  --pill-success-border: color-mix(in oklch, var(--status-ok) 35%, var(--border-subtle));
+  --pill-warning-fg:     var(--status-blocked);
+  --pill-warning-bg:     color-mix(in oklch, var(--status-blocked) 10%, transparent);
+  --pill-warning-border: color-mix(in oklch, var(--status-blocked) 40%, var(--border-subtle));
+  --pill-danger-fg:      var(--status-error);
+  --pill-danger-bg:      color-mix(in oklch, var(--status-error) 10%, transparent);
+  --pill-danger-border:  color-mix(in oklch, var(--status-error) 40%, var(--border-subtle));
+}
+
+/* ============================================================
+   OKLCH TOKEN TIERS — primitive → semantic
+   Kept in :root (NOT @theme) so Tailwind v4 doesn't treat
+   --text-* and --ease-* as utility namespaces.
+   ============================================================ */
+
+:root {
+  /* ── Tier 1 — PRIMITIVE ── */
+  --p-surface-0: oklch(0.18 0.02 200);  /* app canvas       */
+  --p-surface-1: oklch(0.21 0.02 200);  /* panels / tabs    */
+  --p-surface-2: oklch(0.25 0.02 200);  /* cards / widgets  */
+  --p-surface-3: oklch(0.30 0.02 200);  /* popovers/palette */
+  --p-surface-4: oklch(0.36 0.02 200);  /* hover/active top */
+  --p-accent:    oklch(0.82 0.09 180);  /* harvey teal ≈ #7fd6c4 */
+  --p-ink:       oklch(0.94 0.01 200);  /* primary text     */
+
+  /* ── Tier 2 — SEMANTIC ── */
+  --surface-0: var(--p-surface-0);
+  --surface-1: var(--p-surface-1);
+  --surface-2: var(--p-surface-2);
+  --surface-3: var(--p-surface-3);
+  --surface-4: var(--p-surface-4);
+
+  /* Text */
+  --text-primary: var(--p-ink);
+  --text-muted:   oklch(0.72 0.01 200);
+  --text-subtle:  oklch(0.58 0.01 200);
+
+  /* Borders + derived surfaces */
+  --border-subtle:    color-mix(in oklch, var(--surface-2) 80%, white 20%);
+  --surface-selected: color-mix(in oklch, var(--surface-2) 88%, var(--color-accent) 12%);
+  --accent-ghost:     color-mix(in oklch, var(--color-accent) 14%, transparent);
+
+  /* Status — four signalling hues */
+  --status-working: var(--color-accent);
+  --status-blocked: oklch(0.80 0.13 75);   /* amber  */
+  --status-error:   oklch(0.65 0.20 25);   /* rose   */
+  --status-info:    oklch(0.74 0.12 235);  /* blue   */
+  --status-ok:      oklch(0.80 0.16 150);  /* green  */
+
+  /* Focus ring — two-colour WCAG 2.2 SC 1.4.11 pattern */
+  --focus-inner: var(--p-surface-0);
+  --focus-outer: var(--color-accent);
+
+  /* Motion */
+  --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
+  --ease-fluid:  cubic-bezier(0.4, 0, 0.2, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 320ms;
+
+  /* Background aliases (bridge) */
+  --bg:   var(--surface-0);
+  --bg-1: var(--surface-1);
+  --bg-2: var(--surface-2);
+  --bg-3: var(--surface-3);
+
+  /* Line scale (bridge) */
+  --line:   var(--border-subtle);
+  --line-2: color-mix(in oklch, var(--surface-3) 70%, white 30%);
+
+  /* Ink scale (bridge) */
+  --ink:   var(--text-primary);
+  --ink-2: var(--text-muted);
+  --ink-3: var(--text-subtle);
+  --ink-4: oklch(0.50 0.01 200);
+}
+
+/* ============================================================
+   LIGHT THEME — opt-in via <html data-theme="light">
+   Overrides ONLY the Tier-1 primitives + the handful of derived
+   tokens whose formula assumes a dark base (border/line mixes
+   lighten toward white; the status hues are tuned bright for a
+   dark canvas). Everything else (semantic tier, @theme bridge,
+   pills, lifecycle tints) is var()-derived, so it recomputes
+   automatically from these overrides — no per-component CSS.
+   Dark remains the default (no attribute = the :root values above).
+   ============================================================ */
+
+:root[data-theme="light"] {
+  /* ── Tier 1 — PRIMITIVE (inverted lightness; faint cool tint) ── */
+  --p-surface-0: oklch(0.985 0.003 220);  /* app canvas       */
+  --p-surface-1: oklch(0.968 0.004 220);  /* panels / tabs    */
+  --p-surface-2: oklch(0.948 0.005 220);  /* cards / widgets  */
+  --p-surface-3: oklch(0.918 0.006 220);  /* popovers/palette */
+  --p-surface-4: oklch(0.880 0.008 220);  /* hover/active top */
+  --p-accent:    oklch(0.60 0.10 190);    /* deeper teal — readable on light */
+  --p-ink:       oklch(0.28 0.02 230);    /* primary text (dark slate) */
+
+  /* Text tiers (literal in :root — darken for contrast on light) */
+  --text-muted:  oklch(0.46 0.012 230);
+  --text-subtle: oklch(0.58 0.012 230);
+
+  /* Borders + derived surfaces — flip the white-mix to a black-mix so a
+     border is DARKER than its surface (on dark it was lighter). */
+  --border-subtle: color-mix(in oklch, var(--surface-2) 86%, black 14%);
+  --line-2:        color-mix(in oklch, var(--surface-3) 80%, black 20%);
+  --ink-4:         oklch(0.55 0.012 230);
+
+  /* Status hues — the dark palette runs bright (0.65–0.80 L); pull them
+     down so fills/badges/text keep contrast on a light surface. */
+  --status-blocked: oklch(0.62 0.13 70);   /* amber */
+  --status-error:   oklch(0.55 0.20 25);   /* rose  */
+  --status-info:    oklch(0.52 0.14 250);  /* blue  */
+  --status-ok:      oklch(0.56 0.14 150);  /* green */
+
+  /* Agent/lifecycle hues — also bright by default; nudge down so lane
+     tints + accents read on light. */
+  --hue-orch: oklch(0.58 0.13 250);
+  --hue-arch: oklch(0.58 0.14 150);
+  --hue-dev:  oklch(0.62 0.12 75);
+  --hue-test: oklch(0.58 0.13 300);
+  --hue-rev:  oklch(0.58 0.16 45);
+  --hue-res:  oklch(0.60 0.10 195);
+  --hue-ops:  oklch(0.55 0.02 250);
+
+  color-scheme: light;
+}
+
+/* ── Reduced motion kill switch ── */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0.01ms;
+    --duration-base: 0.01ms;
+    --duration-slow: 0.01ms;
+  }
+}
+
+/* ── Focus ring — two-colour WCAG pattern ── */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 4px var(--focus-outer);
+  border-radius: var(--radius-sm);
+}
+
+@media (forced-colors: active) {
+  :focus-visible {
+    outline: 3px solid CanvasText;
+    outline-offset: 2px;
+  }
+}

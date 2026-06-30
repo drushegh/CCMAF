@@ -1,0 +1,53 @@
+name: Close pull requests
+
+# This repository is a PUBLISHED MIRROR — changes flow from upstream maintenance
+# repos and are republished here, so inbound PRs can't be merged. This workflow
+# politely closes any PR and points the author to Issues / Discussions. The IDEA
+# behind a PR is welcome — just not the PR itself.
+#
+# `pull_request_target` runs in the base-repo context (so it has a token that can
+# comment + close even for PRs from forks). It does NOT check out or run any PR
+# code, so there is no untrusted-code-with-secrets risk.
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  close:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              "Thanks for the contribution — and sorry for the automated reply!",
+              "",
+              "**CCMAF is a published mirror.** It's developed in private maintenance",
+              "repositories and republished here as clean releases, so pull requests",
+              "against this repo can't be merged. This PR is being closed automatically.",
+              "",
+              "**Your idea is still very welcome.** Please open an",
+              "[Issue](https://github.com/drushegh/CCMAF/issues/new/choose) describing the",
+              "change (a summary or your diff is perfect) or a",
+              "[Discussion](https://github.com/drushegh/CCMAF/discussions), and it can be",
+              "carried upstream with credit. See [CONTRIBUTING.md](https://github.com/drushegh/CCMAF/blob/main/CONTRIBUTING.md).",
+              "",
+              "Thank you! 🙏",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+              state: "closed",
+            });

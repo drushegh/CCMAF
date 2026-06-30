@@ -1,0 +1,57 @@
+@import "tailwindcss";
+@import "./theme.css";
+@import "./components.css";
+@import "./live.css";
+@import "./kanban-dnd.css";
+@import "./card-detail.css";
+
+/* ============================================================
+   Project Console — global styles
+   ============================================================ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--surface-0);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling — dark cockpit */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-0);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--surface-4);
+}
+
+/* Selection */
+::selection {
+  background: var(--color-selection-bg);
+  color: var(--text-primary);
+}
+
+/* Code / mono */
+code, pre, kbd {
+  font-family: var(--font-mono);
+}

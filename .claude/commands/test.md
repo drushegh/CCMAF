@@ -1,0 +1,36 @@
+Follow the Cold Start sequence (steps 0-9 from CLAUDE.framework.md — the canonical list lives there; CLAUDE.md merely @imports it).
+
+Then:
+
+1. Find tasks marked "Ready for Test" in TASKS.md
+2. Do the pre-task context check. If projected >= 90%, ask user.
+3. Delegate testing to the tester subagent using the Task tool:
+   "Test [TASK-XXX]: [description].
+   Contract: [read and include the relevant contract from ECOSYSTEM.md, or the matching file in `contracts/` if the project uses per-file contracts — see CLAUDE.md]
+   Check GOTCHAS.md for known issues in this area.
+   Write tests at the appropriate layer for what changed.
+   Write findings to .claude/test-findings.md (NOT review-findings.md).
+   Commit test files with task ID linkage.
+   **Verify handback (per .claude/framework/agent_docs/verify-handback.md):** if the task
+   passes, EMIT the verify-handback seed — write `.claude/console/verify/<TASK-ID>.json`
+   with `items[]` = the task's use-cases / acceptance criteria (every `verdict: pending`).
+   GATED on `.claude/console/` existing (absent → skip, zero coupling). WRITE-ONCE — never
+   overwrite an existing seed (it holds the human's verdicts).
+   Update TASKS.md: move to **Verify** if passing (the human-acceptance stage — NOT Done;
+   the human accepts it in Verify, then it goes to Done), back to In Progress if bugs found.
+   Update STATUS.md with test results."
+
+4. POST-DELEGATION VERIFICATION (mandatory — subagents may not update
+   state files reliably):
+   a. Read TASKS.md — did passing tasks move to "Verify" (NOT Done — Done is the human's
+   call after acceptance), and failing ones back to "In Progress"?
+   b. Read STATUS.md — does it reflect test results?
+   c. Read claude-progress.txt — is there a session entry?
+   d. **Commit linkage check:** verify `git log --oneline --grep="TASK-XXX"` returns at
+   least one commit for the implementation. A task cannot advance to Verify without one.
+   e. **Seed check:** if `.claude/console/` exists, confirm
+   `.claude/console/verify/<TASK-ID>.json` was written for each passing task (`items[]` =
+   use-cases). If missing, emit it yourself per verify-handback.md (write-once). If
+   `.claude/console/` is absent, skip — that's correct (zero coupling).
+   f. If ANY state files are missing, update them yourself from the subagent's output.
+5. Commit all state file updates (include task/bug ID). Report test results to the user.

@@ -1,0 +1,36 @@
+/*
+ * live.css — "live / connected" indicator styling for the SSE refresh feature (TASK-008).
+ *
+ * A small status dot in the shell that turns green when the EventSource is open
+ * and grey when it is closed/reconnecting. Optional — pages work fine without it.
+ *
+ * Usage: add <span class="live-dot" data-live="true|false" aria-hidden="true" /> to the
+ * shell header. The data attribute is toggled by the Shell component if/when it is
+ * wired up. For now the styles exist so the indicator can be added without a CSS
+ * change in a future session.
+ */
+
+@layer components {
+  /* ── Live indicator dot ──────────────────────────────────────────────────── */
+
+  .live-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: var(--radius-pill, 9999px);
+    background: var(--surface-4, #555);
+    transition: background 0.3s ease;
+    flex-shrink: 0;
+  }
+
+  .live-dot[data-live="true"] {
+    background: var(--color-success, #22c55e);
+    /* Subtle pulse to signal live data */
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.55; }
+  }
+}

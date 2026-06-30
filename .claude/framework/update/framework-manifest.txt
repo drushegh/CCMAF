@@ -1,0 +1,95 @@
+# Framework Manifest
+#
+# Paths listed here are framework-owned — they're overwritten on every
+# update. Paths NOT listed are project-owned and never touched.
+#
+# Two kinds of entries:
+#
+#   Directory entries (trailing slash) — "dir mirror"
+#     The entire contents of the directory are replaced with upstream's
+#     version. Any files you add to these dirs will be destroyed on
+#     update. Use this for directories that are 100% framework-owned,
+#     where the SUBDIR NAME itself is the ownership boundary
+#     (e.g., .claude/agents/framework/, .claude/framework/doctor/).
+#
+#   File entries (no trailing slash) — "file overwrite"
+#     Only that specific file is replaced with upstream's version.
+#     Sibling files in the same directory are untouched. Use this
+#     for SHARED directories where framework and project content
+#     coexist (e.g., .claude/commands/, .claude/hooks/).
+#
+# If you add new framework-shipped files to a shared directory, list
+# them individually here so they propagate to downstream projects.
+# New project files in shared dirs are automatically safe (not listed →
+# not touched).
+
+# --- Framework-owned directories (dir mirror) ------------------------
+.claude/agents/framework/
+.claude/agents/council/
+.claude/framework/agent_docs/
+.claude/framework/audit/
+.claude/framework/doctor/
+.claude/framework/insights/
+.claude/framework/tests/
+.claude/framework/update/
+
+# --- Framework files in shared directories (file overwrite) ----------
+# .claude/commands/ is shared — users add their own commands here.
+# List each framework-shipped command individually so we only overwrite
+# those and leave project commands (healthcheck.md, project/brand.md,
+# etc.) untouched on update.
+.claude/commands/analyse.md
+.claude/commands/bug.md
+.claude/commands/build.md
+.claude/commands/council.md
+.claude/commands/healthcheck.md
+.claude/commands/housekeeping.md
+.claude/commands/plan.md
+.claude/commands/post-compact.md
+.claude/commands/pre-compact.md
+.claude/commands/review.md
+.claude/commands/security.md
+.claude/commands/test.md
+.claude/commands/wrapup.md
+
+# .claude/hooks/ is shared — users may add their own hooks. Same
+# file-level treatment as commands.
+.claude/hooks/auto-format.sh
+.claude/hooks/auto-lint.sh
+.claude/hooks/block-dangerous-commands.py
+.claude/hooks/checkpoint-watermark.sh
+.claude/hooks/console-heartbeat.sh
+.claude/hooks/enforce-state-update.sh
+.claude/hooks/filter-test-output.sh
+.claude/hooks/framework-drift-guard.sh
+.claude/hooks/post-edit-dispatch.sh
+.claude/hooks/postcompact-archive.sh
+.claude/hooks/precompact-snapshot.sh
+.claude/hooks/session-reanchor.sh
+.claude/hooks/statusline.sh
+.claude/hooks/verify-deps.sh
+# Sourced helper library (not a registerable hook — included via `source`).
+.claude/hooks/lib/hook-common.sh
+
+# --- Framework-owned top-level files ---------------------------------
+.claude/framework/init.sh
+.claude/framework/healthcheck.conf.template
+# NOTE: do NOT list a file whose parent directory is a dir-mirror entry
+# above (e.g. migrate-layout.sh lives under the .claude/framework/update/
+# mirror, which already ships it). A file entry nested inside a mirrored
+# dir breaks the two-phase swap — the dir's `mv` moves the staged subtree
+# into place first, leaving the nested file entry's `mv` with no staged
+# source ("cannot stat" → half-applied tree). See BUG-003.
+.claude/framework/docs/RETRO-AUDIT.md
+.claude/framework/docs/ADOPTED-FEEDBACK.md
+CLAUDE.framework.md
+.gitattributes
+tools/console.sh
+tools/console.mjs
+docs/README.md
+docs/inspiration/.gitkeep
+docs/research/.gitkeep
+docs/images/.gitkeep
+docs/diagrams/.gitkeep
+.claude/framework/docs/specs/.gitkeep
+.claude/claude-code-dev-framework.md

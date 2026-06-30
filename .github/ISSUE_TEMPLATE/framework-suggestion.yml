@@ -1,0 +1,33 @@
+name: 💡 Framework suggestion / feedback
+description: Suggest an improvement, report a problem, or share how you'd change the framework.
+title: "[suggestion] "
+labels: ["feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the feedback! This repo is a published mirror, so ideas land here
+        as Issues and are carried upstream. The more context, the better.
+        (For a security issue, use [private vulnerability reporting](https://github.com/drushegh/CCMAF/security/advisories/new) instead.)
+  - type: textarea
+    id: what
+    attributes:
+      label: What's the suggestion or problem?
+      description: What did you notice, and what would you change or expect instead?
+      placeholder: e.g. "The cold-start sequence didn't explain X…" or "It would help if /build also did Y…"
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Where did this come up? Anything that helps reproduce or understand it (commands, file paths, your stack). If your agent logged this in FRAMEWORK-SUGGESTIONS.md, paste the entry.
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: Framework version / commit (if known)
+      description: From `.claude/.framework-version` (FRAMEWORK_PINNED_SHA) or the commit you cloned.
+    validations:
+      required: false

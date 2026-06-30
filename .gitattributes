@@ -1,0 +1,15 @@
+# DA-C7: force LF in working copies for everything the framework's bash /
+# python tooling executes or parses line-by-line. With core.autocrlf=true
+# (Windows default) these otherwise check out as CRLF — the root cause of
+# the repo's recurring \r bug class (manifest parsing, read loops, bash
+# interpreter errors on non-MSYS platforms). eol=lf overrides autocrlf
+# per-path; the per-loop ${var%$'\r'} strips in scripts remain as
+# defense-in-depth for consumer files this can't reach.
+.gitattributes text eol=lf
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.bats  text eol=lf
+*.py    text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+*.conf  text eol=lf

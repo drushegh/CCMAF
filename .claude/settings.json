@@ -1,0 +1,154 @@
+{
+  "permissions": {
+    "allow": ["Read", "Edit", "Write", "Bash", "Grep", "Glob", "Agent"],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/.ssh/**)",
+      "Read(**/.aws/credentials)",
+      "Read(**/id_rsa*)",
+      "Read(**/id_ed25519*)",
+      "Read(**/id_ecdsa*)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(**/.ssh/**)",
+      "Edit(**/.aws/credentials)",
+      "Edit(**/id_rsa*)",
+      "Edit(**/id_ed25519*)",
+      "Edit(**/id_ecdsa*)",
+      "Edit(**/*secret*)",
+      "Edit(**/*credential*)",
+      "Write(.env)",
+      "Write(.env.*)",
+      "Write(**/.env)",
+      "Write(**/.env.*)",
+      "Write(~/.ssh/**)",
+      "Write(~/.aws/**)",
+      "Write(**/.ssh/**)",
+      "Write(**/.aws/credentials)",
+      "Write(**/id_rsa*)",
+      "Write(**/id_ed25519*)",
+      "Write(**/id_ecdsa*)",
+      "Write(**/*secret*)",
+      "Write(**/*credential*)",
+      "Read(**/.claude/.precompact-snapshot/**)",
+      "Read(**/.claude/.compaction-archive/**)",
+      "Read(**/.claude/.last-compaction)",
+      "Read(**/.claude/.checkpoint-state)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/session-reanchor.sh'"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/precompact-snapshot.sh'"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/postcompact-archive.sh'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/framework-drift-guard.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/checkpoint-watermark.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/console-heartbeat.sh'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && if command -v python3 >/dev/null 2>&1; then python3 .claude/hooks/block-dangerous-commands.py; else python .claude/hooks/block-dangerous-commands.py; fi'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/filter-test-output.sh'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/post-edit-dispatch.sh'"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/checkpoint-watermark.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/console-heartbeat.sh'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/enforce-state-update.sh'"
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/statusline.sh'",
+    "refreshInterval": 5
+  }
+}

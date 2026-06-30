@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ccmaf-skills",
+  "description": "CCMAF Skills — a library of production-grade, vendor-neutral engineering skills for Claude Code and compatible agent runtimes.",
+  "owner": {
+    "name": "drushegh"
+  },
+  "plugins": [
+    {
+      "name": "ccmaf-skills",
+      "source": "./",
+      "description": "All 52 CCMAF skills as one plugin — senior-level engineering standards across languages, frameworks, cloud, data, AI/agents, plus agent-workflow disciplines (planning, recap, docs-grounding, usage limits).",
+      "category": "development",
+      "keywords": ["skills", "engineering-standards", "agent-skills", "best-practices"]
+    }
+  ]
+}

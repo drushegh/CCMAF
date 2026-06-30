@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": ["Read", "Edit", "Bash"],
+    "deny": [
+      "Read(.env)",
+      "Read(**/.env*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)"
+    ]
+  }
+}

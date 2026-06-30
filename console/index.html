@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Project Console</title>
+    <link rel="icon" type="image/svg+xml" href="/console-icon.svg" />
+    <script>
+      // Apply the saved theme before first paint (no flash). Dark is the
+      // default — only "light" sets the attribute. Mirrors useTheme.ts.
+      try {
+        if (localStorage.getItem("console-theme") === "light")
+          document.documentElement.setAttribute("data-theme", "light");
+      } catch (e) {}
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

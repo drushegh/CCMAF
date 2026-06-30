@@ -1,0 +1,47 @@
+# healthcheck.conf.template
+#
+# /healthcheck auto-detects project shape (source dirs, test/lint
+# commands, contracts) — you should only need this file when
+# auto-detection doesn't match your layout or you want to steer
+# the command.
+#
+# To use: copy to .claude/healthcheck.conf at project root and edit.
+# Shell-sourceable. Any variable left unset falls through to
+# auto-detection.
+#
+#   cp .claude/framework/healthcheck.conf.template .claude/healthcheck.conf
+#   $EDITOR .claude/healthcheck.conf
+
+# --- Project layout overrides ----------------------------------------
+# Leave unset to let /healthcheck auto-detect from CLAUDE.md Commands
+# section and common layouts. Space-separated paths.
+
+# HEALTHCHECK_SOURCE_DIRS="02_src/reqtool 02_src/cli"
+# HEALTHCHECK_TEST_DIRS="03_tests"
+
+# --- Command overrides -----------------------------------------------
+# Commands the automated check phase runs. Leave unset to auto-detect
+# from CLAUDE.md Commands section (patterns: npm test, pytest, go test,
+# cargo test, dotnet test, npm run lint, ruff check, eslint, etc.).
+
+# HEALTHCHECK_TEST_CMD="cd 01_Project && npm test"
+# HEALTHCHECK_LINT_CMD="cd 01_Project && npm run lint"
+
+# --- Framework change window -----------------------------------------
+# How many commits back to scan for framework file changes (controls
+# whether /healthcheck runs the deep framework audit in Part 1.3).
+# Default 10.
+
+# HEALTHCHECK_FW_WINDOW=10
+
+# --- Targeted review focus -------------------------------------------
+# Free-form text passed to the reviewer subagent in Part 2 to steer
+# attention — use this for known-hot areas of the codebase.
+
+# HEALTHCHECK_REVIEW_FOCUS="thread safety in stage_0_ingest.py; async correctness in llm/api.py"
+
+# --- Cold-start reminder interval ------------------------------------
+# After this many days since the last successful /healthcheck run,
+# cold start prompts the user to run one. Default 14.
+
+# HEALTHCHECK_REMIND_DAYS=14
