@@ -87,8 +87,10 @@ are loaded into the session context on cold start.
     tool so it's Git Bash, not WSL). The Console is BUNDLED in this repo at `console/`; the driver
     builds it in place on first run (`npm install && npm run build && npm run build:server` — slow,
     one-time) and then drives the Console's own launcher, which spawns the server DETACHED and
-    prints `http://127.0.0.1:<port>` — report that URL to the user. The command returns once the
-    server is up (no need to background it). `start` is idempotent (already running → reprints the
+    prints `http://127.0.0.1:<port>` — report that URL to the user. It also starts the machine-global
+    tray Hub if none is running (so the console is visible there) — tell the user whether you
+    started a new Hub (first console on this machine) or this console joined an existing one. The
+    command returns once the server is up (no need to background it). `start` is idempotent (already running → reprints the
     URL) and respects a prior manual tray "End" (`autoStart:false` → it skips the respin). It also
     sets `CONSOLE_REAP_GRACE_MIN` so the tray Hub reaps this project's entry if the session dies
     ungracefully — the `console-heartbeat` hook keeps the entry fresh while you work (see

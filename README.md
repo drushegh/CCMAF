@@ -67,26 +67,39 @@ From there you work through **slash commands** (`/plan`, `/build`, `/test`,
 The full operating manual is **[CLAUDE.framework.md](CLAUDE.framework.md)** — it
 is the authoritative, framework-owned instruction set loaded into every session.
 
-### Enabling the Console (optional)
+### Enabling the Console (recommended)
+
+The Project Console — a localhost cockpit over your `.claude/` state — is opt-in but
+**recommended**. Opt in and let the framework run it for you:
 
 ```bash
-cd console
-npm install
-npm run build && npm run build:server   # SPA → dist/ ; server + tray Hub → dist-server/
+echo main > .claude/.console-version     # opt in
+node tools/console.mjs start             # builds it (first run), runs it, prints the URL
 ```
 
-Opt your project in by writing the Console ref into `.claude/.console-version`
-(e.g. `echo main > .claude/.console-version`). On cold start the framework brings
-the Console up and prints its `http://127.0.0.1:<port>` URL. It's **localhost /
-personal use only** — no auth, no remote access. Details in
+You don't run `npm` yourself — `console.mjs start` builds the bundled `console/` in place,
+launches it, **starts the machine-global tray Hub if none is running**, and prints
+`http://127.0.0.1:<port>`. On every cold start the framework brings it back up. It's
+**localhost / personal use only** — no auth, no remote access. Details in
 [console/README.md](console/README.md).
 
-### Adding skills (optional)
+### Adding skills (recommended)
 
-Browse [`skills/`](skills/) and copy the skill folders you want into your
-project's `.claude/skills/`, or install the whole library as a Claude Code plugin
-(see [skills/README.md](skills/README.md)). Each skill is self-contained and
-triggers automatically on the file types and keywords in its frontmatter.
+The 52 skills give the agent senior-level standards for your stack — **recommended**, not an
+afterthought. At setup the agent detects your stack and offers a tiered choice
+(**Base** — the skills that fit your stack / **Enhanced** — Base plus high-value
+cross-cutting skills like `read-the-damn-docs` and `secure-development` / **All** /
+**None**), then syncs your pick from the bundled `skills/` into `.claude/skills/`:
+
+```bash
+bash .claude/framework/update/skills-check.sh --suggest   # what matches your stack
+# put your choice in .claude/.skills-version (SKILLS_SELECTED="..."), then:
+bash .claude/framework/update/skills-sync.sh
+```
+
+Each skill is self-contained and triggers automatically on the file types and keywords in
+its frontmatter. You can also install the whole library as a Claude Code plugin (see
+[skills/README.md](skills/README.md)).
 
 ---
 

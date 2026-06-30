@@ -133,7 +133,12 @@ if [ -f "$STATE_ROOT/TASKS.md" ]; then
   # count was >0 even on an empty board and this indicator never fired.
   IN_PROGRESS=$(awk '/^### In Progress/{f=1; next} /^### /{f=0} f && (/^#### / || /^[-*] /){c++} END{print c+0}' "$STATE_ROOT/TASKS.md" 2>/dev/null)
   IN_PROGRESS="${IN_PROGRESS:-0}"
-  if [ "$IN_PROGRESS" -eq 0 ] && [ "$PROMPT_COUNT" -gt 3 ]; then
+  # An entirely EMPTY board = a fresh project / pre-task setup (before /plan has
+  # created anything) — there's nothing to claim yet, so stay quiet. Only nag when
+  # tasks EXIST but none is In Progress.
+  TOTAL_TASKS=$(grep -cE '^#### \[(TASK|BUG)-' "$STATE_ROOT/TASKS.md" 2>/dev/null || true)
+  TOTAL_TASKS="${TOTAL_TASKS:-0}"
+  if [ "$IN_PROGRESS" -eq 0 ] && [ "$TOTAL_TASKS" -gt 0 ] && [ "$PROMPT_COUNT" -gt 3 ]; then
     REMINDERS="${REMINDERS}⚠ No task is marked 'In Progress' in TASKS.md. Claim a task before working on it.\n"
     DRIFT_DETECTED=true
     _set_primary "no-task-claimed"

@@ -325,11 +325,18 @@ Setup **customises pre-built templates** — nothing is created from scratch. Th
 
 ### Scenario A — new project
 
-1. **Install the framework into your project.** Clone `https://github.com/drushegh/CCMAF` to a scratch dir and copy the framework files into your project directory: `.claude/`, `CLAUDE.md`, `CLAUDE.framework.md`, `.gitignore`, `.gitattributes`, and `tools/` (the Console driver). Add `console/` if you want the bundled Project Console and `skills/` if you want the bundled skill catalogue. Skip the framework repo's own `.github/` (its CI/assets) and `01_Project/` (your code goes in your project's own `01_Project/`). Discard the scratch clone, then open your project in your IDE with Claude Code.
-2. **Settings first:** review `.claude/settings.json` (permissions, hooks — on Windows confirm `python` resolves, else change to `py`), then **restart the IDE** so it loads.
-3. Customise: fill `CLAUDE.md` placeholders (name, stack, commands — keep the `@CLAUDE.framework.md` line intact); adapt `framework/init.sh` if the stack auto-detect needs help; check the auto-lint dispatch covers your linter; adapt the `framework/agent_docs/` templates as conventions emerge.
-4. Bootstrap updates: `bash .claude/framework/update/init-framework-version.sh` (defaults to the public `drushegh/CCMAF` upstream; pass `--url` to point at your own fork if you maintain one). This pins your framework version so cold-start update checks work. Commit everything (`chore: customise framework for <project>`), tag `v0.0.0-framework`.
-5. Record stack choices in `DECISIONS.md`, then `/analyse` → `/plan` → `/build`.
+1. **Install the framework into your project.** Pick the clone URL: if the user uses SSH for GitHub prefer `git@github.com:drushegh/CCMAF.git` (or their own host alias on a multi-account machine, e.g. `git@github.com-personal:...`, to avoid the wrong-key prompt); otherwise use HTTPS `https://github.com/drushegh/CCMAF.git`. Clone to a scratch dir and copy the framework files into the project: `.claude/`, `CLAUDE.md`, `CLAUDE.framework.md`, `.gitignore`, `.gitattributes`, `tools/` (the Console driver), and **keep `console/` + `skills/`** (the bundled Console and skill catalogue — steps 5–6 decide whether to use them). Skip the framework repo's own `.github/` and `01_Project/` (the user's code goes in their own `01_Project/`). **On Windows:** a fresh *clone* is already LF (via `.gitattributes`), but a *copy* can pick up CRLF — normalize any copied `.sh`/`.py`/`.md` to LF. Discard the scratch clone, open the project in the IDE with Claude Code.
+2. **Settings first:** review `.claude/settings.json` (permissions, hooks — on Windows confirm `python` resolves, else use `py`). Put any **per-machine** config — e.g. `CLAUDE_CONTEXT_WINDOW_TOKENS=1000000` on a 1M-context model — in **`.claude/settings.local.json`** (untracked, per-machine), **never `settings.json`** (editing settings.json trips the self-modification guard). Restart the IDE so it loads.
+3. **Customise:** fill `CLAUDE.md` placeholders (name, stack, commands — keep the `@CLAUDE.framework.md` line); adapt `framework/init.sh` if stack auto-detect needs help.
+4. **Bootstrap updates:** `bash .claude/framework/update/init-framework-version.sh` (uses the step-1 URL; defaults to public CCMAF). Pins the framework version so cold-start update checks work.
+5. **Skills — recommend them (tiered).** Skills give the agent senior-level, stack-specific standards; *recommend* taking them rather than treating them as optional. Run `bash .claude/framework/update/skills-check.sh --suggest` (detects the stack, lists stack-direct + cross-cutting matches against the bundled `skills/`), then offer the user a tiered choice and **recommend Base**:
+   - **Base (recommended)** — the skills that directly fit this project's stack (e.g. a React site → `typescript-development`, `react-development`, `frontend-development`).
+   - **Enhanced** — Base plus high-value adjacent/cross-cutting skills (e.g. `read-the-damn-docs`, `secure-development`, `stay-within-limits`, `accessibility-development`).
+   - **All** · **None.**
+   Write the chosen set to `.claude/.skills-version` (`SKILLS_SELECTED="..."`) and run `bash .claude/framework/update/skills-sync.sh` — it copies them from the bundled `skills/` into `.claude/skills/`.
+6. **Console — recommend it, and set it up *for* the user.** The Project Console (a localhost cockpit over `.claude/` state) is opt-in but *recommended*. If the user wants it: `echo main > .claude/.console-version`, then run `node tools/console.mjs start`. The driver **builds and runs it itself** (first run is slow) and **starts the machine-global tray Hub if none is running** — do NOT hand the user raw `npm` commands or leave it for them to start. Then report based on what happened: **no Hub was running** → "Console is up at `http://127.0.0.1:<port>`, and I started your tray Hub"; **a Hub was already running** (another project) → "Console is up and now visible in your existing tray Hub."
+7. **Seed contracts so the Console is populated.** As the design firms up, add real `<!-- contract:ID status:stable -->` anchors to `ECOSYSTEM.md` (the template shows the format) so the Console's Contracts tab is populated — don't leave it prose-only. Seed the board (`/plan`) so Kanban/Verify aren't empty either.
+8. Record stack choices in `DECISIONS.md`, then `/analyse` → `/plan` → `/build`. **Desired end state when setup finishes: the Console is running and *populated*, the recommended skills are installed, and contracts are anchored — nothing left for the user to go back and fix.**
 
 A paste-ready prompt:
 
@@ -337,10 +344,12 @@ A paste-ready prompt:
 This project was scaffolded from the CCMAF framework
 (github.com/drushegh/CCMAF). Read .claude/claude-code-dev-framework.md completely,
 then customise the pre-built templates per Section 12 Scenario A (the install
-step is already done). Our stack: [STACK]. The
-project: [DESCRIPTION]. Start with settings verification and ask me to
-restart the IDE; after I confirm, proceed unattended. Then run /analyse to
-interview me about what we're building.
+step is already done). Our stack: [STACK]. The project: [DESCRIPTION].
+Start with settings verification and ask me to restart the IDE; after I
+confirm, proceed unattended: recommend a Base/Enhanced/All/None skill set for
+our stack and sync it, set up and RUN the Console (start the Hub if none is
+running) unless I decline, then run /analyse to interview me about what we're
+building. When you finish, the Console should be running and populated.
 ```
 
 ### Scenario B — existing project

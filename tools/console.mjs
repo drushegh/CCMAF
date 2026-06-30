@@ -32,7 +32,7 @@
  *   CONSOLE_REAP_GRACE_MIN  reaper grace minutes set on start/open/restart (default 60)
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync, spawn } from "node:child_process";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, platform } from "node:os";
@@ -94,6 +94,40 @@ function findEntryByRoot(root) {
   return null;
 }
 
+// The machine-global tray Hub's singleton pid-lock (mirrors console/src/server/hub/hub.ts).
+// Lets us tell whether a Hub is already running so we start one only when needed.
+function hubLockPath() {
+  return join(userStateDir(), "hub.lock");
+}
+function hubRunning() {
+  try {
+    const lock = hubLockPath();
+    if (!existsSync(lock)) return false;
+    const pid = Number(readFileSync(lock, "utf8").trim());
+    if (!Number.isFinite(pid)) return false;
+    process.kill(pid, 0); // throws (ESRCH) if the pid is dead
+    return true;
+  } catch {
+    return false;
+  }
+}
+// Start the tray Hub if none is live. The Hub self-guards via its pid-lock, so a redundant
+// spawn is a harmless no-op; we gate anyway so the message to the user is accurate. Detached
+// + unref so it outlives this driver. Fail-soft: any spawn error surfaces on the (ignored)
+// child, never here.
+function ensureHub(consoleDir) {
+  if (hubRunning()) return false;
+  const hubMain = join(consoleDir, "dist-server", "hub", "hub-main.js");
+  if (!existsSync(hubMain)) return false; // not built (shouldn't happen post-ensureBuilt)
+  try {
+    const child = spawn(process.execPath, [hubMain], { detached: true, stdio: "ignore", windowsHide: false });
+    child.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // The bundled Console source dir (or a CONSOLE_DIR override). No clone — it ships in-repo.
 function resolveConsoleDir() {
   if (process.env.CONSOLE_DIR) {
@@ -135,6 +169,7 @@ if (VERB === "start") {
 
 // --- resolve + (for non-stop) build ------------------------------------------------------
 const consoleDir = resolveConsoleDir();
+const hubWasRunning = VERB === "stop" ? true : hubRunning();
 let launcher;
 if (VERB === "stop") {
   // stop must never build — if it isn't built, nothing is running to stop.
@@ -160,4 +195,15 @@ const r = spawnSync(process.execPath, [launcher, VERB, "--root", REPO_ROOT], {
   env: childEnv,
 });
 if (r.error) die(`could not run the Console launcher (${r.error.message})`);
+
+// Ensure the machine-global tray Hub is up so the just-started console is visible in it,
+// and frame the outcome — first-time-on-this-machine (no Hub) vs joining an existing Hub.
+if (VERB !== "stop" && (r.status ?? 0) === 0) {
+  const startedHub = ensureHub(consoleDir);
+  if (startedHub) {
+    log("no tray Hub was running on this machine — started one; your consoles are now visible in it.");
+  } else if (hubWasRunning) {
+    log("this console is now visible in your existing tray Hub.");
+  }
+}
 process.exit(r.status ?? 0);
