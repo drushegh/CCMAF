@@ -193,6 +193,18 @@ shape context only, never findings):
 > - No secrets or API keys in agent definitions, commands, hooks, or skills?
 > - Hook scripts don't execute untrusted input or download from URLs?
 >
+> **Output discipline — findings about a safety or security control.** When a
+> finding concerns a safety/security control (e.g. the destructive-command
+> guard hook), record the weakness **class** and the defensive remediation
+> only — never a working bypass, a runnable payload, or a list of
+> destructive commands. Naming the class and the fix **is a complete
+> finding**: do not treat class-level as under-delivering or add concrete
+> specifics to compensate. Cite the control and its test fixtures by
+> file:line, and frame fixes as "add coverage / a fixture asserting the
+> guard blocks <class>". Keep class-level precision (e.g. "matches literal
+> strings but doesn't normalise paths", "covers filesystem roots but not
+> raw device nodes") — precise and defensive, not vague.
+>
 > Return findings categorised as:
 > - **BROKEN** (blocks work or produces incorrect behaviour)
 > - **CONFLICT** (two parts of the framework contradict each other)
@@ -237,6 +249,13 @@ Reviewer subagent. Prompt template (fill in the detected sources):
 > and suggested fix. If a suggested fix names a specific API, library,
 > flag, or value, mark it VERIFIED or UNVERIFIED (behavioral-principles §4)
 > — a quick-read guess must not read as a decision to a later session.
+>
+> **Output discipline — findings about a safety or security control.** For
+> any finding on a safety/security control, record the weakness **class**
+> and the defensive fix only — never a working bypass, a runnable payload,
+> or a destructive-command list. Naming the class and the fix **is a
+> complete finding**; do not add concrete specifics to compensate. Frame
+> fixes as "add coverage for <class>". Keep class-level precision, not vague.
 
 **PERSIST** to `.claude/review-findings.md`. Release from context.
 

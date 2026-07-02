@@ -19,6 +19,12 @@ when /healthcheck nudges.
 Below is a runbook. Follow in order. Each step is independent — if one
 tool isn't installed, skip and note it; don't halt.
 
+**Output discipline.** For any finding about a safety or security control,
+record the weakness *class* and the defensive fix only — never a working
+bypass, a runnable payload, or a destructive-command list. Naming the class
+and the fix is a complete finding; keep class-level precision, not vague.
+(Tool output — gitleaks/SAST/SCA — is captured as the tool emits it.)
+
 ---
 
 ## Part 0 — Detect project shape
