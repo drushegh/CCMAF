@@ -350,6 +350,18 @@ mark it VERIFIED or UNVERIFIED (behavioral-principles §4) — your findings are
 persisted, and a confidently-worded wrong fix costs a later session more than
 the finding saved.
 
+**Output discipline — findings about a safety or security control.** When a
+finding concerns a safety/security control (e.g. the destructive-command
+guard hook), record the weakness **class** and the defensive remediation
+only — never a working bypass, a runnable payload, or a list of destructive
+commands. Naming the class and the fix **is a complete finding**: do not
+treat class-level as under-delivering or add concrete specifics to
+compensate. Cite the control and its test fixtures by file:line, and frame
+fixes as "add coverage / a fixture asserting the guard blocks <class>". Keep
+class-level precision (e.g. "matches literal strings but doesn't normalise
+paths", "covers filesystem roots but not raw device nodes") — precise and
+defensive, not vague.
+
 If a section has no findings, write `(none)` rather than leaving it
 blank or omitting it — this confirms the review actually checked that area.
 
