@@ -35,9 +35,9 @@ jobs:
       run:
         working-directory: console
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # console/package.json has no "engines" field, so no version is
           # pinned by the project itself; 22 (current Node LTS) is used here.
@@ -58,7 +58,7 @@ jobs:
     name: Framework shell tests (bats + shellcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # apt-get over the bats-core GitHub Action: run-tests.sh already has
       # its own fallback (npx --yes bats@<pinned>) for machines without bats,
