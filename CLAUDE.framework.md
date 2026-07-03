@@ -204,6 +204,7 @@ Full contract + the forward and retroactive step-by-step:
 - Building → .claude/framework/agent_docs/building.md
 - Testing → .claude/framework/agent_docs/testing.md
 - Verify handback (per-feature review stories + the `contract:verify-handback` schema; forward + retroactive/batch procedure) → .claude/framework/agent_docs/verify-handback.md
+- Orchestrator state (optional `NOW.md` / `GROUND-TRUTH.md` / `PLAYBOOK.md` — the post-compaction boot set; quote-don't-paraphrase rule) → .claude/framework/agent_docs/orchestrator-state.md
 - Conventions → .claude/framework/agent_docs/code-conventions.md
 - Architecture → .claude/framework/agent_docs/architecture.md
 - Behavioral principles → .claude/framework/agent_docs/behavioral-principles.md
