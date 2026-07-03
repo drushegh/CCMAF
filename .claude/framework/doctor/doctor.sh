@@ -324,7 +324,7 @@ check_detector_consumers() {
 
   local recently_changed=""
   recently_changed=$(git -C "$PROJECT_ROOT" log --name-only --pretty=format: -30 -- \
-    .claude/hooks .claude/framework/insights .claude/framework/audit 2>/dev/null \
+    "${scan_paths[@]}" 2>/dev/null \
     | sort -u | grep -v '^$' || true)
   [ -z "$recently_changed" ] && return
 
@@ -334,7 +334,7 @@ check_detector_consumers() {
     [ ! -f "$PROJECT_ROOT/$f" ] && continue
     # Skip known legitimate consumers
     case "$(basename "$f")" in
-      $known_consumers) continue ;;
+      "$known_consumers") continue ;;
     esac
     # Does the file READ review-findings? Grep for read-like patterns.
     if grep -qE '(cat|head|tail|jq|grep|awk|sed)[[:space:]][^|]*review-findings' "$PROJECT_ROOT/$f" 2>/dev/null \

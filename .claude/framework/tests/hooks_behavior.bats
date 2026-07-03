@@ -190,11 +190,25 @@ setup() {
 
 @test "guard-interpreter-check: no working interpreter on PATH → loud systemMessage + additionalContext warning" {
   command -v jq >/dev/null 2>&1 || skip "jq not available"
-  # A PATH with no python3/python at all, but jq/git/bash/mktemp still
-  # present (the Windows-Store-alias-with-no-real-Python-installed scenario
-  # this hook exists to catch).
-  run env -i PATH="/c/Users/drushe/bin:/mingw64/bin:/usr/local/bin:/usr/bin:/bin" HOME="$HOME" \
-    bash -c "cd '$REPO' && bash '$HOOKS/guard-interpreter-check.sh' <<< '{\"source\":\"startup\"}'"
+  # Shadow python3/python with stubs that resolve on PATH but fail to
+  # execute (the Windows-Store-alias-with-no-real-Python-installed
+  # scenario this hook exists to catch), same idiom as the resolve_python
+  # "non-functional candidate" test above. A hand-listed set of directories
+  # (the previous approach) is not portable: it encoded one developer's
+  # Git-Bash layout, and on Linux CI /usr/bin — needed there for
+  # bash/jq/git — also holds a real, working python3, so the "no
+  # interpreter" premise silently stopped holding. Stubbing the two
+  # candidate names directly keeps the rest of the real PATH (and jq/git)
+  # intact on every host.
+  mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+  for stub in python3 python; do
+    cat > "$BATS_TEST_TMPDIR/fakebin/$stub" <<'EOF'
+#!/bin/sh
+exit 9
+EOF
+    chmod +x "$BATS_TEST_TMPDIR/fakebin/$stub"
+  done
+  PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" run hookrun "$HOOKS/guard-interpreter-check.sh" '{"source":"startup"}'
   [ "$status" -eq 0 ]
   echo "$output" | jq -e '(.systemMessage | length > 0) and (.hookSpecificOutput.additionalContext | length > 0) and .hookSpecificOutput.hookEventName == "SessionStart"'
 }

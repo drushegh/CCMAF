@@ -94,15 +94,28 @@ check_crlf_strip() {
 
       # This is a real file-redirected read. Check for CRLF strip in
       # the first 3 lines of the loop body.
+      #
+      # This `found` is a plain scalar local to THIS function
+      # (check_crlf_strip) — unrelated to the array `found` declared in
+      # the separate function _sh_files() above. shellcheck's local-var
+      # scope tracking conflates same-named locals across sibling
+      # functions here (still reproduces on shellcheck 0.10.0, the
+      # latest release as of this fix); every site below is
+      # independently correct, `local`-scoped code, so each false
+      # positive is disabled individually (directives only apply to the
+      # single following line).
+      # shellcheck disable=SC2178
       local found=0
       local probe next_content
       for probe in 1 2 3; do
         next_content=$(sed -n "$((line_num + probe))p" "$file" 2>/dev/null || true)
         if echo "$next_content" | grep -qE "${varname}=.*%\\\$'\\\\r'"; then
+          # shellcheck disable=SC2178
           found=1
           break
         fi
       done
+      # shellcheck disable=SC2128
       [ "$found" -eq 0 ] && _report "$file" "$line_num" \
         "\`while IFS= read -r $varname\` reads from a file without CRLF strip — on Windows (core.autocrlf=true) \\r survives. Fix: add \`${varname}=\"\${${varname}%\$'\\\\r'}\"\` on the next line."
     done < <(grep -nE '^[[:space:]]*while IFS= read -r' "$file" 2>/dev/null)

@@ -105,7 +105,7 @@ else
   (cd "$PROJECT_DIR" && npm run dev) &
 
   echo "⏳ Waiting for server..."
-  for i in $(seq 1 30); do
+  for _ in $(seq 1 30); do
     if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
       echo "✅ Server is running on http://localhost:$PORT"
       break

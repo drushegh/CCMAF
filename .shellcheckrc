@@ -1,0 +1,12 @@
+# .shellcheckrc — repo-wide shellcheck config, auto-loaded from the
+# directory shellcheck is invoked from (see .claude/framework/tests/
+# run-tests.sh, which runs `shellcheck -S warning` from the repo root in
+# both CI and local use — this file applies identically in both).
+#
+# SC1090 (ShellCheck can't follow non-constant source): every hook under
+# .claude/hooks/*.sh sources its shared lib via a path computed from
+# ${BASH_SOURCE[0]}, e.g. `[ -f "$_lib" ] && . "$_lib"` — a deliberate,
+# repeated idiom (not an oversight), not a script shellcheck can statically
+# resolve. Disabling repo-wide avoids sprinkling an identical directive
+# comment across 11+ files for a warning that will never be actionable.
+disable=SC1090
