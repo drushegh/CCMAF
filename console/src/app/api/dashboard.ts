@@ -20,6 +20,9 @@ export interface VerifyRef {
   task: string;
   title: string;
   counts: Record<string, number>;
+  /** Present (true) only for a verify file that failed validation/read (M5-minor). */
+  invalid?: boolean;
+  invalidReason?: string;
 }
 
 export interface DecisionEntry {

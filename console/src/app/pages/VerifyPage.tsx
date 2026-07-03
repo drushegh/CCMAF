@@ -298,6 +298,18 @@ export function VerifyPage() {
                           {ref.title && ref.title !== ref.task && (
                             <span className="vv-queue-item-title">{ref.title}</span>
                           )}
+                          {ref.invalid && (
+                            <span
+                              className="vv-queue-item-invalid"
+                              title={
+                                ref.invalidReason ??
+                                "This verify file failed validation and needs attention."
+                              }
+                            >
+                              <AlertCircle size={13} />
+                              invalid
+                            </span>
+                          )}
                         </div>
                         <QueueCounts counts={ref.counts} />
                       </div>

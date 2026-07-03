@@ -69,6 +69,14 @@ export interface VerifyRef {
   task: string;
   title: string;
   counts: Record<string, number>;
+  /**
+   * Present (true) only for a verify file that failed schema validation or
+   * could not be read/parsed — the queue still lists it (by filename) instead
+   * of silently dropping it (M5-minor). `invalidReason` carries the first
+   * validation/read error for a human to act on.
+   */
+  invalid?: boolean;
+  invalidReason?: string;
 }
 
 /** A node in the Docs browser tree (TASK-028). Paths are relative to docs/. */

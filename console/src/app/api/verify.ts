@@ -78,6 +78,14 @@ export interface VerifyRef {
   task: string;
   title: string;
   counts: Record<string, number>;
+  /**
+   * Present (true) only for a verify file that failed schema validation or
+   * could not be read/parsed — it still appears in the queue (by filename)
+   * instead of silently vanishing. `invalidReason` is the first error, shown
+   * to the human so they know it needs attention.
+   */
+  invalid?: boolean;
+  invalidReason?: string;
 }
 
 /** The write payload. severity/notes/bugId optional; verdict required. */

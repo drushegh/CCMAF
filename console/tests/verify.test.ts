@@ -31,7 +31,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync, unlinkSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, unlinkSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -71,7 +71,7 @@ const { validateVerifyFile, validateVerdictPatch, assertVerifyFile } = await imp
 const { reconcile, computeRollup } = await import(
   "../src/server/verify/reconcile.js"
 );
-const { readVerifyFile, writeVerifyFile, listVerifyRefs, applyPatches } = await import(
+const { readVerifyFile, readVerifyFileWithMeta, writeVerifyFile, listVerifyRefs, applyPatches } = await import(
   "../src/server/verify/io.js"
 );
 
@@ -638,5 +638,182 @@ describe("listVerifyRefs — joins the feature title from TASKS.md", () => {
     const ref = listVerifyRefs().find((r) => r.task === "TASK-001");
     expect(ref).toBeDefined();
     expect(ref!.title).toBe("TASK-001");
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// E. M4 — optimistic concurrency on verify-file writes
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("writeVerifyFile — optimistic concurrency (M4)", () => {
+  it("rejects a write when the interleaved write has a DIFFERENT mtime (fast-path)", () => {
+    const file: VerifyFile = {
+      schemaVersion: 1,
+      task: "TASK-501",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pending" })],
+    };
+    writeVerifyFile(file);
+    const { mtimeMs, contentHash } = readVerifyFileWithMeta("TASK-501");
+
+    // Simulate a concurrent external writer (e.g. the agent/Tester writing the
+    // pass-file directly) landing between our read and our write, with an
+    // unambiguously different mtime — the cheap stat-only reject branch.
+    const filePath = join(tempVerifyDir, "TASK-501.json");
+    writeFileSync(
+      filePath,
+      JSON.stringify({ ...file, status: "processing-fixes" }, null, 2),
+      "utf8"
+    );
+    const bumped = new Date(statSync(filePath).mtimeMs + 5000);
+    utimesSync(filePath, bumped, bumped);
+
+    const result = writeVerifyFile({ ...file, status: "done" }, { mtimeMs, contentHash });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("conflict");
+
+    // The external writer's content must survive untouched — no clobber.
+    const onDisk = JSON.parse(readFileSync(filePath, "utf8")) as VerifyFile;
+    expect(onDisk.status).toBe("processing-fixes");
+  });
+
+  it("rejects a write when the interleaved write keeps the SAME mtime (sub-tick collision)", () => {
+    // NTFS mtime resolution is coarse enough that a measurable share of
+    // back-to-back writes land on an identical mtimeMs, so an interleaved
+    // write can be invisible to a stat-only check. Pin both writes to one
+    // whole-second mtime to reproduce that collision deterministically.
+    const file: VerifyFile = {
+      schemaVersion: 1,
+      task: "TASK-505",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pending" })],
+    };
+    const filePath = join(tempVerifyDir, "TASK-505.json");
+    const pin = new Date(Math.floor(Date.now() / 1000) * 1000);
+
+    writeVerifyFile(file);
+    utimesSync(filePath, pin, pin);
+    const { mtimeMs, contentHash } = readVerifyFileWithMeta("TASK-505");
+
+    writeFileSync(
+      filePath,
+      JSON.stringify({ ...file, status: "processing-fixes" }, null, 2),
+      "utf8"
+    );
+    utimesSync(filePath, pin, pin);
+    // Precondition: the mtimes really do collide — the stat fast-path passes.
+    expect(statSync(filePath).mtimeMs).toBe(mtimeMs);
+
+    // The content hash must still catch the interleaved write.
+    const result = writeVerifyFile({ ...file, status: "done" }, { mtimeMs, contentHash });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("conflict");
+
+    const onDisk = JSON.parse(readFileSync(filePath, "utf8")) as VerifyFile;
+    expect(onDisk.status).toBe("processing-fixes");
+  });
+
+  it("allows a normal write when the file is unchanged since read", () => {
+    const file: VerifyFile = {
+      schemaVersion: 1,
+      task: "TASK-502",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pending" })],
+    };
+    writeVerifyFile(file);
+    const { mtimeMs, contentHash } = readVerifyFileWithMeta("TASK-502");
+    const result = writeVerifyFile({ ...file, status: "done" }, { mtimeMs, contentHash });
+    expect(result.ok).toBe(true);
+    expect(readVerifyFile("TASK-502").status).toBe("done");
+  });
+
+  it("skips the concurrency check when the expected token is omitted (back-compat)", () => {
+    const file: VerifyFile = {
+      schemaVersion: 1,
+      task: "TASK-503",
+      status: "in-review",
+      items: [],
+    };
+    const result = writeVerifyFile(file);
+    expect(result.ok).toBe(true);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// F. M5 — GET-reachable reads are side-effect-free
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("listVerifyRefs / readVerifyFile — side-effect-free reads (M5)", () => {
+  it("readVerifyFile does not write to disk even when the retest-loop reconcile would change the file", () => {
+    // item-1 is failing with a linked bug that IS Done in TASKS.md — a
+    // reconcile that flips it to pending would apply if it were persisted.
+    writeFileSync(
+      join(tempRoot, ".claude", "TASKS.md"),
+      ["# Task Board", "", "## Bug-Fix Lane", "", "### Done", "", "#### [BUG-060] Fixed bug", ""].join(
+        "\n"
+      ),
+      "utf8"
+    );
+    const file: VerifyFile = {
+      schemaVersion: 1,
+      task: "TASK-504",
+      status: "processing-fixes",
+      items: [
+        makeItem({ id: "item-1", verdict: "fail", severity: "P1", bugId: "BUG-060", round: 1 }),
+      ],
+    };
+    writeVerifyFile(file);
+    const filePath = join(tempVerifyDir, "TASK-504.json");
+    const mtimeBefore = statSync(filePath).mtimeMs;
+    const rawBefore = readFileSync(filePath, "utf8");
+
+    const reconciled = readVerifyFile("TASK-504");
+    // The CALLER sees the reconciled (flipped-to-pending) view...
+    expect(reconciled.items[0].verdict).toBe("pending");
+    // ...but the file on disk must be UNTOUCHED — no write on a read path.
+    expect(statSync(filePath).mtimeMs).toBe(mtimeBefore);
+    expect(readFileSync(filePath, "utf8")).toBe(rawBefore);
+  });
+
+  it("listVerifyRefs does not write to disk even when a reconcile would apply", () => {
+    const filePath = join(tempVerifyDir, "TASK-504.json");
+    const mtimeBefore = statSync(filePath).mtimeMs;
+
+    const refs = listVerifyRefs();
+    const ref = refs.find((r) => r.task === "TASK-504");
+    expect(ref).toBeDefined();
+    // The reconciled view shows pending (item-1 flipped) in the rollup.
+    expect(ref!.counts["pending"]).toBe(1);
+    expect(statSync(filePath).mtimeMs).toBe(mtimeBefore);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// G. Minor fix — schema-invalid / unreadable verify files are surfaced, not dropped
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("listVerifyRefs — surfaces invalid verify files instead of silently dropping them", () => {
+  it("a schema-invalid file appears as an `invalid` entry (by filename)", () => {
+    writeFileSync(
+      join(tempVerifyDir, "TASK-777.json"),
+      JSON.stringify({ schemaVersion: 1, task: "TASK-777", status: "bogus-status", items: [] }),
+      "utf8"
+    );
+    const refs = listVerifyRefs();
+    const ref = refs.find((r) => r.task === "TASK-777");
+    expect(ref).toBeDefined();
+    expect(ref!.invalid).toBe(true);
+    expect(ref!.invalidReason).toBeTruthy();
+  });
+
+  it("an unreadable (malformed JSON) file also appears as an `invalid` entry", () => {
+    writeFileSync(join(tempVerifyDir, "TASK-778.json"), "{ not valid json", "utf8");
+    const refs = listVerifyRefs();
+    const ref = refs.find((r) => r.task === "TASK-778");
+    expect(ref).toBeDefined();
+    expect(ref!.invalid).toBe(true);
+    expect(ref!.invalidReason).toBeTruthy();
   });
 });

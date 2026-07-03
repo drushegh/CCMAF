@@ -1,16 +1,23 @@
 /**
  * io.ts — Read/write pass-files from .claude/console/verify/.
  *
- * The server is the SOLE WRITER of verify files (DEC-002, contract:console-state-sources).
- * All writes go through resolveVerifyPath() for path-safety.
+ * The server is the sole Console-side writer of verify files (DEC-002,
+ * contract:console-state-sources) — the agent and Tester also write these
+ * files directly (agent_docs/verify-handback.md) and are uncoordinated,
+ * coordinate writers (M4). All writes go through resolveVerifyPath() for
+ * path-safety, and writeVerifyFile() accepts an optional expected write token
+ * (mtime + content hash, see its doc comment) as a lightweight
+ * optimistic-concurrency guard.
  *
  * Exports:
- *   listVerifyRefs()   → VerifyRef[]   — all verify files as queue entries
- *   readVerifyFile(id) → VerifyFile    — parsed + validated single file
- *   writeVerifyFile(file) → void       — sole write path; validates before write
+ *   listVerifyRefs()         → VerifyRef[]                    — all verify files as queue entries (read-only, M5)
+ *   readVerifyFile(id)       → VerifyFile                      — parsed + validated single file (read-only, M5)
+ *   readVerifyFileWithMeta() → {file, mtimeMs, contentHash}    — same, + the token callers need for a later conflict-checked write
+ *   writeVerifyFile(file, expected?) → result                 — sole write path; validates before write
  */
 
-import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, mkdirSync } from "node:fs";
+import { readdirSync, readFileSync, writeFileSync, renameSync, unlinkSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { resolve, dirname, join } from "node:path";
 import { dotClaudePath } from "../project-root.js";
 import { resolveVerifyPath } from "../security.js";
@@ -90,8 +97,17 @@ function ensureVerifyDir(): void {
 
 /**
  * List all verify files as VerifyRef[] (counts by verdict).
- * Files that fail validation are skipped with a console.warn — the queue
- * should not break if one file is corrupt.
+ *
+ * Side-effect-free (M5): this is a GET-reachable read path, so it must never
+ * write to disk (previously the retest-loop reconcile below persisted here on
+ * every list — a GET silently mutating state). The reconciled view is
+ * computed and returned for display; it is durably persisted the next time
+ * that task's verify file is written via the write-guarded PUT endpoint
+ * (verify-routes.ts), which already round-trips through readVerifyFile.
+ *
+ * A file that fails validation or can't be read is NOT silently dropped
+ * (M5-minor) — it is surfaced as an `invalid` entry (by filename) so it
+ * doesn't vanish from the human's queue without a visible trace.
  */
 export function listVerifyRefs(): VerifyRef[] {
   ensureVerifyDir();
@@ -111,21 +127,27 @@ export function listVerifyRefs(): VerifyRef[] {
 
   for (const filename of entries) {
     const filePath = resolve(dir, filename);
+    const taskFromFilename = filename.replace(/\.json$/i, "");
     try {
       const raw = readFileSync(filePath, "utf8");
       const parsed: unknown = JSON.parse(raw);
 
       const { valid, errors } = validateVerifyFile(parsed);
       if (!valid) {
-        console.warn(`[console] Skipping invalid verify file ${filename}: ${errors.join("; ")}`);
+        console.warn(`[console] Invalid verify file ${filename}: ${errors.join("; ")}`);
+        refs.push({
+          task: taskFromFilename,
+          title: titles.get(taskFromFilename) ?? taskFromFilename,
+          counts: {},
+          invalid: true,
+          invalidReason: errors[0] ?? "schema validation failed",
+        });
         continue;
       }
 
       const file = parsed as import("./schema.js").VerifyFile;
-      // Retest-loop reconcile: a use case whose flagged bug is now Done flips
-      // back to pending (new round). Persist the change so the count is stable.
-      const { file: reconciled, changed } = applyBugFixes(file, done);
-      if (changed) writeVerifyFile(reconciled);
+      // Retest-loop reconcile view (NOT persisted here — see doc comment above).
+      const { file: reconciled } = applyBugFixes(file, done);
       const counts = computeRollup(reconciled.items);
 
       // Title: the real feature name from TASKS.md, falling back to the id when
@@ -134,7 +156,14 @@ export function listVerifyRefs(): VerifyRef[] {
 
       refs.push({ task: reconciled.task, title, counts });
     } catch (err) {
-      console.warn(`[console] Skipping unreadable verify file ${filename}: ${String(err)}`);
+      console.warn(`[console] Unreadable verify file ${filename}: ${String(err)}`);
+      refs.push({
+        task: taskFromFilename,
+        title: titles.get(taskFromFilename) ?? taskFromFilename,
+        counts: {},
+        invalid: true,
+        invalidReason: `unreadable: ${String(err)}`,
+      });
     }
   }
 
@@ -143,11 +172,37 @@ export function listVerifyRefs(): VerifyRef[] {
 
 // ── Read single ────────────────────────────────────────────────────────────────
 
+/** SHA-256 of the raw file content — the authoritative half of the M4 write token. */
+function contentHashOf(raw: string): string {
+  return createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+/** The optimistic-concurrency token captured at read time (M4). */
+export interface VerifyWriteToken {
+  mtimeMs: number;
+  contentHash: string;
+}
+
+/** A VerifyFile plus the write token at read time (M4 optimistic-concurrency baseline). */
+export interface VerifyFileWithMeta extends VerifyWriteToken {
+  file: VerifyFile;
+}
+
 /**
- * Read and validate a single verify file.
+ * Read and validate a single verify file, returning the reconciled view PLUS
+ * the write token (on-disk mtime + raw content hash) captured at read time.
+ * Use this (not readVerifyFile) when the caller intends to write back later —
+ * pass the token to writeVerifyFile's `expected` to get the M4 conflict check.
+ *
  * Throws if the task id is invalid, the file doesn't exist, or it fails validation.
+ *
+ * Side-effect-free (M5): does NOT persist the retest-loop reconcile — this is
+ * a GET-reachable read path (verify-routes.ts). The reconciled shape returned
+ * here is durably written the next time the PUT endpoint saves this task
+ * (which reads via this function, then calls writeVerifyFile with the patch
+ * applied on top) — see verify-routes.ts.
  */
-export function readVerifyFile(taskId: string): VerifyFile {
+export function readVerifyFileWithMeta(taskId: string): VerifyFileWithMeta {
   // Path-safety: resolveVerifyPath validates the id and resolves inside the allowed dir.
   const filePath = resolveVerifyPath(taskId);
 
@@ -157,6 +212,7 @@ export function readVerifyFile(taskId: string): VerifyFile {
     });
   }
 
+  const mtimeMs = statSync(filePath).mtimeMs;
   const raw = readFileSync(filePath, "utf8");
   let parsed: unknown;
   try {
@@ -168,29 +224,56 @@ export function readVerifyFile(taskId: string): VerifyFile {
   // assertVerifyFile throws with a descriptive error if validation fails.
   const file = assertVerifyFile(parsed);
 
-  // Retest-loop reconcile (+ normalise to the current shape): a use case whose
+  // Retest-loop reconcile (+ normalise to the current shape) for THIS caller's
+  // view only — NOT persisted here (see doc comment above): a use case whose
   // flagged bug is now Done in TASKS.md flips back to pending with a new notes
-  // round. Persist the change so the round bump survives. applyBugFixes
-  // normalises every item, so the returned file always carries round/noteRounds.
-  const { file: reconciled, changed } = applyBugFixes(file, doneBugIds());
-  if (changed) writeVerifyFile(reconciled);
-  return reconciled;
+  // round. applyBugFixes normalises every item, so the returned file always
+  // carries round/noteRounds.
+  const { file: reconciled } = applyBugFixes(file, doneBugIds());
+  return { file: reconciled, mtimeMs, contentHash: contentHashOf(raw) };
+}
+
+/**
+ * Read and validate a single verify file (reconciled view only, no mtime).
+ * Throws if the task id is invalid, the file doesn't exist, or it fails validation.
+ * Side-effect-free (M5) — see readVerifyFileWithMeta.
+ */
+export function readVerifyFile(taskId: string): VerifyFile {
+  return readVerifyFileWithMeta(taskId).file;
 }
 
 // ── Write ─────────────────────────────────────────────────────────────────────
 
+export type WriteVerifyResult = { ok: true } | { ok: false; code: "conflict" };
+
 /**
  * Write a VerifyFile to disk atomically (temp file + renameSync).
- * The server is the sole writer; no optimistic locking needed for v1.
  *
- * Validates the file before writing — rejects invalid data at the write gate.
+ * The server is the sole Console-side writer; the agent and Tester also write
+ * verify files directly and are uncoordinated, coordinate writers (M4). When
+ * `expected` (mtime + content hash from readVerifyFileWithMeta) is supplied,
+ * this re-checks the target immediately before the rename and returns
+ * `{ok:false, code:'conflict'}` instead of overwriting if the file changed
+ * since that read — a lightweight guard, not a lock (heavy file locking was
+ * explicitly rejected as over-engineering for a single-user tool — FIX-PLAN
+ * M4). The check is two-stage: a differing mtime is a cheap reject without
+ * reading the file, but an EQUAL mtime is not proof of no interleaved write —
+ * NTFS mtime resolution is coarse enough that ~2% of back-to-back writes land
+ * on an identical mtimeMs (measured on this class of host) — so the content
+ * hash is the authoritative check for that sub-tick window. Callers that
+ * don't care about concurrency (e.g. first-write bootstrap, tests) may omit
+ * `expected` and the check is skipped.
+ *
+ * Validates the file before writing — rejects invalid data at the write gate
+ * (thrown, not returned — a schema violation is a programming error, not a
+ * recoverable conflict).
  * Uses resolveVerifyPath for path-safety (validates task id, resolves inside dir).
  *
  * Atomic strategy: write to a temp file in the same directory, then rename.
  * On POSIX this is a kernel-atomic rename; on Windows, renameSync replaces
  * atomically when src and dst are on the same volume (which they always are here).
  */
-export function writeVerifyFile(file: VerifyFile): void {
+export function writeVerifyFile(file: VerifyFile, expected?: VerifyWriteToken): WriteVerifyResult {
   // Validate before touching disk.
   const { valid, errors } = validateVerifyFile(file);
   if (!valid) {
@@ -199,6 +282,21 @@ export function writeVerifyFile(file: VerifyFile): void {
 
   const filePath = resolveVerifyPath(file.task);
   const dir = dirname(filePath);
+
+  if (expected !== undefined) {
+    try {
+      if (statSync(filePath).mtimeMs !== expected.mtimeMs) {
+        return { ok: false, code: "conflict" };
+      }
+      if (contentHashOf(readFileSync(filePath, "utf8")) !== expected.contentHash) {
+        // Sub-tick interleaved write: mtime unchanged but content moved.
+        return { ok: false, code: "conflict" };
+      }
+    } catch {
+      // Vanished since our read — also a conflict (nothing safe to overwrite).
+      return { ok: false, code: "conflict" };
+    }
+  }
 
   // Ensure the directory exists (handles first-write bootstrap).
   if (!existsSync(dir)) {
@@ -220,6 +318,7 @@ export function writeVerifyFile(file: VerifyFile): void {
     }
     throw err;
   }
+  return { ok: true };
 }
 
 // ── Apply VerdictPatch[] ──────────────────────────────────────────────────────

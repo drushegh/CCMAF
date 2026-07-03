@@ -39,6 +39,67 @@ import type { Lane } from "../types.js";
 const STRUCTURAL_BOUNDARY_RE =
   /^####\s+\[?(TASK|BUG)-|^###\s|^##\s/;
 
+// ── HTML-comment-aware structural matching (fixes C2) ─────────────────────────
+//
+// Mirrors the `inComment` tracking in tasks-parser.ts (see that file's header
+// for the exact semantics): a line entirely inside a multi-line <!-- ... -->
+// comment is excluded from ALL structural matching here — task/status/lane
+// headings and block boundaries alike — so a boundary-looking line (e.g. a
+// stray "### ") INSIDE a task's own body comment can no longer truncate the
+// block or misdirect a scan. A self-contained one-line comment is NOT treated
+// as "commented out" (matches tasks-parser.ts: such lines are still processed
+// normally). Nested/malformed HTML comments are not handled, same as the parser.
+//
+// Call `isCommentedOut` (or `isStructuralBoundary`, which wraps it) exactly
+// once per line, strictly in file order, threading ONE CommentScanState across
+// an entire top-to-bottom scan — skipping a line or starting a new state
+// mid-scan desyncs the open/close count.
+
+export interface CommentScanState {
+  inComment: boolean;
+}
+
+/**
+ * Advance `state` past `line`, returning true if the line sits inside a
+ * multi-line HTML comment and must therefore be excluded from structural
+ * matching (task/status/lane heading, block boundary, archived marker).
+ */
+export function isCommentedOut(line: string, state: CommentScanState): boolean {
+  const opens = (line.match(/<!--/g) ?? []).length;
+  const closes = (line.match(/-->/g) ?? []).length;
+  const wasInComment = state.inComment;
+
+  if (!state.inComment) {
+    if (opens > closes) state.inComment = true;
+  } else if (closes > 0) {
+    state.inComment = false;
+  }
+
+  return wasInComment || (opens > 0 && state.inComment);
+}
+
+/**
+ * True if `line` is a STRUCTURAL block boundary (STRUCTURAL_BOUNDARY_RE) and
+ * is NOT inside a multi-line HTML comment. Advances `state` — see isCommentedOut.
+ */
+export function isStructuralBoundary(line: string, state: CommentScanState): boolean {
+  if (isCommentedOut(line, state)) return false;
+  return STRUCTURAL_BOUNDARY_RE.test(line);
+}
+
+/**
+ * Detect the file's dominant line ending so writes can preserve it (minor fix:
+ * every write previously flipped CRLF files to LF via `.join("\n")`, contradicting
+ * the "preserve verbatim" guarantee). A tie (including an all-LF file) defaults
+ * to "\n" — this module's historical, and still the common, behaviour.
+ */
+function detectEol(content: string): "\r\n" | "\n" {
+  const totalNewlines = (content.match(/\n/g) ?? []).length;
+  const crlfCount = (content.match(/\r\n/g) ?? []).length;
+  const lfOnlyCount = totalNewlines - crlfCount;
+  return crlfCount > lfOnlyCount ? "\r\n" : "\n";
+}
+
 /** Matches the ## lane headings. */
 const FEATURE_LANE_RE = /^##\s+Feature\s+Lane/i;
 const BUG_LANE_RE = /^##\s+Bug[\s-]+Fix\s+Lane/i;
@@ -75,7 +136,13 @@ export function matchTaskHeading(line: string): TaskHeadingMatch | null {
 
 /** True if the board uses bracketed IDs (so createBug matches the house style). */
 function usesBracketedIds(content: string): boolean {
-  return /^####\s+\[(TASK|BUG)-/m.test(content);
+  const lines = content.split(/\r?\n/);
+  const state: CommentScanState = { inComment: false };
+  for (const line of lines) {
+    if (isCommentedOut(line, state)) continue;
+    if (/^####\s+\[(TASK|BUG)-/.test(line)) return true;
+  }
+  return false;
 }
 
 /** The canonical task-id pattern (same as contract:console-http-api). */
@@ -132,9 +199,12 @@ function normaliseStatus(raw: string): string {
 function buildLaneIndex(lines: string[]): Lane[] {
   const index: Lane[] = [];
   let currentLane: Lane = "feature";
+  const state: CommentScanState = { inComment: false };
   for (const line of lines) {
-    if (FEATURE_LANE_RE.test(line)) currentLane = "feature";
-    else if (BUG_LANE_RE.test(line)) currentLane = "bug";
+    if (!isCommentedOut(line, state)) {
+      if (FEATURE_LANE_RE.test(line)) currentLane = "feature";
+      else if (BUG_LANE_RE.test(line)) currentLane = "bug";
+    }
     index.push(currentLane);
   }
   return index;
@@ -166,9 +236,14 @@ export function extractTaskBlock(content: string, id: string): TaskBlockResult {
   const laneIndex = buildLaneIndex(lines);
 
   let currentStatus: string | null = null;
+  // Single comment-scan state shared by the outer (heading-search) and inner
+  // (block-collection) loops below — they walk `lines` in one contiguous
+  // top-to-bottom pass, so isCommentedOut/isStructuralBoundary stay in sync.
+  const state: CommentScanState = { inComment: false };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (isCommentedOut(line, state)) continue;
 
     // Track current status heading.
     const statusMatch = STATUS_HEADING_RE.exec(line);
@@ -194,7 +269,7 @@ export function extractTaskBlock(content: string, id: string): TaskBlockResult {
     // Collect block lines (heading + everything up to the next heading).
     const blockLines: string[] = [line];
     let j = i + 1;
-    while (j < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[j])) {
+    while (j < lines.length && !isStructuralBoundary(lines[j], state)) {
       blockLines.push(lines[j]);
       j++;
     }
@@ -229,9 +304,12 @@ export function getTaskDetail(content: string, id: string): TaskDetail | null {
   const laneIndex = buildLaneIndex(lines);
 
   let currentStatus: string | null = null;
+  // Single comment-scan state shared by both loops below — see extractTaskBlock.
+  const state: CommentScanState = { inComment: false };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    if (isCommentedOut(line, state)) continue;
 
     const statusMatch = STATUS_HEADING_RE.exec(line);
     if (statusMatch) {
@@ -254,12 +332,17 @@ export function getTaskDetail(content: string, id: string): TaskDetail | null {
 
     // Body lines: everything until the next heading. The archived marker is
     // detected here and NOT surfaced as a body line (it's metadata, not content).
+    // A line inside a multi-line comment is never a boundary or a marker — it's
+    // preserved verbatim as ordinary body content (see isCommentedOut).
     const body: string[] = [];
     let archived = false;
     let j = i + 1;
-    while (j < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[j])) {
-      if (ARCHIVED_MARKER_RE.test(lines[j])) archived = true;
-      else body.push(lines[j]);
+    while (j < lines.length) {
+      const bodyLine = lines[j];
+      const commentedOut = isCommentedOut(bodyLine, state);
+      if (!commentedOut && STRUCTURAL_BOUNDARY_RE.test(bodyLine)) break;
+      if (!commentedOut && ARCHIVED_MARKER_RE.test(bodyLine)) archived = true;
+      else body.push(bodyLine);
       j++;
     }
     // Trim trailing blank lines from body.
@@ -300,6 +383,7 @@ export function moveTaskStatus(
 ): MoveResult {
   const lines = content.split(/\r?\n/);
   const laneIndex = buildLaneIndex(lines);
+  const eol = detectEol(content);
 
   // ── Step 1: Find the task heading (detect ambiguity) ─────────────────────
   // We only need the line index and lane here; status is re-derived below
@@ -308,25 +392,29 @@ export function moveTaskStatus(
   let taskLane: Lane | null = null;
   let ambiguous = false;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  {
+    const state: CommentScanState = { inComment: false };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
 
-    const taskMatch = matchTaskHeading(line);
-    if (!taskMatch) continue;
+      const taskMatch = matchTaskHeading(line);
+      if (!taskMatch) continue;
 
-    const prefix = taskMatch.prefix;
-    const num = taskMatch.num;
-    const taskId = `${prefix}-${num}`;
+      const prefix = taskMatch.prefix;
+      const num = taskMatch.num;
+      const taskId = `${prefix}-${num}`;
 
-    if (taskId !== id) continue;
+      if (taskId !== id) continue;
 
-    if (foundIndex !== -1) {
-      ambiguous = true;
-      break;
+      if (foundIndex !== -1) {
+        ambiguous = true;
+        break;
+      }
+
+      foundIndex = i;
+      taskLane = laneIndex[i];
     }
-
-    foundIndex = i;
-    taskLane = laneIndex[i];
   }
 
   if (ambiguous) return { ok: false, code: "ambiguous" };
@@ -337,12 +425,17 @@ export function moveTaskStatus(
 
   // Re-derive the status at the found heading by re-scanning up to foundIndex.
   let statusAtFound: string | null = null;
-  for (let i = 0; i < foundIndex; i++) {
-    const m = STATUS_HEADING_RE.exec(lines[i]);
-    if (m) {
-      // Only update when this status heading is in the same lane.
-      if (laneIndex[i] === effectiveLane) {
-        statusAtFound = normaliseStatus(m[1]);
+  {
+    const state: CommentScanState = { inComment: false };
+    for (let i = 0; i < foundIndex; i++) {
+      const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
+      const m = STATUS_HEADING_RE.exec(line);
+      if (m) {
+        // Only update when this status heading is in the same lane.
+        if (laneIndex[i] === effectiveLane) {
+          statusAtFound = normaliseStatus(m[1]);
+        }
       }
     }
   }
@@ -358,9 +451,12 @@ export function moveTaskStatus(
   // Block = heading + body lines, trailing blanks stripped.
   const blockLines: string[] = [lines[foundIndex]];
   let blockEnd = foundIndex + 1; // exclusive
-  while (blockEnd < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[blockEnd])) {
-    blockLines.push(lines[blockEnd]);
-    blockEnd++;
+  {
+    const state: CommentScanState = { inComment: false };
+    while (blockEnd < lines.length && !isStructuralBoundary(lines[blockEnd], state)) {
+      blockLines.push(lines[blockEnd]);
+      blockEnd++;
+    }
   }
   // Trim trailing blank lines from block.
   while (blockLines.length > 1 && blockLines[blockLines.length - 1].trim() === "") {
@@ -374,8 +470,10 @@ export function moveTaskStatus(
   let targetSectionIndex = -1;
   {
     let scanningLane: Lane = "feature";
+    const state: CommentScanState = { inComment: false };
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
       if (FEATURE_LANE_RE.test(line)) { scanningLane = "feature"; continue; }
       if (BUG_LANE_RE.test(line)) { scanningLane = "bug"; continue; }
       if (scanningLane !== effectiveLane) continue;
@@ -395,8 +493,11 @@ export function moveTaskStatus(
   // Insertion point = just before the next `##`, `###`, or `####` heading
   // AFTER the target section heading, or end-of-file.
   let insertAt = targetSectionIndex + 1;
-  while (insertAt < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[insertAt])) {
-    insertAt++;
+  {
+    const state: CommentScanState = { inComment: false };
+    while (insertAt < lines.length && !isStructuralBoundary(lines[insertAt], state)) {
+      insertAt++;
+    }
   }
   // insertAt now points to the first line of the next section (or EOF).
   // We want to insert the block BEFORE that line, after trimming trailing blanks
@@ -454,9 +555,9 @@ export function moveTaskStatus(
     ...afterRemoval.slice(sectionContentEnd),
   ];
 
-  // Re-join preserving the original line endings.
-  // The input was split on /\r?\n/; we normalise to \n (no CRLF in these files).
-  return { ok: true, content: result.join("\n") };
+  // Re-join using the file's OWN dominant line ending (minor fix: preserve
+  // CRLF instead of always flipping to LF — see detectEol).
+  return { ok: true, content: result.join(eol) };
 }
 
 // ── setTaskArchived ─────────────────────────────────────────────────────────────
@@ -476,19 +577,25 @@ export function setTaskArchived(
   archived: boolean
 ): MoveResult {
   const lines = content.split(/\r?\n/);
+  const eol = detectEol(content);
 
   // Find the (unique) heading.
   let foundIndex = -1;
   let ambiguous = false;
-  for (let i = 0; i < lines.length; i++) {
-    const m = matchTaskHeading(lines[i]);
-    if (!m) continue;
-    if (`${m.prefix}-${m.num}` !== id) continue;
-    if (foundIndex !== -1) {
-      ambiguous = true;
-      break;
+  {
+    const state: CommentScanState = { inComment: false };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
+      const m = matchTaskHeading(line);
+      if (!m) continue;
+      if (`${m.prefix}-${m.num}` !== id) continue;
+      if (foundIndex !== -1) {
+        ambiguous = true;
+        break;
+      }
+      foundIndex = i;
     }
-    foundIndex = i;
   }
 
   if (ambiguous) return { ok: false, code: "ambiguous" };
@@ -497,11 +604,17 @@ export function setTaskArchived(
   // Find the block extent and any existing marker within it.
   let blockEnd = foundIndex + 1; // exclusive
   let markerIndex = -1;
-  while (blockEnd < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[blockEnd])) {
-    if (markerIndex === -1 && ARCHIVED_MARKER_RE.test(lines[blockEnd])) {
-      markerIndex = blockEnd;
+  {
+    const state: CommentScanState = { inComment: false };
+    while (blockEnd < lines.length) {
+      const line = lines[blockEnd];
+      const commentedOut = isCommentedOut(line, state);
+      if (!commentedOut && STRUCTURAL_BOUNDARY_RE.test(line)) break;
+      if (!commentedOut && markerIndex === -1 && ARCHIVED_MARKER_RE.test(line)) {
+        markerIndex = blockEnd;
+      }
+      blockEnd++;
     }
-    blockEnd++;
   }
   const hasMarker = markerIndex !== -1;
 
@@ -512,13 +625,13 @@ export function setTaskArchived(
       ARCHIVED_MARKER_LINE,
       ...lines.slice(foundIndex + 1),
     ];
-    return { ok: true, content: next.join("\n") };
+    return { ok: true, content: next.join(eol) };
   }
 
   // archived === false → remove the marker if present.
   if (!hasMarker) return { ok: true, content }; // idempotent
   const next = [...lines.slice(0, markerIndex), ...lines.slice(markerIndex + 1)];
-  return { ok: true, content: next.join("\n") };
+  return { ok: true, content: next.join(eol) };
 }
 
 // ── createBug ─────────────────────────────────────────────────────────────────
@@ -550,7 +663,9 @@ export type CreateBugResult =
 export function nextBugId(content: string): string {
   const lines = content.split(/\r?\n/);
   let max = 0;
+  const state: CommentScanState = { inComment: false };
   for (const line of lines) {
+    if (isCommentedOut(line, state)) continue;
     const m = matchTaskHeading(line);
     if (m && m.prefix === "BUG") {
       const n = parseInt(m.num, 10);
@@ -593,22 +708,30 @@ export function createBug(content: string, input: CreateBugInput): CreateBugResu
 
   // Locate the bug lane's "### Reported" section.
   const lines = content.split(/\r?\n/);
+  const eol = detectEol(content);
   let scanningLane: Lane = "feature";
   let reportedIndex = -1;
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (FEATURE_LANE_RE.test(line)) { scanningLane = "feature"; continue; }
-    if (BUG_LANE_RE.test(line)) { scanningLane = "bug"; continue; }
-    if (scanningLane !== "bug") continue;
-    const m = STATUS_HEADING_RE.exec(line);
-    if (m && normaliseStatus(m[1]) === "Reported") { reportedIndex = i; break; }
+  {
+    const state: CommentScanState = { inComment: false };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
+      if (FEATURE_LANE_RE.test(line)) { scanningLane = "feature"; continue; }
+      if (BUG_LANE_RE.test(line)) { scanningLane = "bug"; continue; }
+      if (scanningLane !== "bug") continue;
+      const m = STATUS_HEADING_RE.exec(line);
+      if (m && normaliseStatus(m[1]) === "Reported") { reportedIndex = i; break; }
+    }
   }
   if (reportedIndex === -1) return { ok: false, code: "no_reported_section" };
 
   // Section extent up to the next structural boundary.
   let sectionEnd = reportedIndex + 1;
-  while (sectionEnd < lines.length && !STRUCTURAL_BOUNDARY_RE.test(lines[sectionEnd])) {
-    sectionEnd++;
+  {
+    const state: CommentScanState = { inComment: false };
+    while (sectionEnd < lines.length && !isStructuralBoundary(lines[sectionEnd], state)) {
+      sectionEnd++;
+    }
   }
 
   const sectionBody = lines.slice(reportedIndex + 1, sectionEnd);
@@ -640,5 +763,5 @@ export function createBug(content: string, input: CreateBugInput): CreateBugResu
     ];
   }
 
-  return { ok: true, content: result.join("\n"), bugId };
+  return { ok: true, content: result.join(eol), bugId };
 }

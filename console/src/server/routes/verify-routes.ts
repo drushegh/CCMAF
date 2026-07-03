@@ -20,7 +20,7 @@
 import type { FastifyInstance, FastifyPluginAsync, preHandlerHookHandler } from "fastify";
 import type { VerifyRef, VerdictPatch } from "../types.js";
 import type { VerifyFile } from "../verify/schema.js";
-import { listVerifyRefs, readVerifyFile, writeVerifyFile, applyPatches } from "../verify/io.js";
+import { listVerifyRefs, readVerifyFile, readVerifyFileWithMeta, writeVerifyFile, applyPatches } from "../verify/io.js";
 
 export interface VerifyRoutesOptions {
   /** The write-guard preHandler from server.ts (token + origin check). */
@@ -75,7 +75,7 @@ const verifyRoutesPlugin: FastifyPluginAsync<VerifyRoutesOptions> = async (
   fastify.put<{
     Params: { task: string };
     Body: VerdictPatch[];
-    Reply: VerifyFile | { error: string };
+    Reply: VerifyFile | { error: string; reload?: boolean };
   }>(
     "/api/verify/:task",
     { preHandler: [writeGuard] },
@@ -90,12 +90,21 @@ const verifyRoutesPlugin: FastifyPluginAsync<VerifyRoutesOptions> = async (
       }
 
       try {
-        // Read the existing file first — sole writer reads then writes.
-        const existing = readVerifyFile(taskId);
+        // Read the existing file first (+ its write token — mtime + content
+        // hash — for the M4 conflict check below).
+        const { file: existing, mtimeMs, contentHash } = readVerifyFileWithMeta(taskId);
         // Apply patches (validates each patch entry; throws on bad input).
         const updated = applyPatches(existing, patches);
-        // Write back (validates the full file before touching disk).
-        writeVerifyFile(updated);
+        // Write back (validates the full file before touching disk). M4: reject
+        // + signal reload if the file changed on disk since we read it above.
+        const writeResult = writeVerifyFile(updated, { mtimeMs, contentHash });
+        if (!writeResult.ok) {
+          void reply.code(409).send({
+            error: `Verify file for ${taskId} changed on disk since it was read. Reload and retry.`,
+            reload: true,
+          });
+          return;
+        }
         // Return the updated file.
         return updated;
       } catch (err) {

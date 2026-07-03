@@ -20,7 +20,9 @@ import {
   writeFileSync,
   renameSync,
   existsSync,
+  statSync,
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { dotClaudePath } from "../project-root.js";
 import { parseTasksMd } from "../parsers/tasks-parser.js";
 import { getTaskDetail, moveTaskStatus, setTaskArchived, createBug, TASK_ID_RE } from "../tasks/writeback.js";
@@ -76,26 +78,84 @@ function tasksFilePath(): string {
   return dotClaudePath("TASKS.md");
 }
 
+/** SHA-256 of file content — the authoritative half of the M4 write token. */
+function contentHashOf(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+/** The optimistic-concurrency token captured at read time (M4). */
+export interface TasksWriteToken {
+  mtimeMs: number;
+  contentHash: string;
+}
+
+/** TASKS.md content plus the write token captured at read time (M4). */
+export interface TasksReadResult extends TasksWriteToken {
+  content: string;
+}
+
 /**
- * Read TASKS.md content. Returns null if the file does not exist (graceful
- * empty-state per the project-specific note in CLAUDE.md).
+ * Read TASKS.md content + its write token (mtime + content hash). Returns
+ * null if the file does not exist (graceful empty-state per the
+ * project-specific note in CLAUDE.md).
+ * Exported for the M4 optimistic-concurrency unit tests.
  */
-function readTasksContent(): string | null {
+export function readTasksContentWithMeta(): TasksReadResult | null {
   const p = tasksFilePath();
   if (!existsSync(p)) return null;
-  return readFileSync(p, "utf8");
+  // Stat before read: if a writer lands between these two calls, mtimeMs
+  // still reflects a state at-or-before what we're about to read — the
+  // recheck in atomicWriteTasksMd below is what actually guards the write.
+  const mtimeMs = statSync(p).mtimeMs;
+  const content = readFileSync(p, "utf8");
+  return { content, mtimeMs, contentHash: contentHashOf(content) };
 }
+
+export type TasksWriteResult = { ok: true } | { ok: false; code: "conflict" };
 
 /**
  * Atomic write: write to a temp file in the same directory, then rename.
  * On Windows, renameSync replaces atomically when src and dst are on the
  * same volume (which they always are here).
+ *
+ * Optimistic concurrency (M4): the Console is the sole Console-side writer,
+ * but the agent and Tester also write TASKS.md directly, uncoordinated
+ * (CLAUDE.framework.md). Re-check the file immediately before the rename and
+ * refuse to overwrite if it changed since `expected` was captured at read —
+ * a lightweight guard against clobbering a concurrent external write, not a
+ * lock (heavy file locking was explicitly rejected as over-engineering for a
+ * single-user tool — FIX-PLAN M4).
+ *
+ * The check is two-stage: a differing mtime is a cheap reject without reading
+ * the file, but an EQUAL mtime is not proof of no interleaved write — NTFS
+ * mtime resolution is coarse enough that ~2% of back-to-back writes land on
+ * an identical mtimeMs (measured on this class of host) — so the content hash
+ * is the authoritative check for that sub-tick window.
+ *
+ * A same-client request that fires again right after this one naturally
+ * passes: it does its own fresh read (capturing the token THIS write just
+ * produced) before its own recheck.
+ * Exported for the M4 optimistic-concurrency unit tests.
  */
-function atomicWriteTasksMd(content: string): void {
+export function atomicWriteTasksMd(content: string, expected: TasksWriteToken): TasksWriteResult {
   const target = tasksFilePath();
+  try {
+    if (statSync(target).mtimeMs !== expected.mtimeMs) {
+      return { ok: false, code: "conflict" };
+    }
+    if (contentHashOf(readFileSync(target, "utf8")) !== expected.contentHash) {
+      // Sub-tick interleaved write: mtime unchanged but content moved.
+      return { ok: false, code: "conflict" };
+    }
+  } catch {
+    // Target vanished since our read — nothing safe to overwrite.
+    return { ok: false, code: "conflict" };
+  }
+
   const tmp = target + ".tmp-" + process.pid;
   writeFileSync(tmp, content, "utf8");
   renameSync(tmp, target);
+  return { ok: true };
 }
 
 /**
@@ -143,13 +203,13 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
       return;
     }
 
-    const content = readTasksContent();
-    if (content === null) {
+    const read = readTasksContentWithMeta();
+    if (read === null) {
       void reply.code(404).send({ error: `TASKS.md not found` });
       return;
     }
 
-    const detail = getTaskDetail(content, id);
+    const detail = getTaskDetail(read.content, id);
     if (detail === null) {
       void reply.code(404).send({ error: `Task '${id}' not found` });
       return;
@@ -172,7 +232,7 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
   fastify.put<{
     Params: { id: string };
     Body: TaskStatusBody;
-    Reply: TaskStatusReply | { error: string };
+    Reply: TaskStatusReply | { error: string; reload?: boolean };
   }>(
     "/api/tasks/:id/status",
     { preHandler: [writeGuard] },
@@ -212,14 +272,14 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
       const requestedLane = body.lane;
 
       // Read TASKS.md.
-      const content = readTasksContent();
-      if (content === null) {
+      const read = readTasksContentWithMeta();
+      if (read === null) {
         void reply.code(404).send({ error: `TASKS.md not found` });
         return;
       }
 
       // Perform the surgical move.
-      const result = moveTaskStatus(content, id, targetStatus, requestedLane);
+      const result = moveTaskStatus(read.content, id, targetStatus, requestedLane);
 
       if (!result.ok) {
         // Map error codes → HTTP status.
@@ -241,7 +301,15 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
       }
 
       // Atomic write (idempotent no-op also lands here with unchanged content).
-      atomicWriteTasksMd(result.content);
+      // M4: reject + signal reload if TASKS.md changed on disk since we read it.
+      const writeResult = atomicWriteTasksMd(result.content, read);
+      if (!writeResult.ok) {
+        void reply.code(409).send({
+          error: `TASKS.md changed on disk since it was read. Reload and retry.`,
+          reload: true,
+        });
+        return;
+      }
 
       // Re-parse and return the updated board.
       const board = parseTasksMd(result.content);
@@ -253,7 +321,7 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
   fastify.put<{
     Params: { id: string };
     Body: TaskArchivedBody;
-    Reply: TaskStatusReply | { error: string };
+    Reply: TaskStatusReply | { error: string; reload?: boolean };
   }>(
     "/api/tasks/:id/archived",
     { preHandler: [writeGuard] },
@@ -271,13 +339,13 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
         return;
       }
 
-      const content = readTasksContent();
-      if (content === null) {
+      const read = readTasksContentWithMeta();
+      if (read === null) {
         void reply.code(404).send({ error: `TASKS.md not found` });
         return;
       }
 
-      const result = setTaskArchived(content, id, body.archived);
+      const result = setTaskArchived(read.content, id, body.archived);
       if (!result.ok) {
         switch (result.code) {
           case "not_found":
@@ -294,7 +362,14 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
         }
       }
 
-      atomicWriteTasksMd(result.content);
+      const writeResult = atomicWriteTasksMd(result.content, read);
+      if (!writeResult.ok) {
+        void reply.code(409).send({
+          error: `TASKS.md changed on disk since it was read. Reload and retry.`,
+          reload: true,
+        });
+        return;
+      }
       const board = parseTasksMd(result.content);
       return { ok: true, board };
     }
@@ -303,7 +378,7 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
   // ── POST /api/bugs — create a bug in the Bug-Fix lane's Reported column ──────
   fastify.post<{
     Body: CreateBugBody;
-    Reply: { ok: true; bugId: string; board: TaskBoard } | { error: string };
+    Reply: { ok: true; bugId: string; board: TaskBoard } | { error: string; reload?: boolean };
   }>(
     "/api/bugs",
     { preHandler: [writeGuard] },
@@ -333,14 +408,14 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
         return;
       }
 
-      const content = readTasksContent();
-      if (content === null) {
+      const read = readTasksContentWithMeta();
+      if (read === null) {
         void reply.code(404).send({ error: `TASKS.md not found` });
         return;
       }
 
       const date = new Date().toISOString().slice(0, 10);
-      const result = createBug(content, {
+      const result = createBug(read.content, {
         title: body.title,
         severity: body.severity,
         sourceTask: body.sourceTask,
@@ -357,7 +432,14 @@ export const tasksWriteRoutes: FastifyPluginAsync<TasksWriteRoutesOptions> = asy
         return;
       }
 
-      atomicWriteTasksMd(result.content);
+      const writeResult = atomicWriteTasksMd(result.content, read);
+      if (!writeResult.ok) {
+        void reply.code(409).send({
+          error: `TASKS.md changed on disk since it was read. Reload and retry.`,
+          reload: true,
+        });
+        return;
+      }
       const board = parseTasksMd(result.content);
       return { ok: true, bugId: result.bugId, board };
     }

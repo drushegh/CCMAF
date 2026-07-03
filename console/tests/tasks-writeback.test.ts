@@ -30,7 +30,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, writeFileSync, rmSync, readFileSync, statSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify from "fastify";
@@ -63,7 +63,7 @@ vi.mock("../src/server/project-root.js", () => {
 const { extractTaskBlock, getTaskDetail, moveTaskStatus, setTaskArchived, createBug } = await import(
   "../src/server/tasks/writeback.js"
 );
-const { tasksWriteRoutes } = await import(
+const { tasksWriteRoutes, readTasksContentWithMeta, atomicWriteTasksMd } = await import(
   "../src/server/routes/tasks-write-routes.js"
 );
 const { parseTasksMd } = await import("../src/server/parsers/tasks-parser.js");
@@ -440,6 +440,217 @@ _(none yet)_
   });
 });
 
+// ── B3. C2 regression: multi-line HTML comment must not truncate the block ───
+
+describe("moveTaskStatus — multi-line HTML comment does not truncate the block (C2)", () => {
+  // Regression for C2: a boundary-looking line ("### ...") INSIDE a multi-line
+  // <!-- ... --> comment in a task's body must not end the block early. Before
+  // the fix, STRUCTURAL_BOUNDARY_RE had zero comment awareness, so this line
+  // truncated the moved block and left a dangling unclosed <!--, which caused
+  // the comment-aware parser (tasks-parser.ts) to swallow subsequent content —
+  // including the unrelated TASK-021 below — up to the next --> or EOF.
+  const FIXTURE_WITH_MULTILINE_COMMENT = `# Task Board
+
+## Feature Lane
+
+### In Progress
+
+#### [TASK-020] Task with a multi-line comment body
+- First bullet
+<!-- internal notes:
+### This looks like a status heading but is INSIDE the comment
+#### [TASK-999] This looks like a task heading but is INSIDE the comment
+more notes
+-->
+- Last bullet
+
+### Done
+
+#### [TASK-021] Unrelated task after the comment
+- Should survive untouched
+
+### Todo
+
+_(none yet)_
+
+---
+
+## Bug-Fix Lane
+
+### Reported
+
+### Done
+
+`;
+
+  it("moves TASK-020 without truncating its multi-line comment body", () => {
+    const result = moveTaskStatus(FIXTURE_WITH_MULTILINE_COMMENT, "TASK-020", "Done");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const detail = getTaskDetail(result.content, "TASK-020");
+    expect(detail).not.toBeNull();
+    expect(detail!.status).toBe("Done");
+    expect(detail!.body).toContain("- First bullet");
+    expect(detail!.body).toContain("- Last bullet");
+    expect(result.content).toContain(
+      "### This looks like a status heading but is INSIDE the comment"
+    );
+    expect(result.content).toContain("-->");
+  });
+
+  it("leaves TASK-021 present after a full parseTasksMd round-trip (the C2 failure mode)", () => {
+    const result = moveTaskStatus(FIXTURE_WITH_MULTILINE_COMMENT, "TASK-020", "Done");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const board = parseTasksMd(result.content);
+    const allIds = board.columns.flatMap((c) => c.items.map((i) => i.id));
+    expect(allIds).toContain("TASK-020");
+    expect(allIds).toContain("TASK-021");
+    // The commented-out "TASK-999" must NOT be parsed as a real task.
+    expect(allIds).not.toContain("TASK-999");
+  });
+
+  it("extractTaskBlock collects the full comment body without premature termination", () => {
+    const result = extractTaskBlock(FIXTURE_WITH_MULTILINE_COMMENT, "TASK-020");
+    expect(result.found).toBe(true);
+    if (!result.found) return;
+    const blockText = result.blockLines.join("\n");
+    expect(blockText).toContain("### This looks like a status heading but is INSIDE the comment");
+    expect(blockText).toContain("- Last bullet");
+  });
+
+  it("getTaskDetail preserves the comment body verbatim as body content", () => {
+    const detail = getTaskDetail(FIXTURE_WITH_MULTILINE_COMMENT, "TASK-020");
+    expect(detail).not.toBeNull();
+    expect(detail!.body.some((l) => l.includes("INSIDE the comment"))).toBe(true);
+  });
+});
+
+// ── B4. CRLF preservation (minor fix) ─────────────────────────────────────────
+
+describe("writeback functions preserve the file's CRLF line endings", () => {
+  const CRLF_FIXTURE = FIXTURE.replace(/\n/g, "\r\n");
+
+  // Once every "\r\n" pair is removed, no bare "\n" should remain.
+  const hasBareLf = (s: string) => s.replace(/\r\n/g, "").includes("\n");
+
+  it("moveTaskStatus round-trips CRLF without flipping the file to LF", () => {
+    const result = moveTaskStatus(CRLF_FIXTURE, "TASK-001", "Done");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(hasBareLf(result.content)).toBe(false);
+    expect(result.content).toContain("\r\n");
+  });
+
+  it("setTaskArchived preserves CRLF", () => {
+    const result = setTaskArchived(CRLF_FIXTURE, "TASK-001", true);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(hasBareLf(result.content)).toBe(false);
+  });
+
+  it("createBug preserves CRLF", () => {
+    const result = createBug(CRLF_FIXTURE, { title: "X", date: "2026-06-26" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(hasBareLf(result.content)).toBe(false);
+  });
+
+  it("an all-LF file still writes LF (no accidental CRLF introduction)", () => {
+    const result = moveTaskStatus(FIXTURE, "TASK-001", "Done");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.content).not.toContain("\r\n");
+  });
+});
+
+// ── B5. M4 — optimistic concurrency on TASKS.md writes ────────────────────────
+
+describe("atomicWriteTasksMd / readTasksContentWithMeta — optimistic concurrency (M4)", () => {
+  const tasksPath = () => join(tempRoot, ".claude", "TASKS.md");
+
+  it("rejects a write when the interleaved write has a DIFFERENT mtime (fast-path)", () => {
+    writeFileSync(tasksPath(), FIXTURE, "utf8");
+    const read1 = readTasksContentWithMeta();
+    expect(read1).not.toBeNull();
+
+    // Simulate a concurrent external writer (e.g. the agent editing TASKS.md
+    // directly) landing between our read and our write, with an unambiguously
+    // different mtime — this exercises the cheap stat-only reject branch.
+    writeFileSync(tasksPath(), FIXTURE + "\n<!-- external edit -->\n", "utf8");
+    const bumped = new Date(statSync(tasksPath()).mtimeMs + 5000);
+    utimesSync(tasksPath(), bumped, bumped);
+
+    const result = atomicWriteTasksMd("clobbering content", read1!);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("conflict");
+
+    // The external writer's content must survive untouched — no clobber.
+    const onDisk = readFileSync(tasksPath(), "utf8");
+    expect(onDisk).toContain("<!-- external edit -->");
+    expect(onDisk).not.toBe("clobbering content");
+  });
+
+  it("rejects a write when the interleaved write keeps the SAME mtime (sub-tick collision)", () => {
+    // NTFS mtime resolution is coarse enough that a measurable share of
+    // back-to-back writes land on an identical mtimeMs, so an interleaved
+    // write can be invisible to a stat-only check. Pin both writes to one
+    // whole-second mtime to reproduce that collision deterministically.
+    const pin = new Date(Math.floor(Date.now() / 1000) * 1000);
+    writeFileSync(tasksPath(), FIXTURE, "utf8");
+    utimesSync(tasksPath(), pin, pin);
+    const read1 = readTasksContentWithMeta()!;
+
+    writeFileSync(tasksPath(), FIXTURE + "\n<!-- sub-tick external edit -->\n", "utf8");
+    utimesSync(tasksPath(), pin, pin);
+    // Precondition: the mtimes really do collide — the stat fast-path passes.
+    expect(statSync(tasksPath()).mtimeMs).toBe(read1.mtimeMs);
+
+    // The content hash must still catch the interleaved write.
+    const result = atomicWriteTasksMd("clobbering content", read1);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe("conflict");
+
+    const onDisk = readFileSync(tasksPath(), "utf8");
+    expect(onDisk).toContain("<!-- sub-tick external edit -->");
+    expect(onDisk).not.toBe("clobbering content");
+  });
+
+  it("allows a normal write when the file is unchanged since read", () => {
+    writeFileSync(tasksPath(), FIXTURE, "utf8");
+    const read1 = readTasksContentWithMeta();
+    expect(read1).not.toBeNull();
+
+    const result = atomicWriteTasksMd(FIXTURE + "\n<!-- updated -->\n", read1!);
+    expect(result.ok).toBe(true);
+    expect(readFileSync(tasksPath(), "utf8")).toContain("<!-- updated -->");
+  });
+
+  it("allows rapid same-client sequential writes (each is its own fresh read+write)", () => {
+    writeFileSync(tasksPath(), FIXTURE, "utf8");
+
+    const read1 = readTasksContentWithMeta()!;
+    const write1 = atomicWriteTasksMd(FIXTURE + "\n<!-- edit 1 -->\n", read1);
+    expect(write1.ok).toBe(true);
+
+    // A second rapid request from the SAME client performs its OWN independent
+    // read+write cycle: it captures the token write1 just produced and succeeds
+    // — no stale-version rejection for legitimate back-to-back writes, even if
+    // the two writes share an identical mtimeMs (the hashes match too).
+    const read2 = readTasksContentWithMeta()!;
+    const write2 = atomicWriteTasksMd(
+      FIXTURE + "\n<!-- edit 1 -->\n<!-- edit 2 -->\n",
+      read2
+    );
+    expect(write2.ok).toBe(true);
+    expect(readFileSync(tasksPath(), "utf8")).toContain("<!-- edit 2 -->");
+  });
+});
+
 // ── C. Route-level tests ──────────────────────────────────────────────────────
 
 // Pass-through writeGuard (always calls done() — no security enforcement in tests)
@@ -610,6 +821,33 @@ describe("PUT /api/tasks/:id/status — route", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json<{ ok: boolean; board: unknown }>();
     expect(body.ok).toBe(true);
+  });
+
+  // M4: two rapid PUTs from the same client, back-to-back, must both succeed —
+  // each request performs its own fresh read+write cycle server-side.
+  it("rapid same-client sequential status moves both succeed (M4)", async () => {
+    writeFileSync(join(tempRoot, ".claude", "TASKS.md"), FIXTURE, "utf8");
+
+    const first = await app.inject({
+      method: "PUT",
+      url: "/api/tasks/TASK-001/status",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ status: "Done" }),
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await app.inject({
+      method: "PUT",
+      url: "/api/tasks/TASK-002/status",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify({ status: "Todo" }),
+    });
+    expect(second.statusCode).toBe(200);
+    const body = second.json<{ ok: boolean; board: { columns: { status: string; lane: string; items: { id: string }[] }[] } }>();
+    const todo = body.board.columns.find((c) => c.status === "Todo" && c.lane === "feature");
+    expect(todo!.items.some((i) => i.id === "TASK-002")).toBe(true);
+    const done = body.board.columns.find((c) => c.status === "Done" && c.lane === "feature");
+    expect(done!.items.some((i) => i.id === "TASK-001")).toBe(true);
   });
 });
 
