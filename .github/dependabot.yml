@@ -1,0 +1,21 @@
+version: 2
+
+# NOTE (do not act on this here — informational only): this repo's
+# .github/workflows/close-prs.yml auto-closes every PR on
+# `pull_request_target: types: [opened, reopened]` with no actor filter, so
+# it will also close-and-comment on the PRs Dependabot opens from this
+# config. See the CI-drafting return for the full call-out; not fixed here
+# because this task owns only new files, not close-prs.yml.
+
+updates:
+  - package-ecosystem: npm
+    directory: /console
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10

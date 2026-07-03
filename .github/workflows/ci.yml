@@ -1,0 +1,82 @@
+name: CI
+
+# Two independent surfaces, one workflow:
+#   - console/  : React + Fastify TypeScript app (Vitest + tsc --noEmit)
+#   - framework : bats behavioural tests + shellcheck, via the framework's
+#                 own self-test harness (.claude/framework/tests/run-tests.sh)
+#
+# This repo auto-closes inbound PRs (see .github/workflows/close-prs.yml —
+# published-mirror model), so CI's real value is on pushes to main. The
+# pull_request trigger is kept anyway: it's harmless (PRs get closed by the
+# other workflow regardless, but any CI run that completed first is still
+# useful signal) and it's what a normal contributor would expect to see.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  console:
+    name: Console (type-check + test)
+    runs-on: ubuntu-latest
+    # Job-level default so every step below runs with cwd=console, matching
+    # console/package.json's script layout (package.json lives in console/,
+    # not repo root).
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # console/package.json has no "engines" field, so no version is
+          # pinned by the project itself; 22 (current Node LTS) is used here.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Test
+        run: npm run test
+
+  framework:
+    name: Framework shell tests (bats + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # apt-get over the bats-core GitHub Action: run-tests.sh already has
+      # its own fallback (npx --yes bats@<pinned>) for machines without bats,
+      # so the only thing CI strictly needs installed up front is shellcheck.
+      # Installing both via apt keeps the workflow's dependency surface to
+      # "Ubuntu's package archive" instead of adding a third-party Action,
+      # which is the same pin-what-you-trust posture run-tests.sh itself
+      # documents for its npx bats fallback.
+      - name: Install bats and shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck
+
+      # --require: a present-but-broken tool still fails the run locally
+      # (soft-fail only applies to an ABSENT tool), but CI must never
+      # silently skip a layer because a tool happened to be missing from
+      # the runner image — --require turns "tool absent" into a hard
+      # failure too. Verified flag name and semantics in
+      # .claude/framework/tests/run-tests.sh (REQUIRE=1 on "--require").
+      - name: Run framework self-tests
+        run: bash .claude/framework/tests/run-tests.sh --require

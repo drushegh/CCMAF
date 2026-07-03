@@ -19,6 +19,11 @@ permissions:
 
 jobs:
   close:
+    # Exempt Dependabot: auto-closing its PRs would defeat dependency monitoring
+    # (.github/dependabot.yml). The maintainer triages those PRs manually.
+    # (PR author, not actor — a human reopening a Dependabot PR must not defeat
+    # the exemption.)
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v7

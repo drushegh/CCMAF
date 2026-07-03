@@ -1,0 +1,59 @@
+name: "CodeQL"
+
+# Scoped to the console/ app (React + Fastify TypeScript) via the init step's
+# inline `paths` config below — the rest of the repo (.claude/ shell/python
+# framework tooling) is out of scope for CodeQL's javascript-typescript
+# analysis anyway.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 03:00 UTC.
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          config: |
+            paths:
+              - console
+            paths-ignore:
+              - console/node_modules
+              - console/dist
+              - console/dist-server
+
+      # No-op for pure JS/TS extraction (CodeQL parses source directly and
+      # doesn't require a real compile), kept for parity with GitHub's
+      # standard CodeQL workflow template.
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
