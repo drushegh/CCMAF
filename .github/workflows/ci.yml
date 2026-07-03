@@ -35,7 +35,7 @@ jobs:
       run:
         working-directory: console
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v4
         with:
@@ -58,7 +58,7 @@ jobs:
     name: Framework shell tests (bats + shellcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # apt-get over the bats-core GitHub Action: run-tests.sh already has
       # its own fallback (npx --yes bats@<pinned>) for machines without bats,
