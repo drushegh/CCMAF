@@ -40,6 +40,30 @@ setup() {
   [ "$status" -eq 2 ]
 }
 
+@test "block-dangerous: unbalanced quotes degrade to a coarse split, no crash (structural-parser fallback)" {
+  # d8c7f13's shlex-based tokenizer raises ValueError on unbalanced quotes;
+  # _simple_commands() catches it and falls back to a plain whitespace
+  # split rather than propagating — pin that fallback path never crashes
+  # the guard (fail-open on input it cannot parse cleanly).
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"echo \"unterminated quote"}}'
+  [ "$status" -eq 0 ]
+}
+
+# --- guard-interpreter-check.sh / session-start-marker.sh (SessionStart) -
+
+@test "guard-interpreter-check: garbage (non-JSON) stdin → fails open, no crash" {
+  run hookrun "$HOOKS/guard-interpreter-check.sh" 'this is not json at all'
+  [ "$status" -eq 0 ]
+}
+
+@test "session-start-marker: garbage (non-JSON) stdin in a repo with commits → no crash, still writes the marker" {
+  ( cd "$REPO" && touch code.txt && git add -A && git commit -qm seed )
+  run hookrun "$HOOKS/session-start-marker.sh" 'this is not json at all'
+  [ "$status" -eq 0 ]
+  [ -f "$REPO/.claude/.session-start-commit" ]
+}
+
 # --- filter-test-output.sh -------------------------------------------
 
 @test "filter-test-output: garbage stdin → passthrough, no crash" {

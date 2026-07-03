@@ -34,6 +34,19 @@ if [ -z "${CLAUDE_POSTEDIT_FILE+x}" ]; then
   command -v normalize_tool_path >/dev/null 2>&1 && file=$(normalize_tool_path "$file")
 fi
 
+# Resolve the repo root ONCE and export it under the SAME var the
+# dispatcher uses, so a standalone (non-dispatched) invocation doesn't pay
+# for a second `git rev-parse --show-toplevel` spawn later (in
+# node_project_dir_for, below) for a value _log_event already needed.
+# Presence check (not emptiness) so a dispatcher-supplied "" (not a git
+# repo) is trusted rather than re-resolved.
+if [ -z "${CLAUDE_POSTEDIT_ROOT+x}" ]; then
+  # Assign then export separately (SC2155): `export VAR=$(cmd)` masks the
+  # command's exit status behind export's own.
+  CLAUDE_POSTEDIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  export CLAUDE_POSTEDIT_ROOT
+fi
+
 _log_event() {
   local outcome="$1"
   local root
@@ -53,10 +66,27 @@ _log_event() {
 if [ -z "$file" ]; then _log_event "skipped"; exit 0; fi
 
 case "$file" in
-  # TypeScript / JavaScript / web assets — prettier (only if this is a Node project)
+  # TypeScript / JavaScript / web assets — prettier (only if this file sits
+  # under a Node project, i.e. has an ancestor package.json). Walking up
+  # from the FILE (not checking the hook's own CWD) matters: this
+  # framework's own repo has its npm root at console/, not the repo root,
+  # so a check anchored at CWD was silently dead for that layout — and for
+  # any consumer with a similarly nested npm project (Audtor 2026-07-02
+  # minor). Absolute-ize the path first so the tool invocation is correct
+  # regardless of which directory we `cd` into below.
   *.ts|*.tsx|*.js|*.jsx|*.css|*.scss|*.html)
-    if [ -f "package.json" ] && command -v npx &>/dev/null; then
-      npx prettier --write "$file" --log-level silent 2>/dev/null
+    case "$file" in
+      /*) _file_abs="$file" ;;
+      *)  _file_abs="${PWD%/}/$file" ;;
+    esac
+    _pkg_dir=""
+    if command -v node_project_dir_for >/dev/null 2>&1; then
+      _pkg_dir=$(node_project_dir_for "$file")
+    elif [ -f "package.json" ]; then
+      _pkg_dir="."
+    fi
+    if [ -n "$_pkg_dir" ] && command -v npx &>/dev/null; then
+      ( cd "$_pkg_dir" && npx prettier --write "$_file_abs" --log-level silent 2>/dev/null )
       _log_event "formatted"; exit 0
     fi
     ;;

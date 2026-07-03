@@ -191,16 +191,21 @@ fi
 if [ "${COMPACT_REMINDED:-false}" = true ]; then
   NEW_LAST_COMPACT=$PROMPT_COUNT
 fi
+_dtmp="${DRIFT_STATE}.tmp"
+command -v unique_tmp >/dev/null 2>&1 && _dtmp=$(unique_tmp "$DRIFT_STATE")
 jq -n --argjson count "$PROMPT_COUNT" \
       --argjson reminder "$NEW_LAST_REMINDER" \
       --argjson suggestions "$NEW_LAST_SUGGESTIONS" \
       --argjson compact "$NEW_LAST_COMPACT" \
       --arg session "${SESSION_ID:-$LAST_SESSION_ID}" \
-  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, session_id: $session}' > "${DRIFT_STATE}.tmp" \
-  && mv "${DRIFT_STATE}.tmp" "$DRIFT_STATE" 2>/dev/null || rm -f "${DRIFT_STATE}.tmp" 2>/dev/null
+  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, session_id: $session}' > "$_dtmp" \
+  && mv -f "$_dtmp" "$DRIFT_STATE" 2>/dev/null || rm -f "$_dtmp" 2>/dev/null
 # tmp+mv (DA-H6): a direct truncate-write left partial JSON behind on an
 # interrupted write or concurrent UserPromptSubmit fire — the next read
-# then failed and silently reset every counter.
+# then failed and silently reset every counter. A UNIQUE tmp path per
+# write (Audtor 2026-07-02 minor), not a fixed "${DRIFT_STATE}.tmp" name:
+# two concurrent UserPromptSubmit fires used to race on the SAME temp
+# file and could clobber each other's write (lost update).
 
 # --- Telemetry: emit one event per UserPromptSubmit ---
 # Schema-v2 via hook-common.sh (contract:telemetry-schema). Lib absent →

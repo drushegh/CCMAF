@@ -60,8 +60,13 @@ FIRES=$((FIRES + 1))
 
 _save_state() {
   [ -n "$STATEF" ] || return 0
-  { echo "CKPT_SID=$SID"; echo "CKPT_FIRES=$FIRES"; echo "CKPT_NUDGED=$NUDGED"; } > "$STATEF.tmp" 2>/dev/null \
-    && mv "$STATEF.tmp" "$STATEF" 2>/dev/null || rm -f "$STATEF.tmp" 2>/dev/null
+  # Unique tmp path per write (Audtor 2026-07-02 minor): a fixed
+  # "$STATEF.tmp" name let two concurrent fires (UserPromptSubmit racing a
+  # PostToolUse) clobber each other's write.
+  local _tmp="$STATEF.tmp"
+  command -v unique_tmp >/dev/null 2>&1 && _tmp=$(unique_tmp "$STATEF")
+  { echo "CKPT_SID=$SID"; echo "CKPT_FIRES=$FIRES"; echo "CKPT_NUDGED=$NUDGED"; } > "$_tmp" 2>/dev/null \
+    && mv -f "$_tmp" "$STATEF" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
 }
 
 # Already nudged this session → stay quiet (cheap fast-path).

@@ -32,6 +32,19 @@ if [ -z "${CLAUDE_POSTEDIT_FILE+x}" ]; then
   command -v normalize_tool_path >/dev/null 2>&1 && file=$(normalize_tool_path "$file")
 fi
 
+# Resolve the repo root ONCE and export it under the SAME var the
+# dispatcher uses, so a standalone (non-dispatched) invocation doesn't pay
+# for a second `git rev-parse --show-toplevel` spawn later (in
+# node_project_dir_for, below) for a value _log_event already needed.
+# Presence check (not emptiness) so a dispatcher-supplied "" (not a git
+# repo) is trusted rather than re-resolved.
+if [ -z "${CLAUDE_POSTEDIT_ROOT+x}" ]; then
+  # Assign then export separately (SC2155): `export VAR=$(cmd)` masks the
+  # command's exit status behind export's own.
+  CLAUDE_POSTEDIT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || true)
+  export CLAUDE_POSTEDIT_ROOT
+fi
+
 _log_event() {
   local outcome="$1"
   local root
@@ -54,10 +67,26 @@ case "$file" in
 esac
 
 case "$file" in
-  # TypeScript / JavaScript — ESLint (project-local)
+  # TypeScript / JavaScript — ESLint (project-local). Walk up from the FILE
+  # to the nearest ancestor package.json rather than checking the hook's
+  # own CWD — this framework's own npm root is console/, not the repo
+  # root, so a CWD-anchored check was silently dead for that layout, and
+  # for any consumer with a similarly nested npm project (Audtor
+  # 2026-07-02 minor). Absolute-ize the path first so the eslint
+  # invocation is correct regardless of which directory we `cd` into.
   *.ts|*.tsx|*.js|*.jsx)
-    if [ -f "node_modules/.bin/eslint" ]; then
-      npx eslint "$file" --no-warn-ignored --format compact 2>/dev/null | head -20
+    case "$file" in
+      /*) _file_abs="$file" ;;
+      *)  _file_abs="${PWD%/}/$file" ;;
+    esac
+    _pkg_dir=""
+    if command -v node_project_dir_for >/dev/null 2>&1; then
+      _pkg_dir=$(node_project_dir_for "$file")
+    elif [ -f "package.json" ]; then
+      _pkg_dir="."
+    fi
+    if [ -n "$_pkg_dir" ] && [ -f "$_pkg_dir/node_modules/.bin/eslint" ]; then
+      ( cd "$_pkg_dir" && npx eslint "$_file_abs" --no-warn-ignored --format compact 2>/dev/null | head -20 )
       _log_event "ran"; exit 0
     fi
     ;;

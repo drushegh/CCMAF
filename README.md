@@ -167,6 +167,23 @@ nudges, and the session-lifecycle hooks below. They're tunable by
 **profile** (`minimal` / `standard` / `strict`) and per-hook opt-outs — see the
 "Hook Configuration" section of [CLAUDE.framework.md](CLAUDE.framework.md).
 
+> **The destructive-command blocker is defense-in-depth, not a security
+> boundary.** It heuristically matches a command's *structure* (the program
+> actually being run, and its arguments) against a short, deliberately small
+> table of known-catastrophic shapes — a recursive-force delete aimed at a
+> filesystem/drive root or the home directory, a low-level disk writer or
+> formatter aimed at a whole block device, a fork bomb. It holds no
+> exhaustive catalogue of bad commands and can be defeated by deliberate
+> obfuscation (routing the destructive call through another interpreter,
+> variable indirection, command substitution) — see the module docstring in
+> `.claude/hooks/block-dangerous-commands.py` for the full design rationale.
+> It also needs a working Python (`python3` or `python` actually resolving
+> **and executing** on `PATH` — not just present) to run at all; if neither
+> does, the guard is inert, and Claude Code warns loudly about that at
+> session start instead of silently doing nothing. Treat it as a safety net
+> for the obvious case, never as a substitute for backups, real permission
+> configuration, or running risky work in a sandbox.
+
 ### Session lifecycle — never leave anything in the volatile layer
 
 <img src=".github/assets/handoff.webp" alt="Handoff" width="100%" />

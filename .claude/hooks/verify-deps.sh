@@ -304,6 +304,13 @@ if [ ${#findings[@]} -eq 0 ]; then
 fi
 
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+# Unique tmp path per write (Audtor 2026-07-02 minor): a fixed
+# "${FINDINGS_FILE}.tmp" name let two concurrent PostToolUse fires (two
+# manifest edits close together) race on the SAME temp file — the loser's
+# write silently clobbered the winner's, which can drop a hallucinated-
+# package advisory the agent never sees.
+_ftmp="${FINDINGS_FILE}.tmp"
+command -v unique_tmp >/dev/null 2>&1 && _ftmp=$(unique_tmp "$FINDINGS_FILE")
 {
   if [ -f "$FINDINGS_FILE" ]; then
     cat "$FINDINGS_FILE"
@@ -320,7 +327,7 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   for f in "${findings[@]}"; do
     echo "$f"
   done
-} > "${FINDINGS_FILE}.tmp" && mv "${FINDINGS_FILE}.tmp" "$FINDINGS_FILE"
+} > "$_ftmp" && mv -f "$_ftmp" "$FINDINGS_FILE" 2>/dev/null || rm -f "$_ftmp" 2>/dev/null
 
 _log_event "findings"
 exit 0

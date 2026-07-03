@@ -49,6 +49,11 @@ console/dist-server/
 .claude/.compaction-archive/
 .claude/.checkpoint-state*
 
+# Session-start commit marker (Audtor 2026-07-02) — per-session HEAD stamp
+# written by session-start-marker.sh, read by enforce-state-update.sh.
+# Machine-local session state (one file per session_id), never committed.
+.claude/.session-start-commit*
+
 # Console heartbeat throttle marker (TASK-066) — its mtime is the once/minute
 # clock the console-heartbeat hook keeps; machine-local, never committed.
 .claude/.console-heartbeat

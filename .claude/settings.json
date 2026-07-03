@@ -44,7 +44,8 @@
       "Read(**/.claude/.precompact-snapshot/**)",
       "Read(**/.claude/.compaction-archive/**)",
       "Read(**/.claude/.last-compaction)",
-      "Read(**/.claude/.checkpoint-state)"
+      "Read(**/.claude/.checkpoint-state)",
+      "Read(**/.claude/.session-start-commit*)"
     ]
   },
   "hooks": {
@@ -54,6 +55,14 @@
           {
             "type": "command",
             "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/session-reanchor.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/guard-interpreter-check.sh'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/hooks/session-start-marker.sh'"
           }
         ]
       }
@@ -102,7 +111,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && if command -v python3 >/dev/null 2>&1; then python3 .claude/hooks/block-dangerous-commands.py; else python .claude/hooks/block-dangerous-commands.py; fi'"
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && _lib=\".claude/hooks/lib/hook-common.sh\"; [ -f \"$_lib\" ] && . \"$_lib\"; PY=\"\"; if command -v resolve_python >/dev/null 2>&1; then PY=$(resolve_python python3 python) || PY=\"\"; else PY=$(command -v python3 || command -v python || true); fi; if [ -n \"$PY\" ]; then \"$PY\" .claude/hooks/block-dangerous-commands.py; else echo \"block-dangerous-commands guard SKIPPED: no working Python interpreter found on PATH - this Bash command was NOT screened for destructive patterns\" >&2; exit 1; fi'"
           },
           {
             "type": "command",
