@@ -37,7 +37,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # console/package.json has no "engines" field, so no version is
           # pinned by the project itself; 22 (current Node LTS) is used here.
