@@ -144,6 +144,68 @@ load update_helpers
   grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
 }
 
+@test "apply-update: untracked content at a path NEW in this update refuses, content intact (audit C1)" {
+  build_upstream
+  build_consumer
+  # Upstream introduces a brand-new manifest path in a v3 commit — NOT
+  # present in the consumer's LOCAL manifest (pinned at v1, which only
+  # lists the original fixture entries). Pre-fix, the pre-flight
+  # dirty-check iterated only the local manifest built BEFORE the fetch,
+  # so a path new-in-this-update got zero dirty-check at all: Phase 2
+  # would rm -rf whatever sat there with no warning.
+  mkdir -p "$UPSTREAM/.claude/framework/new-feature"
+  echo "new feature content" > "$UPSTREAM/.claude/framework/new-feature/file.txt"
+  echo ".claude/framework/new-feature/" >> "$UPSTREAM/.claude/framework/update/framework-manifest.txt"
+  git -C "$UPSTREAM" add -A
+  git -C "$UPSTREAM" commit -qm "v3: introduce a new framework-owned dir"
+
+  # Consumer has pre-existing UNTRACKED content sitting at that exact
+  # brand-new path (e.g. their own scratch notes, never committed).
+  mkdir -p "$CONSUMER/.claude/framework/new-feature"
+  echo "my untracked notes" > "$CONSUMER/.claude/framework/new-feature/mine.txt"
+
+  run apply_update
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"refusing"* ]]
+  [[ "$output" == *"new-feature"* ]]
+  # Untracked content survives — the run aborted before Phase 1/2 ever ran.
+  grep -q "my untracked notes" "$CONSUMER/.claude/framework/new-feature/mine.txt"
+  # Nothing else changed either — still pinned at v1.
+  grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V1_SHA" "$CVERSION"
+}
+
+@test "apply-update: refuses in a non-git project unless --no-git is passed (audit minor d)" {
+  build_upstream
+  build_consumer
+  rm -rf "$CONSUMER/.git"
+  run apply_update_noconfirm
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"not a git repository"* ]]
+  # Nothing touched.
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+}
+
+@test "apply-update: --no-git proceeds (with warning) in a non-git project" {
+  build_upstream
+  build_consumer
+  rm -rf "$CONSUMER/.git"
+  run apply_update_noconfirm --yes --no-git
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING"* ]]
+  [[ "$output" == *"WITHOUT git"* ]]
+  grep -q "owned v2" "$CONSUMER/.claude/framework/owned/file.txt"
+}
+
+@test "apply-update: non-interactive run without --yes refuses, nothing changed (audit minor e)" {
+  build_upstream
+  build_consumer
+  run apply_update_noconfirm   # no --yes, bats stdin is not a tty
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"--yes"* ]]
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+  grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V1_SHA" "$CVERSION"
+}
+
 @test "apply-update: missing upstream manifest warns loudly and falls back to local (DA-M5)" {
   build_upstream --no-manifest
   build_consumer
@@ -206,6 +268,64 @@ load update_helpers
   [[ "$output" == *"CLAUDE.framework.md"* ]]
   # Overwrite still happened (manifest paths are framework-owned).
   grep -q "rules v2" "$CONSUMER/CLAUDE.framework.md"
+}
+
+@test "apply-update: customised hook file → loud collision notice (audit M2)" {
+  build_upstream
+  build_consumer
+  # Consumer hardened a hook (e.g. exactly the kind of fix M1 in the audit
+  # recommends for block-dangerous-commands.py) and committed it — the
+  # dirty-check passes, so pre-fix this was silently reverted with NO
+  # warning at all (the collision `case` excluded .claude/hooks/*).
+  echo "MY HARDENED hook logic" > "$CONSUMER/.claude/hooks/sample-hook.sh"
+  git -C "$CONSUMER" add -A
+  git -C "$CONSUMER" commit -qm "local hook hardening"
+  run apply_update
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"FILE COLLISION"* ]]
+  [[ "$output" == *".claude/hooks/sample-hook.sh"* ]]
+  # Overwrite still happens (manifest paths are framework-owned) — the fix
+  # is the WARNING, not preventing the overwrite (that's the collision
+  # model already accepted for commands/CLAUDE.framework.md).
+  grep -q "hook v2" "$CONSUMER/.claude/hooks/sample-hook.sh"
+}
+
+@test "apply-update: rollback handler restores a half-applied tree (audit minor f, unit-level)" {
+  build_upstream
+  build_consumer
+  # Simulate a mid-Phase-2 interruption: one dir-mirror file overwritten,
+  # one extra file landed inside the mirror (present upstream, absent at
+  # HEAD), one shared-dir file entry overwritten. Live signal delivery is
+  # not reliable in this environment, so invoke the shipped
+  # _rollback_framework_paths function VERBATIM (extracted from
+  # apply-update.sh) — the same code path both swap_fail and the INT/TERM
+  # trap execute.
+  echo "half-applied v2"  > "$CONSUMER/.claude/framework/owned/file.txt"
+  echo "new upstream file" > "$CONSUMER/.claude/framework/owned/new-in-v2.txt"
+  echo "half-applied hook" > "$CONSUMER/.claude/hooks/sample-hook.sh"
+  run bash -c '
+    cd "'"$CONSUMER"'" || exit 1
+    set -uo pipefail
+    PROJECT_ROOT="$PWD"
+    declare -A final_type=(
+      [".claude/framework/owned"]="dir"
+      [".claude/hooks/sample-hook.sh"]="file"
+    )
+    final_paths=(".claude/framework/owned" ".claude/hooks/sample-hook.sh")
+    source <(sed -n "/^_rollback_framework_paths()/,/^}/p" .claude/framework/update/apply-update.sh)
+    declare -F _rollback_framework_paths >/dev/null || { echo "extract failed"; exit 1; }
+    _rollback_framework_paths
+  '
+  [ "$status" -eq 0 ]
+  # Tracked content restored to HEAD...
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+  grep -q "hook v1"  "$CONSUMER/.claude/hooks/sample-hook.sh"
+  # ...the mirror-only stray file is cleaned (dir mirrors are 100%
+  # framework-owned)...
+  [ ! -e "$CONSUMER/.claude/framework/owned/new-in-v2.txt" ]
+  # ...and the project-owned sibling in the SHARED hooks dir is untouched
+  # (git clean must never run on file entries / shared dirs).
+  grep -q "must survive" "$CONSUMER/.claude/hooks/project-hook.sh"
 }
 
 @test "apply-update: stock command file evolving upstream → NO collision noise (TASK-039)" {
@@ -382,6 +502,97 @@ load update_helpers
   # Migration did not proceed.
   [ -f "$OLDC/TASKS.md" ]
   [ -d "$OLDC/00_framework" ]
+}
+
+@test "migrate-layout: dirty-check also covers CLAUDE.md / CLAUDE.framework.md / .gitignore (audit M3a)" {
+  build_old_layout_consumer full
+  echo "uncommitted CLAUDE.md edit" >> "$OLDC/CLAUDE.md"
+  run migrate_layout
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"uncommitted changes"* ]]
+  [ -d "$OLDC/00_framework" ]
+}
+
+@test "migrate-layout: BARE and backticked 00_framework/ references BOTH rewritten on confirm; diff lists the file (audit M3, corrected)" {
+  build_old_layout_consumer full
+  # Fixture CLAUDE.md (see update_helpers.bash) is legacy ground truth:
+  # one BARE reference, one backticked, one plain-prose mention. The
+  # regression being pinned: a backtick-anchored sed under-matched and
+  # silently left the bare shapes stale in a file the agent loads at cold
+  # start. Token-boundary matching must rewrite all three.
+  run migrate_layout   # --yes (helper default) = the confirmed path
+  [ "$status" -eq 0 ]
+  # Bare reference rewritten (no backtick added — content otherwise intact).
+  grep -q '^See .claude/framework/self/README.md$' "$OLDC/CLAUDE.md"
+  # Backticked reference rewritten, backticks preserved.
+  grep -q 'Read `.claude/framework/insights/notes.txt`' "$OLDC/CLAUDE.md"
+  # Prose mention rewritten too — by design: sed cannot tell it apart, and
+  # the adopter explicitly confirmed after seeing the diff.
+  grep -q 'the .claude/framework/ layout held these files' "$OLDC/CLAUDE.md"
+  ! grep -q "00_framework" "$OLDC/CLAUDE.md"
+  # The pre-commit diff listed CLAUDE.md as a change (shown before the gate).
+  [[ "$output" == *"CLAUDE.md"* ]]
+  [[ "$output" == *"will be committed"* ]]
+}
+
+@test "migrate-layout: word-boundary sed does not rewrite substrings of longer tokens (audit M3, corrected)" {
+  build_old_layout_consumer full
+  # A longer token CONTAINING "00_framework/" must not be corrupted: the
+  # boundary anchor only fires when 00_framework starts its own token.
+  printf 'See 00_framework/self/README.md\nKeep my00_framework/ and legacy00_framework/ verbatim.\n' > "$OLDC/CLAUDE.md"
+  git -C "$OLDC" add CLAUDE.md
+  git -C "$OLDC" commit -qm "seed CLAUDE.md with embedded-token mentions"
+  run migrate_layout
+  [ "$status" -eq 0 ]
+  grep -q '^See .claude/framework/self/README.md$' "$OLDC/CLAUDE.md"
+  grep -q 'Keep my00_framework/ and legacy00_framework/ verbatim.' "$OLDC/CLAUDE.md"
+}
+
+@test "migrate-layout: non-interactive without --yes/--stage-only refuses at ENTRY, tree untouched (audit M3/e)" {
+  build_old_layout_consumer full
+  cp "$OLDC/CLAUDE.md" "$BATS_TEST_TMPDIR/claude-md.orig"
+  # No flag, and bats' stdin is not a tty → the entry gate must refuse
+  # BEFORE any mutation: no mvs, no seds, nothing staged. (An earlier
+  # design gated only the commit, which left a non-interactive caller with
+  # a half-consented, mutated tree.)
+  run migrate_layout_noconfirm
+  [ "$status" -eq 4 ]
+  [[ "$output" == *"Nothing was changed"* ]]
+  [[ "$output" == *"--yes"* ]]
+  # Tree byte-for-byte untouched: old layout still in place...
+  [ -d "$OLDC/00_framework" ]
+  [ -f "$OLDC/TASKS.md" ]
+  cmp -s "$BATS_TEST_TMPDIR/claude-md.orig" "$OLDC/CLAUDE.md"
+  # ...and the index/worktree entirely clean (fixture starts committed-clean).
+  [ -z "$(git -C "$OLDC" status --porcelain)" ]
+  ! git -C "$OLDC" log --oneline | grep -q "layout migration"
+}
+
+@test "migrate-layout: decline semantics via --stage-only — coherent migration staged, references rewritten, nothing committed (audit M3, corrected)" {
+  build_old_layout_consumer full
+  # --stage-only shares the exact no-commit code path (_print_staged_notice
+  # + skip-commit) that an interactive decline takes; only the read/case of
+  # the prompt itself is untestable here (no pty tool in this environment:
+  # winpty refuses piped stdin; script/socat/expect absent). The declined
+  # tree must be INTERNALLY COHERENT: moves AND rewrites together — never
+  # restored references pointing at directories that have physically moved.
+  run migrate_layout_noconfirm --stage-only
+  [ "$status" -eq 0 ]
+  # Dirs moved...
+  [ ! -d "$OLDC/00_framework" ]
+  [ -f "$OLDC/.claude/framework/insights/notes.txt" ]
+  [ ! -f "$OLDC/TASKS.md" ]; [ -f "$OLDC/.claude/TASKS.md" ]
+  # ...references REWRITTEN (bare + backticked; no stale refs anywhere)...
+  grep -q '^See .claude/framework/self/README.md$' "$OLDC/CLAUDE.md"
+  grep -q 'Read `.claude/framework/insights/notes.txt`' "$OLDC/CLAUDE.md"
+  ! grep -q "00_framework" "$OLDC/CLAUDE.md"
+  # ...everything staged, including the rewritten CLAUDE.md...
+  git -C "$OLDC" diff --cached --name-only | grep -qx "CLAUDE.md"
+  ( cd "$OLDC" && ! git diff --cached --quiet )
+  # ...nothing committed, and the staged-review notice was printed.
+  ! git -C "$OLDC" log --oneline | grep -q "layout migration"
+  [[ "$output" == *"nothing was committed"* ]]
+  [[ "$output" == *"git diff --staged"* ]]
 }
 
 # --- doctor.sh --------------------------------------------------------

@@ -47,8 +47,17 @@ merged="$(jq --slurpfile fw "$CANON" '
       | {ev: $e.key, m: ($g.matcher // null), h: $h, cmd: $h.command} ] as $tuples
   | reduce $tuples[] as $t (
       .;
-      if ( [ (.hooks[$t.ev] // [])[] | (.hooks // [])[] | .command ] | index($t.cmd) ) != null
-      then .                                              # already registered → skip
+      # Matcher-aware dedup (audit minor c): "already registered" means the
+      # command is present under a group with the SAME matcher, not just
+      # present ANYWHERE under the event. The unqualified check used to
+      # treat a command as covered no matter which matcher it was
+      # registered under, so an upstream matcher change for an existing
+      # hook command never propagated -- the old, differently-matchered
+      # registration silently masked the new one. (This also brings the
+      # code in line with the (event, matcher, command) key that the
+      # header comment above has always documented.)
+      if ( [ (.hooks[$t.ev] // [])[] | select((.matcher // null) == $t.m) | (.hooks // [])[] | .command ] | index($t.cmd) ) != null
+      then .                                              # same matcher already has it → skip
       else
         .hooks = (.hooks // {})
         | .hooks[$t.ev] = (.hooks[$t.ev] // [])
@@ -75,7 +84,12 @@ if [ "$added" -le 0 ]; then
 fi
 
 # Write only when something changed (preserve mtime + avoid churn on no-op runs).
-tmp="$(mktemp)"
+# mktemp -p alongside the destination (audit minor a): mktemp's default
+# (system temp — C: on Windows) plus `mv` to a project-drive file is a
+# cross-filesystem copy+unlink, not an atomic rename — an interruption
+# mid-copy can truncate settings.json. Same-directory mktemp keeps the
+# final `mv` a same-filesystem rename.
+tmp="$(mktemp -p "$(dirname "$CONSUMER")")"
 printf '%s\n' "$merged" > "$tmp" && mv "$tmp" "$CONSUMER" || { rm -f "$tmp"; echo "merge-hook-registrations: write failed — settings unchanged." >&2; exit 0; }
 echo "merge-hook-registrations: registered $added new framework hook(s) in $CONSUMER (additive; permissions + your own hooks untouched)."
 exit 0

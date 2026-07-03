@@ -4,6 +4,16 @@ This file is FRAMEWORK-OWNED. The update system (.claude/framework/update/)
 will overwrite it when a new framework version is pulled. Do not edit
 it directly — make project-specific changes in CLAUDE.md instead.
 
+The same overwrite policy applies to EVERY path listed in
+`.claude/framework/update/framework-manifest.txt` — including the shipped
+hooks (`.claude/hooks/*`) and commands (`.claude/commands/*` framework
+entries). If you customise one of those files, the next update replaces
+your version with upstream's (apply-update names each such collision
+loudly, and a committed version stays recoverable from git history — but
+it is no longer the live copy). To customise durably, add your own
+hook/command under a different, non-manifest filename and register it in
+`.claude/settings.json` (consumer-owned, never overwritten).
+
 `CLAUDE.md` includes this file via the pointer at its top. Both files
 are loaded into the session context on cold start.
 
@@ -20,7 +30,10 @@ are loaded into the session context on cold start.
    (silent if up-to-date). If `.claude/.framework-update-available.md` exists
    afterwards, read it, summarise the new commits to the user via
    AskUserQuestion, and ask whether to update. On *yes*: run
-   `bash .claude/framework/update/apply-update.sh` and then RESTART the cold
+   `bash .claude/framework/update/apply-update.sh --yes` (the `--yes` skips
+   the script's own confirmation prompt — the human already gave the
+   go-ahead via this AskUserQuestion, so a second, non-interactive prompt
+   from a Bash-tool call would just hang) and then RESTART the cold
    start from step 1 (agent definitions may have changed). On *no*:
    delete `.claude/.framework-update-available.md` for this session and continue.
 
@@ -228,8 +241,9 @@ Add an `ask` array alongside `allow`/`deny` in `.claude/settings.json`:
 Each pattern prompts before that operation; everything else stays on the
 `allow`/`deny` decision. Prefer this over a bespoke `PreToolUse` gate hook,
 which would duplicate the harness permission engine for marginal gain. The
-safety floor stays in `block-dangerous` (non-tunable); `ask` is for
-project-specific "make me confirm this" cases.
+safety floor stays in `block-dangerous` (non-tunable; heuristic
+defense-in-depth, not a security boundary — see README.md's "Hooks" section);
+`ask` is for project-specific "make me confirm this" cases.
 
 **Confirm the syntax for your version (UNVERIFIED here, per §4):** the
 permission lists (`allow`/`ask`/`deny`) are the harness's mechanism, but the

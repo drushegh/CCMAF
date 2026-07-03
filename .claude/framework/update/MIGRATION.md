@@ -55,7 +55,13 @@ This will:
 2. `git mv` each root state file to `.claude/`
 3. `git mv .framework-version .claude/.framework-version`
 4. Update path references in `CLAUDE.md` and `CLAUDE.framework.md`
-5. Commit: `chore: framework layout migration — 00_framework/ → .claude/framework/`
+5. Show the staged diff and ask you to confirm, then commit:
+   `chore: framework layout migration — 00_framework/ → .claude/framework/`
+   If you decline, the complete migration (moves + reference rewrites)
+   stays staged and uncommitted for review. Flags: `--yes`/`-y` skips the
+   prompt and commits; `--stage-only` migrates and stages without
+   committing; a non-interactive run without either flag refuses up front
+   with the tree untouched.
 6. Run `doctor.sh` — surfaces any CRITICAL findings before you proceed
 
 Then sync the framework content to the new layout:

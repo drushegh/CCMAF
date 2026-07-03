@@ -24,7 +24,7 @@ which fetches upstream and overwrites only the paths listed in
 | --- | --- |
 | `framework-manifest.txt` | Authoritative list of framework-owned paths. Only these are overwritten on update. |
 | `check-updates.sh` | Compares pinned SHA to upstream. Writes the flag file if behind. Silent when up-to-date. Throttled (default 24h). |
-| `apply-update.sh` | Fetches upstream, mirrors manifest paths, updates `.framework-version`. Refuses to run if any framework path has uncommitted state (modified OR untracked). |
+| `apply-update.sh` | Fetches upstream, mirrors manifest paths, updates `.framework-version`. Refuses to run if any framework path (including any path new-in-this-update) has uncommitted state (modified OR untracked), or if the project isn't a git repo (override: `--no-git`). Lists what will change and asks for confirmation before touching anything (`--yes`/`-y` to skip, for automation). |
 | `init-framework-version.sh` | Bootstraps `.framework-version` for a new project. Run once per project. |
 | `migrate-layout.sh` | One-time consumer migration from the pre-restructure `00_framework/` layout. Idempotent. |
 | `skills-sync.sh` | Selectively syncs language/topic skills from a SEPARATE skills repo into `.claude/skills/` per `.claude/.skills-version` (`SKILLS_SELECTED`). `--suggest` prints stack-detected skill suggestions. Dirs not selected are never touched; apply-update never touches skills at all. See `contract:skills-sync`. |
@@ -55,8 +55,9 @@ AskUserQuestion prompt listing the new commits. Choose *yes* to apply,
 #   (edit FRAMEWORK_LAST_CHECKED in .framework-version to a past date,
 #    or just run apply-update.sh directly)
 
-# Apply without cold start:
+# Apply without cold start (prompts for confirmation; --yes to skip):
 bash .claude/framework/update/apply-update.sh
+bash .claude/framework/update/apply-update.sh --yes
 
 # Skip the pending update for this session:
 rm .framework-update-available.md
@@ -80,6 +81,16 @@ rm .framework-update-available.md
   `git reflog` or `git show` is always available.
 - **Network failure is non-fatal.** If the upstream is unreachable,
   `check-updates.sh` exits quietly with code 3 and cold start continues.
+- **Requires git, unless overridden.** Without git there's no dirty-check,
+  no rollback, and no recovery path — `apply-update.sh` refuses to run
+  unless you pass `--no-git` and accept that risk explicitly.
+- **Asks before it mutates.** `apply-update.sh` lists every path it's
+  about to touch and prompts for confirmation before Phase 1 starts.
+  `migrate-layout.sh` shows the staged diff and prompts before it
+  commits; a decline leaves the complete migration staged and uncommitted,
+  and `--stage-only` requests exactly that outcome up front. Both scripts
+  accept `--yes`/`-y` for unattended/automated runs, and refuse
+  non-interactive runs without an explicit flag before touching anything.
 
 ## When NOT to use this system
 

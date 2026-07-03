@@ -146,7 +146,14 @@ set_version_field() {  # <field> <value>
   mv "$CVERSION.tmp" "$CVERSION"
 }
 
-apply_update()  { ( cd "$CONSUMER" && bash .claude/framework/update/apply-update.sh ); }
+# --yes by default: bats runs non-interactively (no tty), and the
+# confirmation gate (audit minor e) refuses to proceed without either a
+# tty prompt or --yes. Most tests exercise the update mechanics, not the
+# confirmation UX, so default to --yes; tests that specifically target
+# the confirmation/refusal behavior call the _noconfirm variant (no args
+# injected) and assert the refusal explicitly.
+apply_update()  { ( cd "$CONSUMER" && bash .claude/framework/update/apply-update.sh --yes "$@" ); }
+apply_update_noconfirm() { ( cd "$CONSUMER" && bash .claude/framework/update/apply-update.sh "$@" ); }
 check_updates() { ( cd "$CONSUMER" && bash .claude/framework/update/check-updates.sh ); }
 
 # Old-layout consumer for migrate-layout tests. The real migrate-layout.sh
@@ -170,7 +177,13 @@ build_old_layout_consumer() {
     echo "# status" > "$OLDC/STATUS.md"
   fi
   echo "FRAMEWORK_PINNED_SHA=abc" > "$OLDC/.framework-version"
-  printf 'See 00_framework/self/README.md\nRead 00_framework/insights/notes.txt\n' > "$OLDC/CLAUDE.md"
+  # Legacy ground truth: old-layout CLAUDE.md used BARE path references
+  # (no backtick convention existed then). One bare reference, one
+  # backticked, and one plain-prose mention — migrate-layout's
+  # token-boundary sed must rewrite ALL THREE shapes (audit M3, corrected:
+  # sed cannot semantically tell a bare reference from prose naming the
+  # path; the shown-diff + confirmation gate is what guards the prose case).
+  printf 'See 00_framework/self/README.md\nRead `00_framework/insights/notes.txt`\nHistorically the 00_framework/ layout held these files.\n' > "$OLDC/CLAUDE.md"
   printf '.framework-update-available.md\n# see 00_framework/self/README.md\n' > "$OLDC/.gitignore"
 
   _init_fixture_repo "$OLDC"
@@ -178,7 +191,8 @@ build_old_layout_consumer() {
   git -C "$OLDC" commit -qm "old layout baseline"
 }
 
-migrate_layout() { ( cd "$OLDC" && bash .claude/framework/update/migrate-layout.sh ); }
+migrate_layout() { ( cd "$OLDC" && bash .claude/framework/update/migrate-layout.sh --yes "$@" ); }
+migrate_layout_noconfirm() { ( cd "$OLDC" && bash .claude/framework/update/migrate-layout.sh "$@" ); }
 
 # Doctor-clean consumer: every invariant doctor checks holds. Broken-state
 # tests start from this and mutate exactly one thing.

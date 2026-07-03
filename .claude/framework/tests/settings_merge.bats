@@ -132,3 +132,22 @@ _cmd_total() { jq '[.hooks // {} | .[][]? | (.hooks // [])[] | .command] | lengt
   run bash "$MERGE"
   [ "$status" -eq 0 ]
 }
+
+@test "merge: matcher-aware dedup — an upstream matcher change for an existing hook propagates (audit minor c)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  # Consumer already has block-dangerous.sh registered, but under NO
+  # matcher — as if upstream used to ship it unmatched and $CANON has
+  # since moved it under "Bash". Pre-fix, dedup keyed on the command
+  # string ALONE (any matcher), so the existing wrong-matcher registration
+  # made the tuple look "already registered" and the matcher change never
+  # propagated — 0 added, no Bash-matchered group ever created.
+  jq '.hooks.PreToolUse = [ { "hooks": [ { "type": "command", "command": "bash .claude/hooks/block-dangerous.sh" } ] } ]' \
+     "$CANON" > "$CONSUMER"
+  run bash "$MERGE" "$CONSUMER" "$CANON"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"registered 1 new"* ]]
+  # The new Bash-matchered group now carries block-dangerous.sh...
+  [ "$(jq '[.hooks.PreToolUse[] | select(.matcher=="Bash") | .hooks[].command | select(test("block-dangerous"))] | length' "$CONSUMER")" -eq 1 ]
+  # ...while the old unmatched registration is untouched (additive-only, never removes/rewrites).
+  [ "$(jq '[.hooks.PreToolUse[] | select(.matcher==null) | .hooks[].command | select(test("block-dangerous"))] | length' "$CONSUMER")" -eq 1 ]
+}

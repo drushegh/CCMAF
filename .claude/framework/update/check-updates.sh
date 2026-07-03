@@ -69,8 +69,11 @@ if [ -z "$latest_sha" ]; then
 fi
 
 # Update last-checked timestamp regardless of outcome below.
+# mktemp -p alongside the destination (audit minor a): see apply-update.sh
+# for the same fix and rationale — a cross-filesystem mktemp+mv is not an
+# atomic rename and can leave .framework-version truncated on interruption.
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp_version="$(mktemp)"
+tmp_version="$(mktemp -p "$(dirname "$VERSION_FILE")")"
 awk -v now="$now_iso" '
   BEGIN { set = 0 }
   /^FRAMEWORK_LAST_CHECKED=/ { print "FRAMEWORK_LAST_CHECKED=" now; set = 1; next }
@@ -167,7 +170,9 @@ ${files:-(none)}
 
 ## To apply
 
-Run: \`bash .claude/framework/update/apply-update.sh\`
+Run: \`bash .claude/framework/update/apply-update.sh\` — it will list the
+paths it's about to touch and ask for confirmation (pass \`--yes\`/\`-y\` to
+skip the prompt, e.g. from automation).
 
 This will overwrite only the paths listed above (and only those covered
 by .claude/framework/update/framework-manifest.txt). Project state files
