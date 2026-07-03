@@ -17,12 +17,39 @@ Then:
    If "fresh session": save all state files, commit, tell user to start a new session.
    If user says "proceed" after compacting: re-read state files first.
 
-4. Delegate the implementation to the developer subagent using the Task tool:
+4. Route, then delegate using the Task tool. Route to the **ui-designer**
+   subagent when the task creates or meaningfully changes user-facing UI
+   (screens, components, styling passes, interaction flows); the
+   **developer** subagent otherwise. Brief (fill every bracket; drop none):
    "Implement [TASK-XXX]: [description].
    Contract: [read and include the relevant contract from ECOSYSTEM.md, or the matching file in `contracts/` if the project uses per-file contracts — see CLAUDE.md]
    Check GOTCHAS.md for: [relevant area]
+   Acceptance: [name the artefact's REAL consumer and the check that
+   proves it works for them — e.g. 'endpoint returns the contract shape
+   the console renders', never a proxy like 'the build passes']. Do not
+   declare success on lenient checks alone.
+   Treat any anomaly (counts that don't reconcile, warnings you want to
+   call pre-existing, identical outputs across different cases) as a
+   defect hypothesis to investigate before declaring success.
+   Mark anything you couldn't verify inline: [GAP] / [ASSUMED] /
+   [INFERRED] (behavioral-principles.md §4) — a named gap beats a
+   fabricated fact.
    Commit after each milestone. When done, update TASKS.md (move to
-   Ready for Review), STATUS.md, and claude-progress.txt."
+   Ready for Review), STATUS.md, and claude-progress.txt.
+   RETURN: ~200 words — what shipped, how the acceptance check was
+   exercised (numbers, not adjectives), assumptions and gaps. Your
+   return is data for this session, not a user-facing message."
+
+   **Parallel dispatch (two+ implementation subagents in one wave):**
+   every brief additionally gets an explicit ownership manifest — "You
+   OWN [paths] (may write); you CONSUME [paths] (read, never modify)" —
+   with disjoint OWN sets across the wave (state-file rules per
+   behavioral-principles.md §8). When the wave completes and BEFORE
+   review, run the **seam-checker** subagent across the wave's
+   boundaries (give it each builder's OWN manifest and the contracts
+   between them); route each violation back to its owning builder for a
+   targeted fix, bounded to 2 rounds, then fall through to review
+   regardless.
 
 5. POST-DELEGATION VERIFICATION (mandatory — subagents cannot be trusted
    to update state files reliably, since hooks may not fire in subagent

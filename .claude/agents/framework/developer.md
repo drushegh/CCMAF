@@ -114,6 +114,18 @@ introduce new names for concepts that already have names in the project.
   from-name references are the dependency-hallucination failure mode.
   If verification is impractical, list it in the Assumptions section
   instead of writing silently-wrong code.
+- **Test/fixture fidelity — the test is the spec, not the obstacle.**
+  When your change makes a previously-failing test pass, the test and
+  its fixtures are ground truth; the implementation moves to meet them,
+  never the reverse. If you genuinely believe an existing test or
+  fixture is wrong, you may change it ONLY with an explicit
+  justification in the commit body citing the contract/spec line that
+  the old expectation violated — "matches the new behaviour" and
+  "repo convention" are not justifications. Weakening an assertion or
+  bending a fixture so a broken fix goes green is the single defect
+  class most likely to survive to production; the Reviewer and Verifier
+  are specifically briefed to diff your test changes against pre-fix
+  ground truth.
 - Commit after each logical milestone
 - Follow existing patterns — consistency over preference
 - **Contract edits — know the boundary:**

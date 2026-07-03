@@ -137,7 +137,15 @@ are loaded into the session context on cold start.
 ## Agent Rules
 
 - Architect plans, Developer implements, Tester tests, Reviewer reviews
+- Supporting roles: **verifier** confirms/refutes other agents' claims
+  before they're acted on (/review wires it in); **researcher** gathers
+  cited evidence; **ui-designer** builds user-facing UI (/build routes
+  UI tasks to it); **ux-critic** judges UX with walkthroughs + rendered
+  rubric (/review invokes it for UI-facing changes); **seam-checker**
+  validates boundaries after parallel builds (/build wires it in)
 - The agent that writes code does NOT review it
+- The agent that produced a claim does NOT verify it — a doer's green
+  self-report is a defect gate, never the acceptance gate
 - If you discover a contract mismatch — STOP and flag it
 - Developers may tighten/clarify contracts inline; widening → escalate to Architect
 - `.claude/TASKS.md` has two lanes: **Feature** (Todo → In Progress → Ready for Review → Ready for Test → **Verify** → Done) and **Bug-fix** (Reported → Fixing → Verify → Done). `Verify` is the human-acceptance stage after Ready for Test.

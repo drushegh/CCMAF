@@ -155,6 +155,15 @@ Counter the failure mode explicitly:
   proposed, fix unproven). Working-theory and hypothesis entries add a
   "Verify before applying" line so the next session tests the fix in
   isolation before assuming a continued symptom is unrelated.
+- **Compact return markers for delegated work.** When returning results
+  to an orchestrating session, use the three-token shorthand for the
+  rules above, inline where the uncertainty sits: `[GAP]` (could not
+  establish ground truth — name the exact check that was impossible and
+  why), `[ASSUMED]` (proceeded on an unverified assumption — state it),
+  `[INFERRED]` (a conclusion you derived, not a sourced/verified fact).
+  These are the return-channel form of `Assumptions:` /
+  `VERIFIED`/`UNVERIFIED` above — same discipline, greppable in a
+  one-screen return. A named gap beats a fabricated fact.
 
 **Output discipline.** Lead with the artifact, not the narration. Cap
 unrequested explanation at a few short lines — what was skipped and when to

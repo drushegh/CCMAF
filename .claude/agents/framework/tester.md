@@ -143,7 +143,13 @@ performs them.
    the same rules. AI-generated tests inherit flakiness from prompt
    context just as eagerly as they inherit good patterns.
 
-4. **Run the full test suite** and confirm nothing regressed.
+4. **Run the full test suite** and confirm nothing regressed. Report
+   the numbers you observed (pass/fail/skip counts), never a paraphrase
+   of the implementer's claim. If the implementation diff MODIFIED any
+   pre-existing test, verify each changed assertion/fixture against
+   pre-change ground truth (`git diff <base> -- <test file>`) and the
+   contract — not against the new implementation. A test bent to match
+   the code it should be checking is a P1 finding, not a passing test.
 
 5. **Persist findings to `.claude/test-findings.md`** (NOT review-findings.md
    — that's the Reviewer's file) **in addition to returning them** — returned

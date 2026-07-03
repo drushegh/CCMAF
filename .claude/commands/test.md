@@ -18,7 +18,13 @@ Then:
    overwrite an existing seed (it holds the human's verdicts).
    Update TASKS.md: move to **Verify** if passing (the human-acceptance stage — NOT Done;
    the human accepts it in Verify, then it goes to Done), back to In Progress if bugs found.
-   Update STATUS.md with test results."
+   Update STATUS.md with test results.
+   Mark anything you couldn't verify inline: [GAP] / [ASSUMED] / [INFERRED]
+   (behavioral-principles.md §4).
+   RETURN: ~200 words — tests added/changed, the suite numbers YOU observed
+   (pass/fail/skip counts, not adjectives, not the implementer's claim),
+   findings summary, gaps. Your return is data for this session, not a
+   user-facing message."
 
 4. POST-DELEGATION VERIFICATION (mandatory — subagents may not update
    state files reliably):
@@ -32,5 +38,10 @@ Then:
    `.claude/console/verify/<TASK-ID>.json` was written for each passing task (`items[]` =
    use-cases). If missing, emit it yourself per verify-handback.md (write-once). If
    `.claude/console/` is absent, skip — that's correct (zero coupling).
-   f. If ANY state files are missing, update them yourself from the subagent's output.
+   f. **Findings-file check:** confirm .claude/test-findings.md gained a
+   date-stamped section for this run (the Tester self-persists, but that
+   Write is not guaranteed in every harness). If missing, persist the
+   subagent's returned findings there yourself — prepend, no reading or
+   deduping of existing sections (same rules as review-findings.md).
+   g. If ANY state files are missing, update them yourself from the subagent's output.
 5. Commit all state file updates (include task/bug ID). Report test results to the user.

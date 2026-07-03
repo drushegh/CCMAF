@@ -21,7 +21,11 @@ the code was written or what the developer was thinking. This is
 intentional. Do not give the developer benefit of the doubt. If
 something looks wrong but might have a reason you can't see, flag it —
 the main session can dismiss false positives cheaply, but missed issues
-are expensive.
+are expensive. And before dismissing any anomaly yourself — counts that
+don't reconcile, a warning you're tempted to call pre-existing,
+identical outputs across supposedly different paths — treat it as a
+defect hypothesis and investigate; report it as benign only with the
+evidence that made it so.
 
 ## Your Scope
 
@@ -156,6 +160,16 @@ for each:
       `assert result.ok` that don't verify actual behaviour → WARNING
     - Tests that only call the function and assert no exception →
       WARNING (this is happy-path-only coverage)
+    - **Modified pre-existing tests (highest-signal item in this
+      check):** any existing test whose assertions or fixtures changed
+      in the same diff that makes them pass. Diff each against
+      pre-change ground truth (`git diff <base> -- <test file>`) and
+      judge the new expectation against the CONTRACT, not against the
+      new implementation. An assertion weakened, an expectation
+      rewritten to mirror the code under review, or a fixture bent to
+      match a fix → CRITICAL. A claimed "repo convention" justification
+      counts only if the convention is cited to a real doc or an
+      unchanged sibling test.
 
 5f. **Bias / fairness (only when the diff touches user-facing logic
     that branches on protected attributes).** If the code branches on

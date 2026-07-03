@@ -10,6 +10,16 @@ Then, acting as the project architect:
    - Use subagents to explore the codebase and understand what exists
    - Identify relevant existing modules, endpoints, models, and patterns
 
+   Every reading/exploration subagent brief (steps 2 and 3) includes:
+   - **Census rule:** "here is the file list I expect you to cover —
+     verify it against the folder yourself and report anything the list
+     missed" (orchestrator-supplied lists go stale; the agent at the
+     folder is the one who can see what's actually there)
+   - **Capped, typed return:** "RETURN: ~N words covering [A, B, C].
+     Your return is data for this session, not a user-facing message."
+   - **Markers:** [GAP]/[ASSUMED]/[INFERRED] per behavioral-principles.md
+     §4 for anything not established from the documents themselves
+
 4. **Structured Interview** — Use the AskUserQuestion tool to fill gaps.
    Do NOT free-form interview. Structure questions into focused batches
    of 1-4 questions each, using the tool's option format so the user
