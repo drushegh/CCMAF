@@ -247,17 +247,24 @@ check_framework_version() {
     return
   fi
 
-  # Source in a subshell so we don't leak vars into doctor's environment.
+  # Parsed without sourcing (DA-M12: never execute a config file as shell —
+  # a subshell only stops variable leakage into doctor's environment, it
+  # does not stop a malicious .framework-version's content from running
+  # arbitrary commands). Pull only the 3 required KEY=VALUE fields.
   # mktemp, not a predictable /tmp path (DA-H8): on a restricted /tmp the
   # old redirect failed silently and the check always passed.
   local missing_tmp
   missing_tmp=$(mktemp 2>/dev/null) || missing_tmp="$PROJECT_ROOT/.claude/.doctor-missing.$$"
+  _ver_get() {
+    sed -n "s/^[[:space:]]*$1=\\(.*\\)\$/\\1/p" "$VERSION_FILE" 2>/dev/null | tail -1
+  }
   (
-    # shellcheck disable=SC1090
-    source "$VERSION_FILE"
-    [ -z "${FRAMEWORK_UPSTREAM_URL:-}" ]    && echo "FRAMEWORK_UPSTREAM_URL"
-    [ -z "${FRAMEWORK_UPSTREAM_BRANCH:-}" ] && echo "FRAMEWORK_UPSTREAM_BRANCH"
-    [ -z "${FRAMEWORK_PINNED_SHA:-}" ]      && echo "FRAMEWORK_PINNED_SHA"
+    _url="$(_ver_get FRAMEWORK_UPSTREAM_URL)";    _url="${_url%$'\r'}"
+    _branch="$(_ver_get FRAMEWORK_UPSTREAM_BRANCH)"; _branch="${_branch%$'\r'}"
+    _sha="$(_ver_get FRAMEWORK_PINNED_SHA)";      _sha="${_sha%$'\r'}"
+    [ -z "$_url" ]    && echo "FRAMEWORK_UPSTREAM_URL"
+    [ -z "$_branch" ] && echo "FRAMEWORK_UPSTREAM_BRANCH"
+    [ -z "$_sha" ]    && echo "FRAMEWORK_PINNED_SHA"
   ) > "$missing_tmp" 2>/dev/null || true
 
   if [ -s "$missing_tmp" ]; then

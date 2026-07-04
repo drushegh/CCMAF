@@ -38,12 +38,24 @@ last_critical=0
 last_warning=0
 last_suggestion=0
 if [ -f "$STATE_FILE" ]; then
-  # shellcheck disable=SC1090
-  source "$STATE_FILE"
-  last_scrape_mtime="${LAST_SCRAPE_MTIME:-0}"
-  last_critical="${LAST_CRITICAL:-0}"
-  last_warning="${LAST_WARNING:-0}"
-  last_suggestion="${LAST_SUGGESTION:-0}"
+  # Parsed without sourcing (DA-M12: never execute a state file as shell —
+  # matches checkpoint-watermark.sh:48-55 / framework-drift-guard.sh:51-61).
+  # STATE_FILE is written only by this script's own `cat > ... <<EOF` below
+  # (plain KEY=value lines), but it lives under .claude/telemetry/ which is
+  # gitignored and thus not delivered via the normal update channel — a
+  # `source` here would evaluate whatever content ends up at that path.
+  _scrape_get() { sed -n "s/^$1=//p" "$STATE_FILE" 2>/dev/null | tail -1; }
+  last_scrape_mtime="$(_scrape_get LAST_SCRAPE_MTIME)"; last_scrape_mtime="${last_scrape_mtime%$'\r'}"
+  last_critical="$(_scrape_get LAST_CRITICAL)";         last_critical="${last_critical%$'\r'}"
+  last_warning="$(_scrape_get LAST_WARNING)";           last_warning="${last_warning%$'\r'}"
+  last_suggestion="$(_scrape_get LAST_SUGGESTION)";     last_suggestion="${last_suggestion%$'\r'}"
+  # Numeric guard (matches checkpoint-watermark.sh's FIRES/NUDGED pattern):
+  # a missing/garbage value falls back to 0 rather than breaking the
+  # arithmetic delta computation below.
+  case "$last_scrape_mtime" in ''|*[!0-9]*) last_scrape_mtime=0 ;; esac
+  case "$last_critical"     in ''|*[!0-9]*) last_critical=0 ;; esac
+  case "$last_warning"      in ''|*[!0-9]*) last_warning=0 ;; esac
+  case "$last_suggestion"   in ''|*[!0-9]*) last_suggestion=0 ;; esac
 fi
 
 if [ "$file_mtime" -le "$last_scrape_mtime" ]; then

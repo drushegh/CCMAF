@@ -38,8 +38,34 @@ if [ ! -f "$THRESHOLDS" ]; then
   echo "analyse: thresholds.conf missing — expected at $THRESHOLDS" >&2
   exit 1
 fi
-# shellcheck disable=SC1090
-source "$THRESHOLDS"
+
+# Parsed without sourcing (DA-M12: never execute a config file as shell).
+# thresholds.conf is a tracked, adopter-editable file (its own header
+# invites per-project overrides) — sourcing it turns an innocuous-looking
+# numeric tuning file into a code-execution sink on every analyse.sh run
+# (healthcheck weekly / --force). Pull only the known KEY=VALUE keys this
+# script uses, and fall back to the documented default when a key is
+# missing or its value doesn't parse as a non-negative int/float.
+_thr_get() {
+  sed -n "s/^[[:space:]]*$1=\\([^#[:space:]]*\\).*/\\1/p" "$THRESHOLDS" 2>/dev/null | tail -1
+}
+_thr_num() {
+  local v; v="$(_thr_get "$1")"; v="${v%$'\r'}"
+  case "$v" in
+    ''|*[!0-9.]*) printf '%s' "$2" ;;   # empty/missing or non-numeric char
+    *.*.*)        printf '%s' "$2" ;;   # more than one '.' — not a number
+    *)            printf '%s' "$v" ;;
+  esac
+}
+INSIGHTS_CHECK_INTERVAL_DAYS=$(_thr_num INSIGHTS_CHECK_INTERVAL_DAYS 7)
+INSIGHTS_MIN_EVENTS=$(_thr_num INSIGHTS_MIN_EVENTS 50)
+DRIFT_GUARD_FIRE_RATE_HIGH=$(_thr_num DRIFT_GUARD_FIRE_RATE_HIGH 0.30)
+DRIFT_GUARD_FIRE_RATE_LOW=$(_thr_num DRIFT_GUARD_FIRE_RATE_LOW 0.02)
+STOP_HOOK_BLOCK_RATE_HIGH=$(_thr_num STOP_HOOK_BLOCK_RATE_HIGH 0.20)
+DANGEROUS_CMD_BLOCK_RATE_HIGH=$(_thr_num DANGEROUS_CMD_BLOCK_RATE_HIGH 0.05)
+FORMAT_LINT_FIRE_RATE_LOW=$(_thr_num FORMAT_LINT_FIRE_RATE_LOW 0.01)
+INSIGHTS_MIN_SESSIONS=$(_thr_num INSIGHTS_MIN_SESSIONS 5)
+STOP_BLOCK_SESSION_RATE_HIGH=$(_thr_num STOP_BLOCK_SESSION_RATE_HIGH 0.50)
 
 # Freshen the rollup so we're always analysing current data.
 bash "$SCRIPT_DIR/rollup.sh" >/dev/null

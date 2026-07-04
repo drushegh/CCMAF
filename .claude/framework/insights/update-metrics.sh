@@ -139,7 +139,7 @@ snapshot_tmp=$(mktemp)
 # immediately after the "## Auto-Generated Snapshots" heading and its
 # HTML comments.
 
-target_tmp=$(mktemp)
+target_tmp=$(mktemp "${TARGET}.XXXXXX")
 awk -v block_file="$snapshot_tmp" '
   BEGIN { inserted = 0 }
 

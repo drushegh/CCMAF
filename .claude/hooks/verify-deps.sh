@@ -83,6 +83,15 @@ if [ -n "${CLAUDE_POSTEDIT_ROOT:-}" ]; then
 else
   PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 fi
+# Normalise PROJECT_ROOT to the same POSIX form as $file (DA-H1 class,
+# mirrors node_project_dir_for in hook-common.sh): git rev-parse
+# --show-toplevel and CLAUDE_POSTEDIT_ROOT can both come back as a
+# drive-colon Windows path (C:/...) while $file is always normalized to
+# /c/... above. Without this, the prefix-strip below never matches on
+# Windows and rel_path silently stays the full absolute path — a
+# same-repo garbage double-path once re-joined with PROJECT_ROOT further
+# down, which makes the untracked-manifest branch a silent no-op.
+command -v normalize_tool_path >/dev/null 2>&1 && PROJECT_ROOT=$(normalize_tool_path "$PROJECT_ROOT")
 case "$file" in
   /*) rel_path="${file#$PROJECT_ROOT/}" ;;
   *)  rel_path="$file" ;;
