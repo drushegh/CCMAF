@@ -67,6 +67,10 @@ are loaded into the session context on cold start.
    CLAUDE.framework.md include, missing manifest paths will cause silent
    session failures). WARNING findings should be triaged. Surface via
    AskUserQuestion: *fix now* / *file as task* / *dismiss for this session*.
+   NAG findings (e.g. a reconcile-cadence reminder) are advisory nudges, not
+   broken state — surface them to the user in one line but don't block on
+   them or route them through the fix/file/dismiss triage; a NAG only
+   clears once its named command actually runs.
 4. **Healthcheck reminder (deep audit)** — Check
    `.claude/telemetry/.last-healthcheck` (ISO timestamp of last successful
    run). If missing OR older than `HEALTHCHECK_REMIND_DAYS` (from

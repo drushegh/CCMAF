@@ -2,7 +2,7 @@
 
 ## Template Repo Guide — v4
 
-> **Purpose:** This is a **template repository** containing everything needed to run a multi-agent Claude Code project: four framework agents, a deliberation council, slash commands, enforcement hooks, state-file templates, a self-updating mechanism, and a self-audit pipeline. Clone it into a project, customise the templates, and a new session with zero prior context can read the state files and pick up exactly where the last one left off.
+> **Purpose:** This is a **template repository** containing everything needed to run a multi-agent Claude Code project: nine framework agents, a deliberation council, slash commands, enforcement hooks, state-file templates, a self-updating mechanism, and a self-audit pipeline. Clone it into a project, customise the templates, and a new session with zero prior context can read the state files and pick up exactly where the last one left off.
 >
 > **How to use this document:** It explains the concepts and how the pieces fit. The *operational* detail lives next to the code it describes — `CLAUDE.framework.md` holds the session rules, each machinery directory has its own README, and the agent/command/hook files are self-documenting. When this guide and a component README disagree, the component README wins (it ships with the code it describes).
 >
@@ -61,12 +61,19 @@ The single most important pattern: a new session with zero prior context follows
 
 ### The Framework Roster (`.claude/agents/framework/`)
 
+The core four map directly to human roles and form the inner build loop; five supporting roles add cross-cutting capabilities (horizontal audit, research, UI design/critique, claim verification) without joining that inner loop.
+
 | Role | Model | Responsibility | Key feature |
 | --- | --- | --- | --- |
 | **Architect** | opus | Design, contracts, task breakdown, decisions. Never writes production code (shared types excepted). | Contracts must carry machine-readable blocks with `draft`/`stable` status |
 | **Developer** | sonnet | Implements features and fixes within stable contracts | Assumptions disclosure in commit bodies, adversarial self-challenge, surgical-change self-review |
 | **Tester** | sonnet | Validates implementations against contracts, writes tests at the right layer | Mechanical contract diff; bug reports with reproduction steps; anti-flakiness rules |
 | **Reviewer** | sonnet | Read-only critique (Bash restricted to inspection) | AI-failure-mode checks (hallucinated APIs, broad catches, commit-vs-diff drift), severity calibration with a false-positive suppress list |
+| **Reconciler** | opus | Horizontal auditor — duplicate/seam/contract/convention drift across modules; never runs inside the inner build/review loop | Three modes: `advisory` (feeds a design before it's built), `scoped` (gates a parallel-build wave merge, or on demand via `/reconcile`), `full` (runs inside `/healthcheck`) |
+| **Researcher** | sonnet | Evidence gathering — external research (docs, APIs, standards) and internal archaeology (git history, existing docs) when a decision needs facts nobody in session can verify from the code alone | Returns cited findings only — never modifies files |
+| **UI-Designer** | sonnet | Visual and interaction design implementer for user-facing UI | Proposes design directions before building; never hands off unrendered work as done |
+| **UX-Critic** | sonnet | Adversarial UX and visual-design critic for UI about to be accepted | Cognitive walkthroughs with numeric friction counts, rubric-scored visual critique; briefed to refute "the flow is fine" |
+| **Verifier** | sonnet | Adversarial verifier of another agent's claims before they're acted on (findings, fix claims, test results) | Always a fresh context; never the agent that produced the claim |
 
 **The golden rule: the agent that writes code never reviews it.** The Reviewer runs in a clean context, is told the code was written by a separate AI, and treats it with junior-developer skepticism.
 

@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Code reviewer for contract compliance, security, and quality. Use whenever code moves from Ready for Review to In Review, when settings.json/hooks/agents change, or for periodic security sweeps. Returns structured findings only — never modifies files.
+description: Code reviewer for contract compliance, security, and quality. Use whenever a task is Ready for Review — approval moves it to Ready for Test, issues found send it back to In Progress — when settings.json/hooks/agents change, or for periodic security sweeps. Returns structured findings only — never modifies files.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---

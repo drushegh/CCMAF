@@ -3,7 +3,7 @@
 <!-- Newest decisions at the top. During Cold Start, agents read only the last 10 entries. -->
 <!-- When this file exceeds ~50 entries, move older decisions to .claude/framework/docs/archives/decisions-archive.md -->
 
-### DEC-029 — Hybrid lane lifecycle (Kanban/Verify integration)
+## DEC-029 — Hybrid lane lifecycle (Kanban/Verify integration)
 
 **Date:** 2026-07-04
 **Status:** Adopted

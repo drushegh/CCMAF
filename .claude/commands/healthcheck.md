@@ -98,8 +98,9 @@ If neither found, Parts 4 auto-skip with a note in the findings.
 
 If 0.2 returned no source dirs AND no test dirs, the framework instance
 holds no project (e.g., fresh clone before code arrives, or the
-upstream framework repo itself). Parts 1, 2, 3, and 4 auto-skip —
-framework integrity and state-file consistency still run.
+upstream framework repo itself). Parts 2 and 3 auto-skip (no project
+code to review, no contract/reconciler-full sweep to run against it) —
+Part 1 (framework integrity) and Part 4 (state-file consistency) still run.
 
 **0.6. Tell the user what was detected.** Before running any
 expensive step, summarise the detected shape (mode, project name,

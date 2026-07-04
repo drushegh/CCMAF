@@ -55,7 +55,7 @@ Claude reads the file during cold start and surfaces findings via
 AskUserQuestion. Dismiss a session's findings with:
 
 ```bash
-rm .framework-doctor-findings.md
+rm .claude/.framework-doctor-findings.md
 ```
 
 Doctor re-scans on every cold start — state issues don't get less

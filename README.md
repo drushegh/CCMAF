@@ -208,6 +208,7 @@ Four named moments keep disk close to working memory:
 | [`/build`](.claude/commands/build.md) | Implement a task end-to-end |
 | [`/test`](.claude/commands/test.md) | Validate against contracts; emit verify-handback seeds |
 | [`/review`](.claude/commands/review.md) | Contract / security / quality review |
+| [`/reconcile`](.claude/commands/reconcile.md) | Horizontal reconciliation — duplicate/seam/contract/convention drift; scoped default, `--advisory` / `--full` |
 | [`/bug`](.claude/commands/bug.md) | Log and triage a bug |
 | [`/security`](.claude/commands/security.md) | Security + config-surface audit |
 | [`/council`](.claude/commands/council.md) | Multi-advisor decision panel |

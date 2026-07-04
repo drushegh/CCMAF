@@ -73,7 +73,7 @@ correlation without any OTel dependency:
 `analyse.sh` only produces `.claude/.framework-insight-alert.md` when at least
 one finding exceeds its threshold AND the sample size is above
 `INSIGHTS_MIN_EVENTS` (default 50). Cold start surfaces the alert via
-AskUserQuestion. Dismiss with `rm .framework-insight-alert.md`.
+AskUserQuestion. Dismiss with `rm .claude/.framework-insight-alert.md`.
 
 ## Gitignore boundary
 
@@ -97,7 +97,7 @@ bash .claude/framework/insights/analyse.sh --force
 bash .claude/framework/insights/rollup.sh
 
 # Dismiss a current alert
-rm .framework-insight-alert.md
+rm .claude/.framework-insight-alert.md
 
 # Tune thresholds for your workflow
 $EDITOR .claude/framework/insights/thresholds.conf
