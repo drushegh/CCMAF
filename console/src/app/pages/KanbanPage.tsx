@@ -11,7 +11,7 @@
  * Lane tabs, canonical column order, and live-refresh (useAsync/SSE) preserved.
  */
 
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   Circle,
@@ -288,6 +288,22 @@ export function KanbanPage() {
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
 
   const board = optimisticBoard ?? (phase === "ready" ? data : null);
+
+  // CRITICAL fix (mirrors VerifyViewer.tsx's "CRITICAL fix #1"): once a fresh,
+  // authoritative board actually lands (`phase === "ready"` with new `data`),
+  // drop the optimistic overlay so the reconciled board wins. Without this,
+  // a single inline status change froze the board on its optimistic snapshot
+  // forever — useAsync's SSE-triggered refetches (lib.tsx) updated `data`, but
+  // `board` above preferred `optimisticBoard` unconditionally, so a server-side
+  // auto-move (e.g. Verify → Done) never appeared until nav-away/back. Gated on
+  // `phase === "ready"` (not just on `data` changing) so the transient
+  // "loading" dip mid-reload doesn't prematurely clear the bridge and flash an
+  // empty board before the refreshed data is actually in hand.
+  useEffect(() => {
+    if (phase === "ready") {
+      setOptimisticBoard(null);
+    }
+  }, [data, phase]);
 
   const laneItemCount = (lane: Lane): number =>
     board

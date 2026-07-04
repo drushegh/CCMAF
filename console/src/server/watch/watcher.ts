@@ -5,9 +5,19 @@
  * a "change" event (debounced ~250ms) whenever any of them are modified.
  *
  * Design:
- *   - Uses node:fs.watch. On Windows, recursive watch is supported at the
- *     directory level, so we watch parent directories recursively and filter
- *     events back to the known read-set.
+ *   - Uses node:fs.watch. Every path in the read-set is watched via its
+ *     CONTAINING DIRECTORY, never the individual file, filtering events back
+ *     to the known read-set (dirs with real subdirectories worth tracking —
+ *     specs/, verify/, telemetry/ — are additionally watched recursively).
+ *     This is deliberate, not incidental: every write to these files in this
+ *     codebase goes through an atomic temp-file + renameSync (see
+ *     atomicWriteTasksMd in ../routes/tasks-write-routes.ts). On Linux,
+ *     fs.watch(file) is backed by inotify watching the file's INODE — a
+ *     rename() onto that path replaces the inode, and the original watch
+ *     does not follow it, so the very first rename-based write permanently
+ *     and silently kills a per-file watch. A directory watch doesn't have
+ *     this problem: it's bound to the directory entry, which survives every
+ *     rename inside it (confirmed empirically on Linux/WSL2 and Windows).
  *   - Debounce: a single 250ms timer coalesces rapid editor-save bursts.
  *   - ENOENT / transient errors are swallowed (files may not exist yet).
  *   - Exported as a singleton factory; the plugin calls start() once and
@@ -18,7 +28,7 @@
 
 import { watch, type FSWatcher } from "node:fs";
 import { EventEmitter } from "node:events";
-import { join, resolve, normalize } from "node:path";
+import { join, resolve, normalize, dirname } from "node:path";
 import { dotClaudePath, getProjectRoot } from "../project-root.js";
 
 // ── Event shape ──────────────────────────────────────────────────────────────
@@ -141,12 +151,42 @@ export function createWatcher(): Watcher {
     const { files, dirs } = buildReadSet();
     const knownFiles = buildNormalizedFileSet(files);
 
-    // Watch individual files directly (for .claude/*.md and README.md)
+    // Watch the CONTAINING DIRECTORY of each individual file (.claude/*.md
+    // and README.md), not the file itself — see the module doc comment for
+    // why a per-file watch is unsafe (dies after the first rename-based
+    // write on Linux). Group by directory so a dir with multiple watched
+    // files (e.g. all of .claude/) gets exactly one fs.watch handle.
+    const filesByDir = new Map<string, string[]>();
     for (const filePath of files) {
+      const dir = dirname(resolve(filePath));
+      const list = filesByDir.get(dir);
+      if (list) {
+        list.push(filePath);
+      } else {
+        filesByDir.set(dir, [filePath]);
+      }
+    }
+
+    for (const [dirPath, dirFiles] of filesByDir) {
       try {
-        const h = watch(filePath, { persistent: false }, (eventType) => {
-          if (eventType === "change" || eventType === "rename") {
-            scheduleEmit(normalize(resolve(filePath)));
+        const h = watch(dirPath, { persistent: false }, (eventType, filename) => {
+          if (eventType !== "change" && eventType !== "rename") return;
+          if (filename) {
+            const candidate = normalize(resolve(dirPath, filename));
+            // Only known read-set files matter — ignore events for temp
+            // files created mid atomic-write (e.g. TASKS.md.tmp-1234) so
+            // they don't cause spurious extra emissions.
+            if (knownFiles.has(candidate)) {
+              scheduleEmit(candidate);
+            }
+            return;
+          }
+          // Some platforms omit filename for certain event types — fall back
+          // to the single watched file in this dir, or a generic event.
+          if (dirFiles.length === 1) {
+            scheduleEmit(normalize(resolve(dirFiles[0])));
+          } else {
+            scheduleEmit(undefined);
           }
         });
         h.on("error", () => {
@@ -154,7 +194,7 @@ export function createWatcher(): Watcher {
         });
         handles.push(h);
       } catch {
-        // File may not exist yet — skip; it will be picked up by dir watch if in a dir
+        // Directory may not exist yet — skip gracefully
       }
     }
 

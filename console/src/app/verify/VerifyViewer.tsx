@@ -147,6 +147,14 @@ export const VerifyViewer = forwardRef<VerifyViewerHandle, VerifyViewerProps>(
     const patch: Partial<VerifyItem> = severityApplies(verdict)
       ? { verdict }
       : { verdict, severity: null };
+    // Mirror the server's bugId rule (verify/io.ts: "an explicit value in the
+    // patch wins; a pass clears the link"). Flipping a flagged item straight to
+    // Pass must clear bugId immediately, client-side — otherwise VerifyItem's
+    // "Bug raised… reopens for a retest" banner (driven purely off item.bugId)
+    // keeps showing a contradictory state until the next Save round-trips.
+    if (verdict === "pass") {
+      patch.bugId = null;
+    }
     patchItem(id, patch);
   }
 

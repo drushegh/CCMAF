@@ -18,6 +18,8 @@ import {
   render,
   screen,
   waitFor,
+  fireEvent,
+  within,
 } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
@@ -27,25 +29,36 @@ import type { TaskBoard, TaskItem, Lane } from "../src/app/api/state.js";
 // ── Module mocks ──────────────────────────────────────────────────────────
 
 const mockPutTaskStatus = vi.fn();
+// Routed through outer refs (not baked into the factory) so a sibling describe
+// block's `vi.restoreAllMocks()` (several already call it in their own
+// afterEach) doesn't silently wipe the resolved value out from under a LATER
+// test that opens CardDetailPanel — re-armed in the root beforeEach below.
+const mockFetchTaskDetail = vi.fn();
+const mockFetchComments = vi.fn();
 
 vi.mock("../src/app/api/tasks-write.js", () => ({
   putTaskStatus: (...args: unknown[]) => mockPutTaskStatus(...args),
-  fetchTaskDetail: vi.fn().mockResolvedValue({
+  fetchTaskDetail: (...args: unknown[]) => mockFetchTaskDetail(...args),
+  fetchComments: (...args: unknown[]) => mockFetchComments(...args),
+  readConsoleToken: () => "",
+  TasksApiError: class extends Error {},
+}));
+
+beforeEach(() => {
+  mockFetchTaskDetail.mockResolvedValue({
     id: "TASK-001",
     title: "Scaffold the app",
     lane: "feature",
     status: "In Progress",
     body: [],
     comments: 0,
-  }),
-  fetchComments: vi.fn().mockResolvedValue({
+  });
+  mockFetchComments.mockResolvedValue({
     schemaVersion: 1,
     taskId: "TASK-001",
     comments: [],
-  }),
-  readConsoleToken: () => "",
-  TasksApiError: class extends Error {},
-}));
+  });
+});
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -312,5 +325,95 @@ describe("KanbanPage — move error banner", () => {
     renderKanban();
     await screen.findByText("In Progress");
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+// ── KanbanPage — reload reconciliation (optimisticBoard bug fix) ────────────
+//
+// Bug: `board = optimisticBoard ?? (phase === "ready" ? data : null)` preferred
+// the optimistic snapshot unconditionally and only cleared it on the archive
+// path. After one inline status change, the board froze on that snapshot
+// forever — a fresh `data` from a later reload (including the SSE-triggered
+// refetches every other page relies on) never displayed. This test drives the
+// full component reload cycle: an inline status change sets the optimistic
+// overlay, then a *different* authoritative board lands (simulating a
+// concurrent server-side auto-move) — the board must reconcile to the fresh
+// data, not stay stuck on the stale snapshot.
+describe("KanbanPage — reload reconciles the optimistic overlay with fresh data", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("shows the authoritative board once a reload lands, not the frozen optimistic snapshot", async () => {
+    const boardBeforeMove: TaskBoard = {
+      columns: [
+        {
+          status: "In Progress",
+          lane: "feature",
+          items: [{ id: "TASK-001", title: "Scaffold the app", status: "In Progress", lane: "feature" }],
+        },
+        { status: "Verify", lane: "feature", items: [] },
+        { status: "Done", lane: "feature", items: [] },
+      ],
+    };
+    // What the reload's refetch resolves with — a DIFFERENT placement than the
+    // optimistic move below (e.g. a concurrent server-side Verify → Done),
+    // proving reconciliation adopts fresh `data` rather than the snapshot.
+    const boardAfterReload: TaskBoard = {
+      columns: [
+        { status: "In Progress", lane: "feature", items: [] },
+        { status: "Verify", lane: "feature", items: [] },
+        {
+          status: "Done",
+          lane: "feature",
+          items: [{ id: "TASK-001", title: "Scaffold the app", status: "Done", lane: "feature" }],
+        },
+      ],
+    };
+
+    let call = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.includes("/api/tasks")) return new Response("not found", { status: 404 });
+      call += 1;
+      const body = call === 1 ? boardBeforeMove : boardAfterReload;
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    mockPutTaskStatus.mockResolvedValue({ ok: true, board: { columns: [] } });
+
+    renderKanban();
+    await screen.findByText("TASK-001");
+    expect(
+      within(screen.getByTestId("column-feature-In Progress")).queryByText("TASK-001"),
+    ).toBeInTheDocument();
+
+    // Open the popout and change status inline (In Progress -> Verify) — this
+    // is the path that sets the optimistic overlay (handleStatusChangeFromPanel).
+    fireEvent.click(screen.getByTestId("open-detail-TASK-001"));
+    const select = await screen.findByTestId("cdp-status-select");
+    fireEvent.change(select, { target: { value: "Verify" } });
+
+    // The optimistic overlay reflects the move immediately.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("column-feature-Verify")).queryByText("TASK-001"),
+      ).toBeInTheDocument(),
+    );
+
+    // Once the reload's fresh fetch lands, the board must reconcile to it
+    // (Done) — not stay frozen on the optimistic "Verify" snapshot forever.
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId("column-feature-Done")).queryByText("TASK-001"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByTestId("column-feature-Verify")).queryByText("TASK-001"),
+    ).toBeNull();
   });
 });

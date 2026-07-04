@@ -29,9 +29,13 @@ import { readTasksContentWithMeta, atomicWriteTasksMd } from "./tasks-write-rout
 // Both helpers are best-effort against TASKS.md: the verify file write is the
 // durable, validated action; a board hiccup (missing TASKS.md, missing
 // section, or a concurrent-write conflict) must never fail the verify save
-// that already succeeded. A missed board update self-heals on the NEXT save
-// (the file's crTaskId stays null / the task stays off Done until a save
-// finds the board writable), so silently skipping here is safe, not lossy.
+// that already succeeded. Auto-move-to-Done self-heals on the NEXT save — the
+// all-complete gate re-checks every time. CR-spawn, however, does NOT auto-
+// retry a FAILED spawn: after the patch-membership gate (see spawnCrFollowUps),
+// a later unrelated save can't distinguish a failed-spawn cr item from a legacy
+// pre-feature cr item, so a board hiccup during a cr transition drops that one
+// follow-up until the verdict is re-set. Known limitation — a clean retry needs
+// a persisted "spawn attempted" flag (a schema decision deferred to the owner).
 
 /** True when the file has at least one item and every item is pass or cr. */
 function allItemsComplete(items: VerifyItem[]): boolean {
@@ -71,12 +75,27 @@ function autoMoveToDoneIfComplete(taskId: string, items: VerifyItem[]): void {
  * its crTaskId (the follow-up is real work now — the owner manages it on the
  * board, per the brief). Sequential (not parallel) so each spawn sees the
  * previous one's id when computing the next TASK-NNN.
+ *
+ * F3 fix: `crTaskId` alone can't distinguish "just set to cr by THIS save"
+ * from "was already cr (or legacy warn, aliased on read) before this feature
+ * existed, so it has no crTaskId yet." Both look identical to a check that
+ * only inspects the final merged state. So a follow-up is only spawned for
+ * an item that BOTH (a) appears in this request's incoming patches, AND
+ * (b) had a pre-patch verdict other than `cr` — i.e. it genuinely
+ * transitioned to `cr` in this call. An item merely sitting at `cr` on disk,
+ * untouched by an unrelated save of the same file, is left alone.
  */
-function spawnCrFollowUps(taskId: string, items: VerifyItem[]): VerifyItem[] {
+function spawnCrFollowUps(
+  taskId: string,
+  items: VerifyItem[],
+  patchedIds: ReadonlySet<string>,
+  priorVerdictById: ReadonlyMap<string, VerifyItem["verdict"]>
+): VerifyItem[] {
   let result = items;
   for (let i = 0; i < result.length; i++) {
     const item = result[i];
     if (item.verdict !== "cr" || item.crTaskId) continue;
+    if (!patchedIds.has(item.id) || priorVerdictById.get(item.id) === "cr") continue;
     try {
       const read = readTasksContentWithMeta();
       if (read === null) continue; // no TASKS.md — nothing to spawn into; retried next save
@@ -175,8 +194,16 @@ const verifyRoutesPlugin: FastifyPluginAsync<VerifyRoutesOptions> = async (
         let updated = applyPatches(existing, patches);
         // Change 3: spawn a linked follow-up task for any newly-cr'd item
         // (idempotent — see spawnCrFollowUps) BEFORE writing, so the
-        // resulting crTaskId is part of the persisted file.
-        updated = { ...updated, items: spawnCrFollowUps(taskId, updated.items) };
+        // resulting crTaskId is part of the persisted file. F3 fix: pass the
+        // incoming patch ids + the PRE-patch verdict per id, so the spawn
+        // only fires for an item this save actually transitioned to cr, not
+        // for every item that merely happens to be cr on disk already.
+        const patchedIds = new Set(patches.map((p) => p.id));
+        const priorVerdictById = new Map(existing.items.map((it) => [it.id, it.verdict]));
+        updated = {
+          ...updated,
+          items: spawnCrFollowUps(taskId, updated.items, patchedIds, priorVerdictById),
+        };
         // Write back (validates the full file before touching disk). M4: reject
         // + signal reload if the file changed on disk since we read it above.
         const writeResult = writeVerifyFile(updated, { mtimeMs, contentHash });

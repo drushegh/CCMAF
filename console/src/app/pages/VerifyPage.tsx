@@ -10,6 +10,7 @@ import {
   MousePointerClick,
 } from "lucide-react";
 import { PageLayout, EmptyState } from "../components/PageLayout";
+import { useAsync } from "./lib";
 import { VerifyViewer, type VerifyViewerHandle } from "../verify/VerifyViewer";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import {
@@ -25,16 +26,10 @@ import {
   type VerdictPatch,
   type VerifyFile,
   type VerifyItem,
-  type VerifyRef,
 } from "../api/verify";
 import { createBug, putTaskStatus } from "../api/tasks-write";
 import type { Lane } from "../api/state";
 // verify.css is imported by VerifyViewer (single owner — avoids double-load).
-
-type QueueState =
-  | { phase: "loading" }
-  | { phase: "error"; message: string }
-  | { phase: "ready"; queue: VerifyRef[] };
 
 type FileState =
   | { phase: "loading"; task: string }
@@ -70,10 +65,18 @@ export function VerifyPage() {
   // Kanban / Dashboard handback cards can link straight to a task).
   const { task: openTask = null } = useParams<{ task: string }>();
   const navigate = useNavigate();
-  const [queueState, setQueueState] = useState<QueueState>({ phase: "loading" });
+  // Fix (align-with-idiom): every other read page uses useAsync, which owns the
+  // load/error/ready lifecycle AND auto-subscribes to the shared SSE change
+  // stream (debounced ~250ms — see lib.tsx). The queue previously used a
+  // bespoke AbortController effect with none of that, so external changes
+  // (another reviewer's save, a server-side status move) never appeared here
+  // until a manual Retry. `queueState.reload()` still powers the existing
+  // post-Save / post-Accept / Retry refresh paths below — only the loader
+  // itself changed. (The right-hand file loader is untouched: what happens to
+  // an open detail pane when its task leaves the queue is a separate,
+  // still-pending design decision.)
+  const queueState = useAsync(fetchVerifyQueue, []);
   const [fileState, setFileState] = useState<FileState | null>(null);
-  // Bumped to force a re-fetch (Retry) without changing the route.
-  const [queueNonce, setQueueNonce] = useState(0);
   const [fileNonce, setFileNonce] = useState(0);
 
   // Unsaved-changes nav guard: the viewer reports `dirty`; switching tasks while
@@ -86,22 +89,6 @@ export function VerifyPage() {
   // single status (Ready for Test), so the archived toggle + status sort are
   // omitted (id/title only).
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
-
-  // ── Load the queue ──
-  useEffect(() => {
-    const ac = new AbortController();
-    setQueueState({ phase: "loading" });
-    fetchVerifyQueue(ac.signal)
-      .then((queue) => setQueueState({ phase: "ready", queue }))
-      .catch((err: unknown) => {
-        if (ac.signal.aborted) return;
-        setQueueState({
-          phase: "error",
-          message: err instanceof Error ? err.message : "Could not load queue",
-        });
-      });
-    return () => ac.abort();
-  }, [queueNonce]);
 
   // ── Load the selected file ──
   useEffect(() => {
@@ -130,11 +117,11 @@ export function VerifyPage() {
       if (!openTask) return Promise.reject(new Error("No task open"));
       return saveVerdicts(openTask, patches).then((file) => {
         // Refresh the left-list counts + progress icon to reflect the saved verdicts.
-        setQueueNonce((n) => n + 1);
+        queueState.reload();
         return file;
       });
     },
-    [openTask]
+    [openTask, queueState.reload]
   );
 
   // Flag a failing use case as a bug → create BUG-XXX in the Bug-Fix lane and
@@ -160,10 +147,10 @@ export function VerifyPage() {
     if (!openTask) return Promise.reject(new Error("No task open"));
     const lane: Lane = openTask.startsWith("BUG") ? "bug" : "feature";
     return putTaskStatus(openTask, "Done", lane).then(() => {
-      setQueueNonce((n) => n + 1);
+      queueState.reload();
       navigate("/verify");
     });
-  }, [openTask, navigate]);
+  }, [openTask, navigate, queueState.reload]);
 
   // ── Unsaved-changes nav guard ──
   // Warn on hard navigation (tab close / refresh / external link) while dirty.
@@ -209,7 +196,7 @@ export function VerifyPage() {
   // Apply the queue filter/sort (adapt VerifyRef → { id, title }).
   const visibleRefs =
     queueState.phase === "ready"
-      ? queueState.queue
+      ? queueState.data
           .filter((r) => taskMatchesFilter({ id: r.task, title: r.title }, filter))
           .sort((a, b) =>
             compareTasks(
@@ -227,7 +214,7 @@ export function VerifyPage() {
       badge="Ready for Test"
       badgeVariant="warning"
     >
-      {queueState.phase === "ready" && queueState.queue.length > 0 && (
+      {queueState.phase === "ready" && queueState.data.length > 0 && (
         <TaskFilterBar
           value={filter}
           onChange={setFilter}
@@ -246,12 +233,12 @@ export function VerifyPage() {
 
           {queueState.phase === "error" && (
             <ErrorPanel
-              message={queueState.message}
-              onRetry={() => setQueueNonce((n) => n + 1)}
+              message={queueState.error.message}
+              onRetry={queueState.reload}
             />
           )}
 
-          {queueState.phase === "ready" && queueState.queue.length === 0 && (
+          {queueState.phase === "ready" && queueState.data.length === 0 && (
             <div className="vv-queue-empty">
               <EmptyState
                 icon={<CheckSquare size={22} />}
@@ -262,7 +249,7 @@ export function VerifyPage() {
           )}
 
           {queueState.phase === "ready" &&
-            queueState.queue.length > 0 &&
+            queueState.data.length > 0 &&
             visibleRefs.length === 0 && (
               <div className="vv-queue-empty">
                 <EmptyState

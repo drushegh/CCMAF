@@ -540,6 +540,33 @@ describe("writeVerifyFile / readVerifyFile — round-trip", () => {
       expect((e as { code?: string }).code).toBe("ENOENT");
     }
   });
+
+  // F4: the file's own `task` field must match the id it's read/written
+  // under (see io.ts readVerifyFileWithMeta) — otherwise a later
+  // writeVerifyFile resolves a DIFFERENT path than the one just read,
+  // producing a misleading conflict instead of a clear diagnostic.
+  it("readVerifyFileWithMeta throws a clear diagnostic when the file's task field mismatches the requested id", () => {
+    writeFileSync(
+      join(tempVerifyDir, "TASK-800.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        task: "TASK-801",
+        status: "in-review",
+        items: [],
+      }),
+      "utf8"
+    );
+    expect(() => readVerifyFileWithMeta("TASK-800")).toThrow(/mismatch/i);
+    expect(() => readVerifyFileWithMeta("TASK-800")).toThrow(/TASK-800/);
+    expect(() => readVerifyFileWithMeta("TASK-800")).toThrow(/TASK-801/);
+    // The error must NOT look like an ENOENT (the file exists and is valid
+    // JSON/schema — this is specifically a task-field mismatch).
+    try {
+      readVerifyFileWithMeta("TASK-800");
+    } catch (e) {
+      expect((e as { code?: string }).code).not.toBe("ENOENT");
+    }
+  });
 });
 
 describe("listVerifyRefs — queue listing", () => {

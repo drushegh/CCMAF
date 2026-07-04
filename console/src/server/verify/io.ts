@@ -260,6 +260,22 @@ export function readVerifyFileWithMeta(taskId: string): VerifyFileWithMeta {
   // assertVerifyFile throws with a descriptive error if validation fails.
   const file = assertVerifyFile(parsed);
 
+  // F4 fix: the file's own `task` field must match the id it was read under.
+  // Nothing else in the codebase enforced this — without it, a later
+  // writeVerifyFile(updated, ...) resolves its WRITE path from `file.task`
+  // (carried through unchanged from here), a DIFFERENT file than the one
+  // just read if the two ever diverge (e.g. an externally hand-edited or
+  // renamed file). That produces a misleading "changed on disk since it was
+  // read" 409 (the mismatched target's own mtime/hash never match) that a
+  // reload cannot fix, or a silently-discarded edit. Reject explicitly and
+  // immediately, before any patch/spawn/write logic runs, with a diagnostic
+  // that names the real problem.
+  if (file.task !== taskId) {
+    throw new Error(
+      `Verify file for ${taskId} has a mismatched internal task field (found "${file.task}"); refusing to read/write it. The file may be corrupt or was renamed without updating its "task" field.`
+    );
+  }
+
   // Retest-loop reconcile (+ normalise to the current shape) for THIS caller's
   // view only — NOT persisted here (see doc comment above): a use case whose
   // flagged bug is now Done in TASKS.md flips back to pending with a new notes

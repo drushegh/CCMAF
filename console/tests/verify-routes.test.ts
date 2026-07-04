@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { mkdirSync, rmSync, writeFileSync, statSync, readFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, statSync, readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify from "fastify";
@@ -321,6 +321,62 @@ describe("PUT /api/verify/:task — auto-move to Done (change 1) + CR follow-up 
     expect(occurrences).toBe(1);
   });
 
+  it("F3 regression: a pre-existing cr item with no crTaskId does NOT get a retroactive follow-up spawned by an unrelated save, but a genuine cr transition still spawns exactly one", async () => {
+    // item-1 simulates a legacy/pre-existing `cr` item that predates the
+    // crTaskId feature (no crTaskId field at all). item-2 is the item this
+    // save actually targets (unrelated to item-1). item-3 starts pending and
+    // is used in step 2 to prove a REAL cr transition still spawns normally.
+    writeVerifyFile({
+      schemaVersion: 1,
+      task: "TASK-624",
+      status: "in-review",
+      items: [
+        makeItem({ id: "f3-item-1", kind: "usecase", title: "Old CR item", verdict: "cr", severity: "P2", bugId: null, notes: "pre-existing, no crTaskId" }),
+        makeItem({ id: "f3-item-2", kind: "usecase", title: "Unrelated failing item", verdict: "fail", severity: "P1", bugId: null }),
+        makeItem({ id: "f3-item-3", kind: "usecase", title: "Will become a CR", verdict: "pending", severity: null, bugId: null }),
+      ],
+    });
+
+    // Step 1: save a patch that ONLY touches f3-item-2 (fail -> pass).
+    // f3-item-1's pre-existing cr verdict is untouched by this request.
+    const step1 = await app.inject({
+      method: "PUT",
+      url: "/api/verify/TASK-624",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify([{ id: "f3-item-2", verdict: "pass" }]),
+    });
+    expect(step1.statusCode).toBe(200);
+    const afterStep1 = step1.json<VerifyFile>();
+    const item1AfterStep1 = afterStep1.items.find((it) => it.id === "f3-item-1")!;
+    // Zero follow-ups spawned for the untouched pre-existing cr item.
+    expect(item1AfterStep1.crTaskId ?? null).toBeNull();
+
+    const boardAfterStep1 = readFileSync(tasksMdPath(), "utf8");
+    expect(boardAfterStep1).not.toContain("use-case `f3-item-1`");
+
+    // Step 2: a patch that genuinely transitions f3-item-3 to cr must still
+    // spawn exactly one follow-up (the fix must not disable spawning
+    // outright, only the retroactive/untouched-item case).
+    const step2 = await app.inject({
+      method: "PUT",
+      url: "/api/verify/TASK-624",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify([{ id: "f3-item-3", verdict: "cr", notes: "needs a follow-up" }]),
+    });
+    expect(step2.statusCode).toBe(200);
+    const afterStep2 = step2.json<VerifyFile>();
+    const item3AfterStep2 = afterStep2.items.find((it) => it.id === "f3-item-3")!;
+    expect(item3AfterStep2.crTaskId).toMatch(/^TASK-\d+$/);
+    // f3-item-1 still has no follow-up — this save didn't touch it either.
+    const item1AfterStep2 = afterStep2.items.find((it) => it.id === "f3-item-1")!;
+    expect(item1AfterStep2.crTaskId ?? null).toBeNull();
+
+    const boardAfterStep2 = readFileSync(tasksMdPath(), "utf8");
+    expect(boardAfterStep2).not.toContain("use-case `f3-item-1`");
+    const item3Occurrences = boardAfterStep2.split("use-case `f3-item-3`").length - 1;
+    expect(item3Occurrences).toBe(1);
+  });
+
   it("auto-moves a BUG (bug-fix lane) to Done the same way as a TASK", async () => {
     writeVerifyFile({
       schemaVersion: 1,
@@ -389,5 +445,70 @@ describe("GET /api/verify/:task — legacy `warn` verdict reads as `cr`", () => 
     expect(ref).toBeDefined();
     expect(ref!.counts["cr"]).toBe(1);
     expect(ref!.counts["warn"]).toBeUndefined();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// F4 — a verify file whose own `task` field doesn't match the :task route
+// param it's addressed by must be rejected explicitly, not produce a
+// misleading conflict / silently-discarded edit.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+describe("PUT /api/verify/:task — rejects a file whose internal task field mismatches the route param (F4)", () => {
+  let app: FastifyInstance;
+
+  beforeAll(async () => {
+    app = await buildTestServer();
+    // Written directly (bypassing writeVerifyFile, which always writes to
+    // resolveVerifyPath(file.task) and so can never produce this shape
+    // itself) to simulate an externally hand-edited / renamed file: the
+    // filename says TASK-640 but the file's own `task` field says TASK-999.
+    writeFileSync(
+      join(tempVerifyDir, "TASK-640.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        task: "TASK-999",
+        status: "in-review",
+        items: [{ id: "item-1", kind: "usecase", title: "Mismatched file", verdict: "pending" }],
+      }),
+      "utf8"
+    );
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it("PUT rejects with a clear diagnostic (not a misleading 409 'changed on disk') and leaves the file untouched", async () => {
+    const before = readFileSync(join(tempVerifyDir, "TASK-640.json"), "utf8");
+
+    const res = await app.inject({
+      method: "PUT",
+      url: "/api/verify/TASK-640",
+      headers: { "content-type": "application/json" },
+      payload: JSON.stringify([{ id: "item-1", verdict: "pass" }]),
+    });
+
+    // Not a 409 "reload and retry" — that response would be actively
+    // misleading here (reloading and retrying can never fix a structural
+    // filename/task-field mismatch).
+    expect(res.statusCode).not.toBe(409);
+    expect(res.statusCode).toBe(422);
+    const body = res.json<{ error: string }>();
+    expect(body.error).toMatch(/mismatch/i);
+    expect(body.error).toContain("TASK-640");
+    expect(body.error).toContain("TASK-999");
+
+    // The edit must be silently discarded nowhere: TASK-640.json is
+    // untouched, and no TASK-999.json was created either.
+    expect(readFileSync(join(tempVerifyDir, "TASK-640.json"), "utf8")).toBe(before);
+    expect(existsSync(join(tempVerifyDir, "TASK-999.json"))).toBe(false);
+  });
+
+  it("GET also rejects the mismatched file with a diagnostic (422) rather than silently serving it", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/verify/TASK-640" });
+    expect(res.statusCode).toBe(422);
+    const body = res.json<{ error: string }>();
+    expect(body.error).toMatch(/mismatch/i);
   });
 });

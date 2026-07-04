@@ -482,6 +482,50 @@ describe("VerifyViewer — flag as bug", () => {
     expect(await screen.findByTestId("flagged-TP-01")).toBeInTheDocument();
     expect(screen.queryByTestId("flag-TP-01")).toBeNull();
   });
+
+  // FIX (bugId/verdict contradiction): the server's own rule (verify/io.ts)
+  // is "an explicit value in the patch wins; a pass clears the link." Flipping
+  // a flagged item straight to Pass must mirror that client-side immediately —
+  // VerifyItem.tsx renders the "Bug raised… reopens for a retest" banner purely
+  // off item.bugId, so without this the banner contradicted a Pass verdict
+  // until the next Save round-trip reconciled it from the server.
+  it("clears bugId immediately on a direct-to-Pass flip, and persists the clear on Save", async () => {
+    const file = makeFile({
+      items: [
+        {
+          id: "TP-01",
+          kind: "test-plan-item",
+          title: "First item",
+          verdict: "fail",
+          severity: "P2",
+          notes: "",
+          bugId: "BUG-042",
+        },
+      ],
+    });
+    const onSave = echoSave();
+    render(<VerifyViewer file={file} onSave={onSave} />);
+
+    // The contradictory banner shows initially (bugId is set, independent of
+    // verdict).
+    expect(screen.getByTestId("flagged-TP-01")).toBeInTheDocument();
+
+    const group = screen.getByTestId("verdict-TP-01");
+    fireEvent.click(within(group).getByRole("radio", { name: /pass/i }));
+
+    // Flip straight to Pass (no severity change first) — the banner must
+    // disappear immediately, without waiting for a Save.
+    expect(screen.queryByTestId("flagged-TP-01")).toBeNull();
+    expect(screen.queryByTestId("flag-TP-01")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    const patch = onSave.mock.calls
+      .at(-1)![0]
+      .find((p: { id: string }) => p.id === "TP-01");
+    expect(patch.verdict).toBe("pass");
+    expect(patch.bugId).toBeNull();
+  });
 });
 
 describe("VerifyViewer — retest rounds", () => {
@@ -718,5 +762,85 @@ describe("VerifyPage", () => {
     renderVerify("/verify/TASK-006");
     expect(await screen.findByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+  });
+});
+
+// ── VerifyPage — queue live-refresh (align-with-idiom fix) ─────────────────
+//
+// FIX: the queue loader was a bespoke AbortController effect with no SSE
+// subscription (grep confirmed zero subscribeToChanges/useAsync imports) —
+// unlike every other read page, external changes (another reviewer's save, a
+// server-side status move) never appeared here until a manual Retry click.
+// The queue loader now runs through useAsync (lib.tsx), which auto-subscribes
+// to the shared SSE change stream and debounces re-runs ~250ms — same
+// mocking technique as tests/use-async-live.test.tsx, which already covers
+// useAsync's SSE plumbing generically; this test proves VerifyPage's queue
+// specifically picks it up. (The file loader / open detail pane is untouched —
+// that's a separate, still-pending design decision per the brief.)
+let _queueChangeListeners: Array<(evt: { path?: string }) => void> = [];
+const mockQueueSubscribe = vi.fn((listener: (evt: { path?: string }) => void) => {
+  _queueChangeListeners.push(listener);
+  return () => {
+    _queueChangeListeners = _queueChangeListeners.filter((l) => l !== listener);
+  };
+});
+vi.mock("../src/app/api/events.js", () => ({
+  subscribe: (listener: (evt: { path?: string }) => void) => mockQueueSubscribe(listener),
+}));
+function fireQueueChange(evt: { path?: string } = {}) {
+  for (const l of [..._queueChangeListeners]) l(evt);
+}
+
+describe("VerifyPage — queue live-refresh via SSE", () => {
+  beforeEach(() => {
+    _queueChangeListeners = [];
+    mockQueueSubscribe.mockClear();
+    // jsdom ships EventSource as undefined; useAsync's live-refresh subscribe
+    // is guarded behind `typeof EventSource !== "undefined"` (see lib.tsx), so
+    // it must be stubbed to exercise the subscription branch at all.
+    if (typeof EventSource === "undefined") {
+      vi.stubGlobal("EventSource", class {});
+    }
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("re-fetches the queue and shows a new task when an SSE change event fires (no manual Retry)", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let call = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (!url.endsWith("/api/verify")) return new Response("not found", { status: 404 });
+      call += 1;
+      const body =
+        call === 1
+          ? [{ task: "TASK-006", title: "Read-only pages", counts: { pending: 2 } }]
+          : [
+              { task: "TASK-006", title: "Read-only pages", counts: { pending: 2 } },
+              { task: "TASK-777", title: "New arrival", counts: { pending: 1 } },
+            ];
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderVerify("/verify");
+    await waitFor(() => expect(screen.getByText("Read-only pages")).toBeInTheDocument());
+    expect(screen.queryByText("New arrival")).toBeNull();
+
+    // Simulate the shared SSE change stream firing (another reviewer's save,
+    // or a server-side status move) — the queue must live-refresh with no
+    // manual Retry click, matching every other page's idiom.
+    await act(async () => {
+      fireQueueChange({ path: "/fake/.claude/console/verify/TASK-777.json" });
+      vi.advanceTimersByTime(300); // past useAsync's ~250ms debounce
+    });
+
+    await waitFor(() => expect(screen.getByText("New arrival")).toBeInTheDocument());
+    vi.useRealTimers();
   });
 });
