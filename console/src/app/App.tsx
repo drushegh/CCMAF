@@ -11,8 +11,6 @@ import { StatusPage } from "./pages/StatusPage";
 import { GotchasPage } from "./pages/GotchasPage";
 import { FindingsPage } from "./pages/FindingsPage";
 import { DocsPage } from "./pages/DocsPage";
-import { HeadroomPage } from "./pages/HeadroomPage";
-import { FEATURES } from "./featureFlags";
 
 export function App() {
   return (
@@ -25,10 +23,6 @@ export function App() {
           <Route path="status" element={<StatusPage />} />
           <Route path="gotchas" element={<GotchasPage />} />
           <Route path="findings" element={<FindingsPage />} />
-          {/* Headroom is parked (TASK-029) — gated behind a flag, not deleted. */}
-          {FEATURES.headroom && (
-            <Route path="headroom" element={<HeadroomPage />} />
-          )}
           <Route path="contracts" element={<ContractsPage />} />
           <Route path="decisions" element={<DecisionsPage />} />
           <Route path="spec" element={<SpecPage />} />

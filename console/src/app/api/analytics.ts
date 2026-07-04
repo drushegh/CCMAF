@@ -73,31 +73,6 @@ export interface SuggestionEntry {
   title: string;
 }
 
-// ── TASK-029: Headroom compression metrics ────────────────────────────────────
-export interface HeadroomRecord {
-  eventId: string | null;
-  ts: string | null;
-  model: string | null;
-  tokensIn: number | null;
-  tokensOut: number | null;
-  tokensSaved: number | null;
-  compressionRatio: number | null;
-  costUsd: number | null;
-  latencyMs: number | null;
-}
-
-export interface HeadroomSummary {
-  available: boolean;
-  recordCount: number;
-  tokensIn: number;
-  tokensOut: number;
-  tokensSaved: number;
-  avgCompressionRatio: number | null;
-  costUsd: number | null;
-  lastRun: string | null;
-  recent: HeadroomRecord[];
-}
-
 // ── HTTP helper ───────────────────────────────────────────────────────────────
 
 async function getJson<T>(path: string): Promise<T> {
@@ -150,9 +125,4 @@ export function fetchSuggestions(): Promise<SuggestionEntry[]> {
 /** Fetch a whitelisted `.claude/` state doc (status / review-findings / test-findings). */
 export function fetchStateDoc(key: string): Promise<StateDoc> {
   return getJson<StateDoc>(`/api/statedoc/${encodeURIComponent(key)}`);
-}
-
-/** Fetch aggregated Headroom compression metrics (TASK-029). */
-export function fetchHeadroom(): Promise<HeadroomSummary> {
-  return getJson<HeadroomSummary>("/api/headroom");
 }

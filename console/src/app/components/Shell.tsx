@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
-import { FEATURES } from "../featureFlags";
 import {
   LayoutDashboard,
   Kanban,
@@ -16,7 +15,6 @@ import {
   ClipboardCheck,
   ListChecks,
   FolderOpen,
-  Zap,
   Sun,
   Moon,
 } from "lucide-react";
@@ -67,12 +65,6 @@ const NAV_ITEMS: NavItem[] = [
     description: "Lessons learned",
   },
   {
-    to: "/headroom",
-    icon: <Zap size={18} />,
-    label: "Headroom",
-    description: "Compression savings",
-  },
-  {
     to: "/contracts",
     icon: <FileText size={18} />,
     label: "Contracts",
@@ -104,18 +96,12 @@ const NAV_ITEMS: NavItem[] = [
   },
 ];
 
-// Headroom is parked (TASK-029) — it stays defined above but is hidden from the
-// rail until FEATURES.headroom is flipped back on. Nothing is deleted.
-const VISIBLE_NAV = NAV_ITEMS.filter(
-  (item) => item.to !== "/headroom" || FEATURES.headroom
-);
-
 export function Shell() {
   const [collapsed, setCollapsed] = useState(false);
   const { theme, toggle } = useTheme();
   const location = useLocation();
 
-  const currentPage = VISIBLE_NAV.find((item) =>
+  const currentPage = NAV_ITEMS.find((item) =>
     location.pathname.startsWith(item.to)
   );
 
@@ -174,7 +160,7 @@ export function Shell() {
           aria-label="Main navigation"
         >
           <ul className="console-rail-list" role="list">
-            {VISIBLE_NAV.map((item) => (
+            {NAV_ITEMS.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}

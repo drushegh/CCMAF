@@ -22,14 +22,12 @@ import { readTelemetry } from "../parsers/telemetry-parser.js";
 import { parseGotchasFile } from "../parsers/gotchas-parser.js";
 import { parseFindingsFiles } from "../parsers/findings-parser.js";
 import { parseSuggestionsFile } from "../parsers/suggestions-parser.js";
-import { readHeadroomMetrics } from "../parsers/headroom-parser.js";
 import type {
   TelemetrySummary,
   GotchaEntry,
   FindingsSummary,
   FrameworkHealth,
   SuggestionEntry,
-  HeadroomSummary,
 } from "../types.js";
 
 /**
@@ -116,14 +114,5 @@ export const analyticsRoutes: FastifyPluginAsync = async (
   // ── GET /api/suggestions ────────────────────────────────────────────────────
   fastify.get<{ Reply: SuggestionEntry[] }>("/api/suggestions", async () => {
     return parseSuggestionsFile(dotClaudePath("FRAMEWORK-SUGGESTIONS.md"));
-  });
-
-  // ── GET /api/headroom ─────────────────────────────────────────────────────── (TASK-029)
-  // Aggregated Headroom compression metrics from the normalized JSONL. Empty
-  // (available:false) until Headroom has actually run in this project.
-  fastify.get<{ Reply: HeadroomSummary }>("/api/headroom", async () => {
-    return readHeadroomMetrics(
-      dotClaudePath("telemetry", "headroom-metrics.jsonl")
-    );
   });
 };

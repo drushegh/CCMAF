@@ -125,7 +125,6 @@ import { StatusPage } from "../src/app/pages/StatusPage";
 import { GotchasPage } from "../src/app/pages/GotchasPage";
 import { FindingsPage } from "../src/app/pages/FindingsPage";
 import { DocsPage } from "../src/app/pages/DocsPage";
-import { HeadroomPage } from "../src/app/pages/HeadroomPage";
 
 /** Route a set of URL-substring → JSON-body pairs through a stubbed fetch. */
 function stubRoutes(routes: Record<string, unknown>) {
@@ -294,67 +293,5 @@ describe("Framework-surface pages — TASK-027", () => {
       </MemoryRouter>
     );
     expect(await screen.findByText("No docs/ folder yet")).toBeInTheDocument();
-  });
-
-  it("Headroom page shows an empty state until Headroom has run", async () => {
-    stubRoutes({
-      "/api/headroom": {
-        available: false,
-        recordCount: 0,
-        tokensIn: 0,
-        tokensOut: 0,
-        tokensSaved: 0,
-        avgCompressionRatio: null,
-        costUsd: 0,
-        lastRun: null,
-        recent: [],
-      },
-    });
-    render(
-      <MemoryRouter>
-        <HeadroomPage />
-      </MemoryRouter>
-    );
-    expect(
-      await screen.findByText("No Headroom metrics yet")
-    ).toBeInTheDocument();
-  });
-
-  it("Headroom page renders real aggregates + records when available", async () => {
-    stubRoutes({
-      "/api/headroom": {
-        available: true,
-        recordCount: 2,
-        tokensIn: 8000,
-        tokensOut: 3000,
-        tokensSaved: 5000,
-        avgCompressionRatio: 0.4,
-        costUsd: 0.01,
-        lastRun: "2026-06-25T16:35:00Z",
-        recent: [
-          {
-            eventId: "hdr-2",
-            ts: "2026-06-25T16:35:00Z",
-            model: "claude-opus-4-8",
-            tokensIn: 3000,
-            tokensOut: 1500,
-            tokensSaved: 1500,
-            compressionRatio: 0.5,
-            costUsd: null,
-            latencyMs: null,
-          },
-        ],
-      },
-    });
-    render(
-      <MemoryRouter>
-        <HeadroomPage />
-      </MemoryRouter>
-    );
-    // headline aggregate (5,000 saved) + avg reduction = ratio itself (0.4 → 40%,
-    // since compression_ratio is the fraction removed, not tokens_out/tokens_in)
-    expect(await screen.findByText("5,000")).toBeInTheDocument();
-    expect(screen.getByText("40%")).toBeInTheDocument();
-    expect(screen.getByText("Recent records")).toBeInTheDocument();
   });
 });

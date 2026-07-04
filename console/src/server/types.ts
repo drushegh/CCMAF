@@ -156,34 +156,6 @@ export interface FindingsSummary {
   };
 }
 
-// ── TASK-029: Headroom (context-compression) metrics ──────────────────────────
-// Parsed from .claude/telemetry/headroom-metrics.jsonl (stable schema
-// headroom-metrics/1 produced by the framework's normalizer). DEC-018: every
-// numeric is a real Headroom value or null — never invented.
-export interface HeadroomRecord {
-  eventId: string | null;
-  ts: string | null;
-  model: string | null;
-  tokensIn: number | null;
-  tokensOut: number | null;
-  tokensSaved: number | null;
-  compressionRatio: number | null;
-  costUsd: number | null;
-  latencyMs: number | null;
-}
-
-export interface HeadroomSummary {
-  available: boolean; // file present with ≥1 valid record
-  recordCount: number;
-  tokensIn: number; // sum of real values
-  tokensOut: number; // sum of real values
-  tokensSaved: number; // sum of real values
-  avgCompressionRatio: number | null; // mean of non-null ratios
-  costUsd: number | null; // sum of non-null costs (null if none reported)
-  lastRun: string | null; // latest normalized_at / ts
-  recent: HeadroomRecord[]; // most-recent-first, bounded
-}
-
 export interface FrameworkHealth {
   version: string | null;
   updateAvailable: boolean;
