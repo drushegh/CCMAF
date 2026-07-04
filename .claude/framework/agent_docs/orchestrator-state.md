@@ -108,11 +108,11 @@ without adding a fifth:
 
 ## In flight
 - Developer — dispatched 14:02 on TASK-042, owns `src/auth/session.ts` — not yet returned.
-- seam-checker — dispatched 14:05, validating the TASK-039/TASK-041 boundary — not yet returned.
+- reconciler — dispatched 14:05, running `scoped` mode on the TASK-039/TASK-041 wave boundary — not yet returned.
 
 ## Next actions (in order)
 1. On Developer's return: route TASK-042 to Reviewer.
-2. On seam-checker's return: resolve any boundary mismatch before either task moves to Ready
+2. On reconciler's return: resolve any horizontal finding before either task moves to Ready
    for Test.
 
 ## Open asks

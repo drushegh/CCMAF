@@ -90,13 +90,15 @@ If neither found, Parts 4 auto-skip with a note in the findings.
 - ECOSYSTEM.md contains `<!-- contract:ID` blocks → contracts live in
   ECOSYSTEM.md.
 - `contracts/` directory at project root → per-file contracts.
-- Neither → Part 3 (contract verification) auto-skips.
+- Neither → Part 3's contract *category* auto-skips; the rest of Part 3
+  (reconciler full mode: duplicate/seam/convention drift) still runs —
+  see Part 3's own gate.
 
 **0.5. Detect if there's any project code at all.**
 
 If 0.2 returned no source dirs AND no test dirs, the framework instance
 holds no project (e.g., fresh clone before code arrives, or the
-upstream framework repo itself). Parts 1, 2, and 4 auto-skip —
+upstream framework repo itself). Parts 1, 2, 3, and 4 auto-skip —
 framework integrity and state-file consistency still run.
 
 **0.6. Tell the user what was detected.** Before running any
@@ -261,29 +263,44 @@ Reviewer subagent. Prompt template (fill in the detected sources):
 
 ---
 
-## Part 3 — Contract verification (skip if no contracts)
+## Part 3 — Contract verification & horizontal reconciliation (reconciler, full mode)
 
-Reviewer subagent. Prompt:
+**Gate: skip only if Part 0.5 found no project code at all** (not "skip
+if no contracts" — reconciler's other three categories, duplicate/seam/
+convention drift, have value even on a project with zero `contract:`
+blocks; the old narrower gate would silently skip those on a
+contracts-free project).
 
-> **Independence rule.** Do NOT read `.claude/review-findings.md`
-> before forming your audit. That file is write-only for you. Verify
-> contracts against source files alone.
->
-> For each contract in ECOSYSTEM.md (blocks tagged
-> `<!-- contract:ID status:stable -->`) OR in `contracts/` directory:
-> read the contract, find the source file(s) implementing it, and
-> verify signatures, params, return types, and behaviour match.
->
-> Also verify ECOSYSTEM.md module boundaries — all modules listed,
-> paths correct. Check contract markers — `status:draft` only where
-> work is in flight; `status:stable` only where implementation exists.
->
-> Return:
-> - **MISMATCH** (contract says X, code does Y)
-> - **MISSING** (code exists, no contract)
-> - **DRIFT** (contract exists but signature changed unannounced)
+Reconciler subagent, `full` mode. Prompt:
 
-**PERSIST** to `.claude/review-findings.md`. Release from context.
+> Reconcile in `full` mode: whole-repo sweep, no delta. Deterministic
+> tools first (jscpd if present, export inventories, name-similarity
+> greps, compiler/type-check where available) — spend judgment only on
+> the candidate list they surface.
+>
+> Contract category — for each `<!-- contract:ID status:stable -->`
+> block in ECOSYSTEM.md (or `contracts/`): read the contract, find the
+> implementation, verify signatures/params/return types/behaviour match.
+> Also verify ECOSYSTEM.md module boundaries and architecture.md's
+> Module Structure against the actual layout. Report contract findings
+> using: **MISMATCH** (contract says X, code does Y) / **MISSING** (code
+> exists, no contract) / **DRIFT** (contract exists, signature changed
+> unannounced) — same vocabulary healthcheck has always used, so this
+> replaces the Reviewer's old contract-verification pass rather than
+> duplicating it.
+>
+> Duplicate / seam / convention categories — per your agent definition.
+>
+> On success, write the findings JSON (`.claude/console/reconcile/<scope-id>.json`,
+> gated on `.claude/console/` existing) and touch
+> `.claude/telemetry/.last-reconcile`.
+>
+> Return per your Return Format section, plus the MISMATCH/MISSING/DRIFT
+> lines inline so they can be persisted below.
+
+**PERSIST** the returned findings (contract lines in MISMATCH/MISSING/DRIFT
+form, other categories as-is) to `.claude/review-findings.md`. Release from
+context.
 
 ---
 

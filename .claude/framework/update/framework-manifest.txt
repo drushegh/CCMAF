@@ -47,6 +47,7 @@
 .claude/commands/plan.md
 .claude/commands/post-compact.md
 .claude/commands/pre-compact.md
+.claude/commands/reconcile.md
 .claude/commands/review.md
 .claude/commands/security.md
 .claude/commands/test.md

@@ -141,8 +141,13 @@ are loaded into the session context on cold start.
   before they're acted on (/review wires it in); **researcher** gathers
   cited evidence; **ui-designer** builds user-facing UI (/build routes
   UI tasks to it); **ux-critic** judges UX with walkthroughs + rendered
-  rubric (/review invokes it for UI-facing changes); **seam-checker**
-  validates boundaries after parallel builds (/build wires it in)
+  rubric (/review invokes it for UI-facing changes); **reconciler**
+  (opus) is the horizontal auditor — duplicate/seam/contract/convention
+  drift across modules, never inside the inner build/review loop;
+  `advisory` mode feeds a design before it's built, `scoped` mode gates
+  a parallel-build wave merge (/build wires it in) or runs on demand via
+  `/reconcile` (nudged by doctor Check 14), `full` mode runs inside
+  /healthcheck
 - The agent that writes code does NOT review it
 - The agent that produced a claim does NOT verify it — a doer's green
   self-report is a defect gate, never the acceptance gate

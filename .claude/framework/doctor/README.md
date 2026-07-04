@@ -28,6 +28,8 @@ file when any invariant is broken.
 | 10 | `statusLine.command` reads stdin, not the nonexistent `$CLAUDE_STATUS_JSON` env var | WARNING | Statusline renders permanent `?` placeholders — context-awareness rules assume the percentage is visible |
 | 11 | GNU toolchain capabilities present (`find -printf`, `date -d`, GNU `sed -i`) | WARNING | On BSD/macOS userlands these features go silently dead — throttles never engage, rewrites skip (DA-C8) |
 | 12 | Root `GOTCHAS.md` / `FRAMEWORK-SUGGESTIONS.md` free of leaked upstream framework-dev entries | WARNING | Pre-2026-06-10 clones inherited the upstream repo's own dev notes (TASK-027 leak) — noise that misleads every session reading state files |
+| 13 | State-file structural grammar (TASKS/DECISIONS/GOTCHAS/ECOSYSTEM: lane headings, status-section placement, lane routing, the middot separator, the Confidence marker, contract status enum) | WARNING (INFO for the telemetry frozen-keys sub-check) | Drift here SILENTLY drops entries from downstream machine-readers — a task vanishes from a board, a decision's Status won't parse, a contract goes undetected |
+| 14 | Reconcile cadence: N tasks entered Done since `.last-reconcile`'s mtime, N >= `RECONCILE_DUE_THRESHOLD` (default 5) | NAG | The horizontal auditor (duplicate/seam/contract/convention drift) is falling behind the vertical build cadence — nothing else notices this gap |
 
 ## Running it
 
@@ -42,7 +44,7 @@ details will be in `.claude/.framework-doctor-findings.md` at the project root.
 
 ## What the findings file contains
 
-Findings sorted by severity (CRITICAL → WARNING → INFO), each with:
+Findings sorted by severity (CRITICAL → WARNING → INFO → NAG), each with:
 
 - Which check detected it (`[hooks]`, `[cross-refs]`, etc.)
 - Specific path/ID that's broken

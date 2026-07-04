@@ -50,11 +50,17 @@ Then:
    OWN [paths] (may write); you CONSUME [paths] (read, never modify)" —
    with disjoint OWN sets across the wave (state-file rules per
    behavioral-principles.md §8). When the wave completes and BEFORE
-   review, run the **seam-checker** subagent across the wave's
-   boundaries (give it each builder's OWN manifest and the contracts
-   between them); route each violation back to its owning builder for a
-   targeted fix, bounded to 2 rounds, then fall through to review
-   regardless.
+   review, run the **reconciler** subagent in `scoped` mode across the
+   wave's boundaries (give it each builder's OWN manifest and the
+   contracts between them — the same input seam-checker used); route
+   each violation back to its owning builder for a targeted fix, bounded
+   to 2 rounds, then fall through to review regardless. This is the
+   wave-merge instance of reconciler `scoped` mode — the same mode a
+   human or the orchestrator can invoke directly via `/reconcile` between
+   waves (nudged by doctor Check 14's reconcile-due nag); the wave case
+   just supplies the delta as an explicit manifest instead of a
+   watermark diff. `/review` and `/test` do not fire `/reconcile`
+   automatically.
 
 5. POST-DELEGATION VERIFICATION (mandatory — subagents cannot be trusted
    to update state files reliably, since hooks may not fire in subagent

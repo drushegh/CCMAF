@@ -39,6 +39,10 @@
 #      framework's own scripts). Settled, shared shapes only — the
 #      bracketed task-ID (`#### [TASK-N]`) and DEC-N decision-ID
 #      conventions are under cross-repo discussion and are NOT enforced.
+#  14. Reconcile cadence: warn (NAG) when >=RECONCILE_DUE_THRESHOLD tasks
+#      have entered Done since .claude/telemetry/.last-reconcile's mtime —
+#      the horizontal /reconcile pass is falling behind the vertical build
+#      cadence. Silent (no baseline yet) until /reconcile has run once.
 #
 # Exit codes:
 #   0 — all checks pass OR findings written to flag file (cold start continues)
@@ -68,7 +72,7 @@ VERSION_FILE="$PROJECT_ROOT/.claude/.framework-version"
 rm -f "$FLAG_FILE"
 
 # --- Finding collection ----------------------------------------------
-# Each element: "SEVERITY|CHECK|MESSAGE". Severity is CRITICAL|WARNING|INFO.
+# Each element: "SEVERITY|CHECK|MESSAGE". Severity is CRITICAL|WARNING|INFO|NAG.
 findings=()
 add_finding() { findings+=("$1|$2|$3"); }
 
@@ -632,6 +636,101 @@ check_state_structure() {
   _ss_cleanup
 }
 
+# --- Check 14: Reconcile cadence ---------------------------------------
+# The reconciler (horizontal auditor — duplicate/seam/contract/convention
+# drift) is a STABILIZER, not part of the inner build loop: it runs on
+# demand (/reconcile), not per-task. That means it can silently fall behind
+# a fast build cadence with nothing to notice. This check counts tasks that
+# entered TASKS.md's Done section(s) since the last successful /reconcile
+# (the .last-reconcile watermark's mtime) and nags once the count clears a
+# threshold — the same "state doesn't get less broken over time, surface
+# it" reasoning as every other doctor check, applied to a cadence gap
+# instead of a structural break.
+#
+# Threshold is a variable, not a hardcoded number: RECONCILE_DUE_THRESHOLD
+# (default 5), consistent with the framework's other env-tunable knobs
+# (HEALTHCHECK_REMIND_DAYS, CLAUDE_CHECKPOINT_WATERMARK_PCT, etc.).
+#
+# Method: resolve the git commit nearest-before the watermark's mtime,
+# diff TASKS.md's Done-section task/bug IDs at that commit against Done at
+# HEAD (set difference via awk — no new tool dependency; `comm` was
+# considered and rejected to keep this check on the same jq/grep/awk/find(+git)
+# toolchain the rest of doctor.sh already assumes). [ASSUMED]: identifies
+# "Done" purely by the nearest preceding `###` heading matching /Done/,
+# same technique check_state_structure already uses — it does not
+# distinguish Feature-lane Done from Bug-Fix-lane Done (the task counts
+# either as "entered Done"), and per the task's own wording ("Done
+# columns", plural) that's the intended scope.
+#
+# Known limitation (documented, not fixed here): if /housekeeping archives
+# Done entries to tasks-archive.md inside the same window this check
+# looks at, an archived task disappears from "Done at HEAD" and is
+# undercounted. This is a conservative miss (undercounts, never
+# overcounts) and matches the risk tolerance check_detector_consumers
+# (Check 9) already accepts for its own git-log heuristic.
+check_reconcile_due() {
+  local wm="$PROJECT_ROOT/.claude/telemetry/.last-reconcile"
+  local tasks="$PROJECT_ROOT/.claude/TASKS.md"
+  [ -f "$wm" ] || return 0    # no reconcile has ever run — no baseline, not a failure (same pattern as Check 5)
+  [ -f "$tasks" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+
+  local threshold="${RECONCILE_DUE_THRESHOLD:-5}"
+
+  # Portable mtime — same fallback chain as Check 9's _mtime, defined
+  # locally (not reused across functions) so this check has no hidden
+  # ordering dependency on Check 9 running first.
+  local wm_epoch
+  wm_epoch=$(stat -c %Y "$wm" 2>/dev/null || stat -f %m "$wm" 2>/dev/null \
+    || date -r "$wm" +%s 2>/dev/null || echo 0)
+  [ "$wm_epoch" = 0 ] && return
+
+  # Nearest commit at or before the watermark's mtime that touched TASKS.md.
+  # Git's approxidate accepts a raw "@<unix-epoch>" token directly.
+  local base_commit
+  base_commit=$(git -C "$PROJECT_ROOT" log -1 --before="@$wm_epoch" --format=%H -- .claude/TASKS.md 2>/dev/null || true)
+
+  # Extract Done-section task/bug IDs from a given ref (empty ref = working tree).
+  _rd_done_ids() {
+    local content
+    if [ -z "$1" ]; then
+      content=$(cat "$tasks" 2>/dev/null)
+    else
+      # `|| true`: an unreadable baseline (deletion commit, shallow clone)
+      # yields an empty ID set — fail toward nagging, never toward crashing.
+      content=$(git -C "$PROJECT_ROOT" show "$1:.claude/TASKS.md" 2>/dev/null || true)
+    fi
+    printf '%s\n' "$content" | awk '
+      /^##[[:space:]]/  { sect=""; next }
+      /^###[[:space:]]/ { sect=$0; next }
+      sect ~ /Done/ && /^####/ {
+        match($0,/(TASK|BUG)-[0-9]+/)
+        if (RSTART) print substr($0,RSTART,RLENGTH)
+      }
+    '
+  }
+
+  local current_ids base_ids new_count
+  current_ids=$(_rd_done_ids "" | sort -u)
+  if [ -n "$base_commit" ]; then
+    base_ids=$(_rd_done_ids "$base_commit" | sort -u)
+  else
+    # No resolvable baseline (squashed/shallow history): an empty base set
+    # makes every current Done ID count as new. Passing "" to _rd_done_ids
+    # would read the working tree and compare it to itself — never nag.
+    base_ids=""
+  fi
+
+  new_count=$(awk '
+    NR==FNR { base[$0]=1; next }
+    $0 != "" && !($0 in base) { n++ }
+    END { print n+0 }
+  ' <(printf '%s\n' "$base_ids") <(printf '%s\n' "$current_ids"))
+
+  [ "${new_count:-0}" -ge "$threshold" ] || return 0
+  add_finding "NAG" "reconcile" "reconcile due ($new_count tasks entered Done since the last /reconcile pass, threshold $threshold). The horizontal auditor (duplicate/seam/contract/convention drift) hasn't run since \`.claude/telemetry/.last-reconcile\` was last written. Fix: run \`/reconcile\` (defaults to scoped mode since that watermark)."
+}
+
 # --- Run all checks --------------------------------------------------
 check_hooks
 check_cross_refs
@@ -644,15 +743,16 @@ check_statusline
 check_gnu_toolchain
 check_state_file_leak
 check_state_structure
+check_reconcile_due
 
 # --- Write flag file if any findings ---------------------------------
 if [ ${#findings[@]} -eq 0 ]; then
   exit 0
 fi
 
-# Sort findings by severity: CRITICAL first, WARNING next, INFO last.
+# Sort findings by severity: CRITICAL first, WARNING next, INFO next, NAG last.
 sorted_findings=()
-for sev in CRITICAL WARNING INFO; do
+for sev in CRITICAL WARNING INFO NAG; do
   for f in "${findings[@]}"; do
     [[ "$f" == "$sev|"* ]] && sorted_findings+=("$f")
   done
@@ -662,12 +762,13 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 crit_count=$(printf '%s\n' "${findings[@]}" | grep -c '^CRITICAL|' || true)
 warn_count=$(printf '%s\n' "${findings[@]}" | grep -c '^WARNING|' || true)
 info_count=$(printf '%s\n' "${findings[@]}" | grep -c '^INFO|' || true)
+nag_count=$(printf '%s\n' "${findings[@]}" | grep -c '^NAG|' || true)
 
 {
   echo "# Framework Doctor — Issues Detected"
   echo
   echo "**Scan time:** $now_iso"
-  echo "**Findings:** $crit_count CRITICAL, $warn_count WARNING, $info_count INFO"
+  echo "**Findings:** $crit_count CRITICAL, $warn_count WARNING, $info_count INFO, $nag_count NAG"
   echo
   echo "## Findings"
   echo
@@ -690,10 +791,14 @@ info_count=$(printf '%s\n' "${findings[@]}" | grep -c '^INFO|' || true)
   echo "INFO findings are informational only — no action required unless"
   echo "a related feature is relevant to you."
   echo
+  echo "NAG findings are cadence reminders, not broken state — run the"
+  echo "named command when convenient; they will not resolve themselves"
+  echo "on the next scan the way a fixed WARNING would."
+  echo
   echo "To dismiss for this session: \`rm .claude/.framework-doctor-findings.md\`."
   echo "Doctor re-scans on every cold start (no throttle — state issues"
   echo "don't get less broken over time)."
 } > "$FLAG_FILE"
 
-echo "doctor: ${#findings[@]} finding(s) ($crit_count CRITICAL, $warn_count WARNING, $info_count INFO) — see $FLAG_FILE"
+echo "doctor: ${#findings[@]} finding(s) ($crit_count CRITICAL, $warn_count WARNING, $info_count INFO, $nag_count NAG) — see $FLAG_FILE"
 exit 0
