@@ -176,8 +176,8 @@ After implementing but BEFORE moving the task to "Ready for Review":
    cheaper than catching it in the Tester's session.
 8. If your implementation revealed a new stable convention, update
    code-conventions.md in the same commit
-9. **Verify commit linkage:** Run `git log --oneline --grep="TASK-XXX"`
-   and confirm at least one commit references the task ID.
+9. **Verify commit linkage:** Run `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'`
+   (excludes framework bookkeeping commits) and confirm at least one commit references the task ID.
 
 ## Before Finishing
 

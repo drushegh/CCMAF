@@ -5,8 +5,9 @@ Then:
 1. Find tasks marked "Ready for Review" in TASKS.md
 2. Do the pre-task context check. If projected >= 90%, ask user.
 3. Before delegating, gather the file list for the task:
-   Run `git log --oneline --name-only --grep="TASK-XXX"` to get all files
-   touched by commits for this task.
+   Run `git log --oneline --name-only --grep="TASK-XXX" -- . ':(exclude).claude'` to get all files
+   touched by commits for this task (excludes framework bookkeeping paths so the
+   reviewer gets code changes, not state-file updates).
 
 4. Delegate review to the reviewer subagent using the Task tool:
    "Review [TASK-XXX]: [description].
@@ -44,8 +45,9 @@ Then:
    - If critical issues, create new bug entries in the Bug-Fix Lane of TASKS.md
    - If the subagent found gotchas, add them to GOTCHAS.md
    - Update claude-progress.txt
-   - **Commit linkage check:** Verify `git log --oneline --grep="TASK-XXX"`
-     returns at least one commit for the reviewed task before moving it forward.
+   - **Commit linkage check:** Verify `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'`
+     returns at least one commit for the reviewed task before moving it forward
+     (excludes framework bookkeeping commits).
    - Commit all state file updates (include task ID)
    - Report the review summary to the user
 

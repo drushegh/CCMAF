@@ -246,8 +246,8 @@ harm-not-size rule cuts both ways).
 
 ### Framework Hygiene
 
-6. **Commit linkage** — Run `git log --oneline --grep="TASK-XXX"` for
-   the task under review. Confirm at least one commit references the
+6. **Commit linkage** — Run `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'` for
+   the task under review (excludes framework bookkeeping commits). Confirm at least one commit references the
    task ID. Flag missing linkage as WARNING.
 6b. **Orchestrator-path check (subagent red-lines)** — Did the diff land
    via the orchestrator's verification path, or did a delegated subagent

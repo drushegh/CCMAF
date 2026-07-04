@@ -43,8 +43,9 @@ performs them.
    (ECOSYSTEM.md by default; per-file `contracts/` — see CLAUDE.md). If
    the task references specific contract IDs, read only those blocks.
 2. Read GOTCHAS.md for known issues in the area being tested
-3. Use `git log --oneline --name-only --grep="TASK-XXX"` to find the
+3. Use `git log --oneline --name-only --grep="TASK-XXX" -- . ':(exclude).claude'` to find the
    commits for the task and scope your reading to changed files
+   (excludes framework bookkeeping paths)
 4. Check the project's tests directory (conventionally `01_Project/tests/`; stack-specific path per project CLAUDE.md) for existing tests covering the affected files — prefer extending existing test files over creating new ones (same reuse-over-duplication reasoning as the Developer)
 5. Read .claude/framework/agent_docs/behavioral-principles.md — you are the
    agent that turns *Goal-Driven Execution* into artifacts. The

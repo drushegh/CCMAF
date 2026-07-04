@@ -19,7 +19,7 @@ Then:
    changed:
    ```bash
    git log --oneline --name-only HEAD -- .claude/telemetry/.last-reconcile   # confirm watermark file itself isn't the only diff
-   git diff --name-only <watermark-commit-or-first-commit>..HEAD
+   git diff --name-only <watermark-commit-or-first-commit>..HEAD -- . ':(exclude).claude'   # excludes framework bookkeeping paths
    ```
    If `.last-reconcile` holds a timestamp rather than a commit SHA, resolve
    the nearest commit at or before it: `git log -1 --before="@<epoch-of-watermark-mtime>" --format=%H`.

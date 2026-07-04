@@ -132,7 +132,7 @@ are loaded into the session context on cold start.
 
 - Every commit MUST include the task/bug ID: `type: description (TASK-XXX)` or `(BUG-XXX)`
 - A task cannot move to Ready for Review or Done without a linked commit
-- Verify with: `git log --oneline --grep="TASK-XXX"`
+- Verify with: `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'` (excludes framework bookkeeping commits)
 
 ## Agent Rules
 

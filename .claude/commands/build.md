@@ -68,8 +68,8 @@ Then:
    a. Read TASKS.md — did the task move to "Ready for Review"?
    b. Read STATUS.md — does it reflect the completed work?
    c. Read claude-progress.txt — is there a session entry?
-   d. **Commit linkage check:** Run `git log --oneline --grep="TASK-XXX"`
-   to verify at least one commit references the task ID. If the subagent
+   d. **Commit linkage check:** Run `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'`
+   (excludes framework bookkeeping commits) to verify at least one commit references the task ID. If the subagent
    didn't include the task ID in commit messages, amend or create a
    fixup commit now.
    e. If ANY state files are missing or stale, update them yourself using
