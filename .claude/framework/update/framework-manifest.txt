@@ -67,6 +67,7 @@
 .claude/hooks/postcompact-archive.sh
 .claude/hooks/precompact-snapshot.sh
 .claude/hooks/session-reanchor.sh
+.claude/hooks/session-start-marker.sh
 .claude/hooks/statusline.sh
 .claude/hooks/verify-deps.sh
 # Sourced helper library (not a registerable hook — included via `source`).

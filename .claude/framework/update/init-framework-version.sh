@@ -96,6 +96,22 @@ ephemera=(
   '.claude/.update-staging.*'
   '.claude/review-findings/'
   '.claude/telemetry/'
+  # F3 fix: 9 patterns this bootstrap list had fallen behind on (this repo's
+  # own .gitignore carries them; a fresh adopter running this script did
+  # not get them). Each is written by a manifest-tracked hook or command:
+  # session-lifecycle hooks (precompact-snapshot.sh, postcompact-archive.sh,
+  # checkpoint-watermark.sh, session-start-marker.sh — the last added to
+  # framework-manifest.txt in this same fix pass), the console-heartbeat.sh
+  # hook, and the /security and /council commands.
+  '.claude/.last-compaction'
+  '.claude/.precompact-snapshot/'
+  '.claude/.compaction-archive/'
+  '.claude/.checkpoint-state*'
+  '.claude/.session-start-commit*'
+  '.claude/.console-heartbeat'
+  '.claude/security-findings/'
+  '.claude/security-findings.md'
+  '.claude/council/'
 )
 # NOTE: .claude/.skills-declined is deliberately NOT in this list — it's a
 # committed project decision (contract:skills-sync), not ephemera.

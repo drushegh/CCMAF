@@ -103,6 +103,17 @@ fi
 
 # Build manifest path args for git log filtering.
 # CRLF strip: see apply-update.sh — same bug, same fix.
+#
+# F2 fix: union local + upstream manifest paths, mirroring apply-update.sh's
+# "Build final set" approach (apply-update.sh:272-278) — using upstream's
+# manifest too, not just the adopter's local (possibly-stale) copy, means a
+# brand-new upstream-only path shows up in this preview instead of being
+# under-reported (or, in the BUG-004 edge case below, suppressing the whole
+# notification when the only changed paths are ones the local manifest
+# doesn't know about yet). Upstream's manifest lives in the clone made
+# above; read it if present, falling back to local-only if it's missing
+# (very old upstream / corrupt clone — same fallback apply-update.sh takes,
+# loudly there too).
 manifest_paths=()
 while IFS= read -r line; do
   line="${line%$'\r'}"
@@ -110,8 +121,23 @@ while IFS= read -r line; do
   manifest_paths+=("${line%/}")
 done < "$MANIFEST_FILE"
 
+UPSTREAM_MANIFEST="$tmp_clone${FRAMEWORK_SOURCE_SUBDIR:+/$FRAMEWORK_SOURCE_SUBDIR}/.claude/framework/update/framework-manifest.txt"
+if [ -f "$UPSTREAM_MANIFEST" ]; then
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    manifest_paths+=("${line%/}")
+  done < "$UPSTREAM_MANIFEST"
+else
+  echo "check-updates: WARNING — upstream clone has no framework-manifest.txt; preview may under-report new paths." >&2
+fi
+
 # Clone-side paths: when canonical lives in a subdir, framework files are at
 # <subdir>/<path> in upstream history — prefix so log/diff filters match.
+# (Duplicates between local and upstream entries are harmless here — git
+# log/diff accept repeated pathspecs — so this skips a bash-4 dedupe step
+# and keeps the script running on bash 3.2, unlike apply-update.sh, which
+# needs bash 4 for its associative arrays.)
 clone_paths=()
 for p in "${manifest_paths[@]}"; do
   clone_paths+=("${FRAMEWORK_SOURCE_SUBDIR:+$FRAMEWORK_SOURCE_SUBDIR/}$p")

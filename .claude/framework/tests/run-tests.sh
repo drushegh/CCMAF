@@ -59,9 +59,15 @@ echo
 
 # --- Layer 2: shellcheck static analysis -----------------------------
 if command -v shellcheck >/dev/null 2>&1; then
-  echo "== shellcheck: hooks + framework shell scripts =="
+  echo "== shellcheck: hooks + framework + tools shell scripts =="
+  # F6 fix: tools/ added — tools/console.sh is a manifest-listed,
+  # framework-owned script (framework-manifest.txt) that lived outside the
+  # two originally-scanned directories and so was never linted, locally or
+  # in CI. Scope now covers every framework shell script, not just the two
+  # directories that happened to hold all of them at the time this was
+  # written.
   mapfile -t sh_files < <(
-    find "$REPO_ROOT/.claude/hooks" "$REPO_ROOT/.claude/framework" \
+    find "$REPO_ROOT/.claude/hooks" "$REPO_ROOT/.claude/framework" "$REPO_ROOT/tools" \
       -type f -name '*.sh' -not -path '*/tests/fixtures/*' 2>/dev/null | sort
   )
   if [ ${#sh_files[@]} -gt 0 ]; then
