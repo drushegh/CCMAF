@@ -65,7 +65,7 @@ describe("VerifyViewer — verdict + rollup", () => {
 });
 
 describe("VerifyViewer — severity gating", () => {
-  it("disables severity unless verdict is fail or warn", () => {
+  it("disables severity unless verdict is fail or cr", () => {
     render(<VerifyViewer file={makeFile()} />);
     const sev = screen.getByTestId("severity-TP-01") as HTMLSelectElement;
 
@@ -77,8 +77,8 @@ describe("VerifyViewer — severity gating", () => {
     fireEvent.click(within(group).getByRole("radio", { name: /fail/i }));
     expect(sev.disabled).toBe(false);
 
-    // → warn keeps it enabled
-    fireEvent.click(within(group).getByRole("radio", { name: /warn/i }));
+    // → cr keeps it enabled
+    fireEvent.click(within(group).getByRole("radio", { name: /^cr$/i }));
     expect(sev.disabled).toBe(false);
 
     // → pass disables it again
@@ -86,7 +86,7 @@ describe("VerifyViewer — severity gating", () => {
     expect(sev.disabled).toBe(true);
   });
 
-  it("clears severity when leaving fail/warn (contract: non-null only on fail/warn)", async () => {
+  it("clears severity when leaving fail/cr (contract: non-null only on fail/cr)", async () => {
     const onSave = vi.fn().mockResolvedValue(makeFile());
     render(<VerifyViewer file={makeFile()} onSave={onSave} />);
 
@@ -126,7 +126,7 @@ describe("VerifyViewer — Save", () => {
     render(<VerifyViewer file={makeFile()} onSave={onSave} />);
 
     const group = screen.getByTestId("verdict-TP-01");
-    fireEvent.click(within(group).getByRole("radio", { name: /warn/i }));
+    fireEvent.click(within(group).getByRole("radio", { name: /^cr$/i }));
 
     const sev = screen.getByTestId("severity-TP-01") as HTMLSelectElement;
     fireEvent.change(sev, { target: { value: "P2" } });
@@ -143,7 +143,7 @@ describe("VerifyViewer — Save", () => {
     const tp01 = patches.find((p: { id: string }) => p.id === "TP-01");
     expect(tp01).toEqual({
       id: "TP-01",
-      verdict: "warn",
+      verdict: "cr",
       severity: "P2",
       notes: "needs a fix",
       bugId: null,
@@ -193,7 +193,7 @@ describe("VerifyViewer — clean after save", () => {
   });
 });
 
-// ── VerifyViewer — severity rule: switching away from fail/warn nulls severity ──
+// ── VerifyViewer — severity rule: switching away from fail/cr nulls severity ──
 
 describe("VerifyViewer — severity contract on verdict switch", () => {
   it("emits severity:null in the patch when switching from fail to pass", async () => {
@@ -534,6 +534,47 @@ describe("VerifyViewer — Accept & Done gating", () => {
 
     fireEvent.click(acceptBtn);
     await waitFor(() => expect(onAccept).toHaveBeenCalledTimes(1));
+  });
+
+  it("enables Accept on a pass+cr mix — cr counts as complete, not just pass (change 4)", async () => {
+    const onAccept = vi.fn().mockResolvedValue(undefined);
+    const onSave = echoSave();
+    render(<VerifyViewer file={makeFile()} onSave={onSave} onAccept={onAccept} />);
+
+    const acceptBtn = screen.getByTestId("accept-btn") as HTMLButtonElement;
+    expect(acceptBtn.disabled).toBe(true);
+
+    fireEvent.click(
+      within(screen.getByTestId("verdict-TP-01")).getByRole("radio", { name: /pass/i })
+    );
+    fireEvent.click(
+      within(screen.getByTestId("verdict-TP-02")).getByRole("radio", { name: /^cr$/i })
+    );
+    expect(acceptBtn.disabled).toBe(true); // dirty
+
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(acceptBtn.disabled).toBe(false));
+
+    fireEvent.click(acceptBtn);
+    await waitFor(() => expect(onAccept).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps Accept disabled when a use case is still failing (non-terminal-good verdict)", async () => {
+    const onAccept = vi.fn().mockResolvedValue(undefined);
+    const onSave = echoSave();
+    render(<VerifyViewer file={makeFile()} onSave={onSave} onAccept={onAccept} />);
+
+    const acceptBtn = screen.getByTestId("accept-btn") as HTMLButtonElement;
+
+    fireEvent.click(
+      within(screen.getByTestId("verdict-TP-01")).getByRole("radio", { name: /pass/i })
+    );
+    fireEvent.click(
+      within(screen.getByTestId("verdict-TP-02")).getByRole("radio", { name: /fail/i })
+    );
+    fireEvent.click(screen.getByTestId("save-btn"));
+    await waitFor(() => expect(screen.getByTestId("save-btn")).toBeDisabled());
+    expect(acceptBtn.disabled).toBe(true);
   });
 
   it("does not render Accept without onAccept", () => {

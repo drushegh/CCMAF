@@ -18,7 +18,7 @@ const OPTIONS: VerdictOption[] = [
   { value: "pending", label: "Pending", icon: <Circle size={13} /> },
   { value: "pass", label: "Pass", icon: <CheckCircle2 size={13} /> },
   { value: "fail", label: "Fail", icon: <XCircle size={13} /> },
-  { value: "warn", label: "Warn", icon: <AlertTriangle size={13} /> },
+  { value: "cr", label: "CR", icon: <AlertTriangle size={13} /> },
   { value: "blocked", label: "Blocked", icon: <Ban size={13} /> },
 ];
 

@@ -43,8 +43,12 @@ export interface FilterableTask {
  *   Todo/Reported → In Progress/Fixing → Blocked → Ready for Review/In Review →
  *   Ready for Test/Testing → Verify → Done
  * Test and Verify are DISTINCT slots (Test = automated/tester gate; Verify = the
- * author's human sign-off, which lands later). Feature-lane tasks pass through
- * Test; bug-lane tasks pass through Verify — each lane shows only its own slots.
+ * author's human sign-off, which lands later). BOTH lanes carry a Verify slot —
+ * the Feature lane's hybrid lifecycle (DEC-029) is Todo → In Progress → Ready
+ * for Review → Ready for Test → Verify → Done; the Bug-Fix lane is Reported →
+ * Fixing → Verify → Done. TASKS.md's actual section headings are the source of
+ * truth for which slots a given board uses — this rank just orders whatever's
+ * present.
  */
 export function statusRank(status: string): number {
   const s = status.toLowerCase();

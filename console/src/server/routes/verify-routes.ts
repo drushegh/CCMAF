@@ -19,8 +19,86 @@
 
 import type { FastifyInstance, FastifyPluginAsync, preHandlerHookHandler } from "fastify";
 import type { VerifyRef, VerdictPatch } from "../types.js";
-import type { VerifyFile } from "../verify/schema.js";
+import type { VerifyFile, VerifyItem } from "../verify/schema.js";
 import { listVerifyRefs, readVerifyFile, readVerifyFileWithMeta, writeVerifyFile, applyPatches } from "../verify/io.js";
+import { moveTaskStatus, createTask } from "../tasks/writeback.js";
+import { readTasksContentWithMeta, atomicWriteTasksMd } from "./tasks-write-routes.js";
+
+// ── Auto-move to Done + CR follow-up spawn (changes 1 & 3) ──────────────────
+//
+// Both helpers are best-effort against TASKS.md: the verify file write is the
+// durable, validated action; a board hiccup (missing TASKS.md, missing
+// section, or a concurrent-write conflict) must never fail the verify save
+// that already succeeded. A missed board update self-heals on the NEXT save
+// (the file's crTaskId stays null / the task stays off Done until a save
+// finds the board writable), so silently skipping here is safe, not lossy.
+
+/** True when the file has at least one item and every item is pass or cr. */
+function allItemsComplete(items: VerifyItem[]): boolean {
+  return items.length > 0 && items.every((it) => it.verdict === "pass" || it.verdict === "cr");
+}
+
+/**
+ * Change 1 (auto-move to Done): once every item in the file is pass/cr, move
+ * the corresponding task/bug to Done in TASKS.md via the same surgical
+ * moveTaskStatus used by PUT /api/tasks/:id/status. Idempotent — an
+ * already-Done task is a no-op (moveTaskStatus returns ok with unchanged
+ * content); fail/blocked/pending items hold the task where it is (the
+ * all-complete gate above never fires).
+ */
+function autoMoveToDoneIfComplete(taskId: string, items: VerifyItem[]): void {
+  if (!allItemsComplete(items)) return;
+  try {
+    const read = readTasksContentWithMeta();
+    if (read === null) return; // no TASKS.md — nothing to move
+    const lane: "feature" | "bug" = taskId.startsWith("BUG-") ? "bug" : "feature";
+    const moved = moveTaskStatus(read.content, taskId, "Done", lane);
+    if (!moved.ok) return; // not_found / target_missing / ambiguous — leave the board as-is
+    atomicWriteTasksMd(moved.content, read); // ignore conflict — best-effort, see header note
+  } catch (err) {
+    // Best-effort — never fail the verify save over a board-write hiccup.
+    console.warn(`verify: auto-move to Done failed for ${taskId}:`, err);
+  }
+}
+
+/**
+ * Change 3 (CR spawns a linked follow-up task): for every item whose verdict
+ * is `cr` and that doesn't yet carry a crTaskId, create a follow-up task in
+ * the Feature Lane's Todo column (createTask, the task-equivalent of
+ * createBug) and record its id on the item. Idempotent: an item that already
+ * has crTaskId is left untouched, so re-saving (or toggling cr→cr again)
+ * never spawns a duplicate; a verdict that later moves away from `cr` keeps
+ * its crTaskId (the follow-up is real work now — the owner manages it on the
+ * board, per the brief). Sequential (not parallel) so each spawn sees the
+ * previous one's id when computing the next TASK-NNN.
+ */
+function spawnCrFollowUps(taskId: string, items: VerifyItem[]): VerifyItem[] {
+  let result = items;
+  for (let i = 0; i < result.length; i++) {
+    const item = result[i];
+    if (item.verdict !== "cr" || item.crTaskId) continue;
+    try {
+      const read = readTasksContentWithMeta();
+      if (read === null) continue; // no TASKS.md — nothing to spawn into; retried next save
+      const date = new Date().toISOString().slice(0, 10);
+      const created = createTask(read.content, {
+        title: `CR: ${item.title}`,
+        sourceTask: taskId,
+        sourceItem: item.id,
+        note: item.notes,
+        date,
+      });
+      if (!created.ok) continue; // no Todo section — degrade gracefully; retried next save
+      const writeResult = atomicWriteTasksMd(created.content, read);
+      if (!writeResult.ok) continue; // board changed concurrently — retried next save
+      result = result.map((it, idx) => (idx === i ? { ...it, crTaskId: created.taskId } : it));
+    } catch (err) {
+      // Best-effort — never fail the verify save over a board-write hiccup.
+      console.warn(`verify: CR follow-up spawn failed for ${taskId}/${result[i].id}:`, err);
+    }
+  }
+  return result;
+}
 
 export interface VerifyRoutesOptions {
   /** The write-guard preHandler from server.ts (token + origin check). */
@@ -94,7 +172,11 @@ const verifyRoutesPlugin: FastifyPluginAsync<VerifyRoutesOptions> = async (
         // hash — for the M4 conflict check below).
         const { file: existing, mtimeMs, contentHash } = readVerifyFileWithMeta(taskId);
         // Apply patches (validates each patch entry; throws on bad input).
-        const updated = applyPatches(existing, patches);
+        let updated = applyPatches(existing, patches);
+        // Change 3: spawn a linked follow-up task for any newly-cr'd item
+        // (idempotent — see spawnCrFollowUps) BEFORE writing, so the
+        // resulting crTaskId is part of the persisted file.
+        updated = { ...updated, items: spawnCrFollowUps(taskId, updated.items) };
         // Write back (validates the full file before touching disk). M4: reject
         // + signal reload if the file changed on disk since we read it above.
         const writeResult = writeVerifyFile(updated, { mtimeMs, contentHash });
@@ -105,6 +187,9 @@ const verifyRoutesPlugin: FastifyPluginAsync<VerifyRoutesOptions> = async (
           });
           return;
         }
+        // Change 1: once every item is pass/cr, auto-move the task/bug to
+        // Done (best-effort — see autoMoveToDoneIfComplete's header note).
+        autoMoveToDoneIfComplete(taskId, updated.items);
         // Return the updated file.
         return updated;
       } catch (err) {

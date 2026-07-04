@@ -56,8 +56,8 @@ One file per task, at `.claude/console/verify/<TASK-ID>.json` where
       "kind": "use-case",           // free string
       "title": "non-empty",
       "subject": "optional", "expected": "optional",  // changing either resets the verdict
-      "verdict": "pending",         // pending | pass | fail | warn | blocked
-      "severity": null,             // P0–P3 ONLY when verdict ∈ {fail,warn}, else null
+      "verdict": "pending",         // pending | pass | fail | cr | blocked (legacy "warn" reads as "cr")
+      "severity": null,             // P0–P3 ONLY when verdict ∈ {fail,cr}, else null
       "round": 1,                   // int ≥ 1 (retest counter; default 1)
       "bugId": null,                // ^BUG-[0-9]+$ | null  (BUG only, not TASK)
       "noteRounds": [ { "round": 1, "note": "" } ],   // per-round note history

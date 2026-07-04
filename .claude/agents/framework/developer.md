@@ -52,6 +52,11 @@ Paths below assume the framework's default layout (`01_Project/src/` for source,
    **Do NOT implement against `status:draft` contracts** — if the contract
    is still draft, escalate to the Architect to finalise it first.
 4. Check GOTCHAS.md for known issues in the area you're about to work on
+5. **Move the task to In Progress in TASKS.md before making your first code
+   change** (Todo → In Progress; Blocked instead if you discover a blocker
+   before you can start). This only applies when you're running as the main
+   session — a delegated subagent proposes the move in its return text
+   instead (RED-LINES, above).
 
 ## Before Writing New Code
 

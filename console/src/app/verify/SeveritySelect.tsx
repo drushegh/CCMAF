@@ -3,14 +3,14 @@ import { SEVERITIES, type Severity } from "../api/verify";
 interface SeveritySelectProps {
   value: Severity | null | undefined;
   onChange: (severity: Severity | null) => void;
-  /** When false, the control is shown but inert (verdict is not fail/warn). */
+  /** When false, the control is shown but inert (verdict is not fail/cr). */
   enabled: boolean;
   itemId: string;
 }
 
 /**
  * Severity picker (P0–P3). Per contract:console-verify-file, severity is only
- * meaningful when the verdict is fail or warn, so it is disabled otherwise.
+ * meaningful when the verdict is fail or cr, so it is disabled otherwise.
  * Disabled state still renders (so the row layout is stable) but cannot be set.
  *
  * WARNING fix #5 + #6: the wrapping <label> provides the accessible name for

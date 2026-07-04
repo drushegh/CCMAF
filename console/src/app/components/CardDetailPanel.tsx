@@ -37,6 +37,8 @@ import {
   type CommentThread,
 } from "../api/tasks-write.js";
 import type { Lane, TaskBoardColumn } from "../api/state.js";
+import { fetchVerifyFile, isComplete } from "../api/verify.js";
+import { statusRank } from "../lib/taskFilter.js";
 import "../../styles/card-detail.css";
 
 // ── Relative-time formatter ───────────────────────────────────────────────
@@ -144,11 +146,17 @@ export function CardDetailPanel({
   // ── Load task detail ────────────────────────────────────────────────────
   const [detailPhase, setDetailPhase] = useState<DetailPhase>({ kind: "loading" });
   const [commentsPhase, setCommentsPhase] = useState<CommentsPhase>({ kind: "loading" });
+  // Count of this task's verify-file items that are NOT terminal-good (pass/cr)
+  // — used only by the Done-dropdown guard below. null = no verify file / not
+  // loaded yet / fetch failed; the guard then falls back to the pre-Verify
+  // check alone rather than blocking on an unknown.
+  const [unverifiedCount, setUnverifiedCount] = useState<number | null>(null);
 
   useEffect(() => {
     let live = true;
     setDetailPhase({ kind: "loading" });
     setCommentsPhase({ kind: "loading" });
+    setUnverifiedCount(null);
 
     fetchTaskDetail(taskId)
       .then((detail) => {
@@ -172,6 +180,17 @@ export function CardDetailPanel({
             kind: "error",
             message: err instanceof Error ? err.message : String(err),
           });
+      });
+
+    // Best-effort: most tasks won't have a verify file yet (pre-Verify), and a
+    // 404 there is normal, not an error — the dropdown guard below just falls
+    // back to the pre-Verify check alone when this stays null.
+    fetchVerifyFile(taskId)
+      .then((file) => {
+        if (live) setUnverifiedCount(file.items.filter((it) => !isComplete(it.verdict)).length);
+      })
+      .catch(() => {
+        /* no verify file yet, or unreadable — leave unverifiedCount null */
       });
 
     return () => {
@@ -220,9 +239,32 @@ export function CardDetailPanel({
   const handleStatusChange = useCallback(
     async (newStatus: string) => {
       if (newStatus === currentStatus) return;
+
+      // Dropdown guard (manual override, change 6): jumping straight to Done
+      // from anywhere is still allowed, but when the task hasn't been through
+      // Verify yet, or its verify file still has unverified use cases, an
+      // explicit confirm shows the truth first rather than silently skipping
+      // the human gate. window.confirm is used deliberately here (not a
+      // custom modal) — this is a rare safety-net path, not the primary flow.
+      if (newStatus.trim().toLowerCase() === "done") {
+        const preVerify = statusRank(currentStatus) < statusRank("Verify");
+        const unverified = unverifiedCount ?? 0;
+        if (preVerify || unverified > 0) {
+          const reason =
+            unverified > 0
+              ? `${unverified} use case${unverified === 1 ? "" : "s"} unverified — mark Done anyway?`
+              : "This task hasn't reached Verify yet — mark Done anyway?";
+          if (!window.confirm(reason)) return;
+        }
+      }
+
       setStatusSavePhase("saving");
       setStatusError("");
       try {
+        // Same completion bookkeeping as the normal path (there is no
+        // additional verify-file bookkeeping on the Accept & Done path today
+        // — putTaskStatus is the whole of it; the Verify queue filter (change
+        // 5) reads the board status directly, so moving here keeps it consistent).
         await putTaskStatus(taskId, newStatus, lane);
         setStatusSavePhase("idle");
         // Update the detail panel's local view of the current status
@@ -237,7 +279,7 @@ export function CardDetailPanel({
         setStatusError(err instanceof Error ? err.message : "Status update failed");
       }
     },
-    [taskId, lane, currentStatus, onStatusChange],
+    [taskId, lane, currentStatus, unverifiedCount, onStatusChange],
   );
 
   // ── Archive / unarchive ──────────────────────────────────────────────────

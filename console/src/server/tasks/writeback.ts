@@ -88,6 +88,26 @@ export function isStructuralBoundary(line: string, state: CommentScanState): boo
 }
 
 /**
+ * Matches ONLY a status (###) or lane (##) heading — deliberately NOT a task
+ * heading (####). Used when scanning for the END OF A SECTION that may itself
+ * contain zero or more task blocks (e.g. createTask's Todo-section scan): a
+ * task heading found while scanning is section BODY, not the boundary that
+ * ends the section. Contrast with STRUCTURAL_BOUNDARY_RE, which is for the
+ * opposite case — finding where ONE task's own block ends (any heading, task
+ * or otherwise, ends it).
+ */
+const SECTION_BOUNDARY_RE = /^###\s|^##\s/;
+
+/**
+ * True if `line` is a status/lane heading (SECTION_BOUNDARY_RE) and is NOT
+ * inside a multi-line HTML comment. Advances `state` — see isCommentedOut.
+ */
+export function isSectionBoundary(line: string, state: CommentScanState): boolean {
+  if (isCommentedOut(line, state)) return false;
+  return SECTION_BOUNDARY_RE.test(line);
+}
+
+/**
  * Detect the file's dominant line ending so writes can preserve it (minor fix:
  * every write previously flipped CRLF files to LF via `.join("\n")`, contradicting
  * the "preserve verbatim" guarantee). A tie (including an all-LF file) defaults
@@ -764,4 +784,137 @@ export function createBug(content: string, input: CreateBugInput): CreateBugResu
   }
 
   return { ok: true, content: result.join(eol), bugId };
+}
+
+// ── createTask (generic follow-up, e.g. a CR spawn) ──────────────────────────
+
+export interface CreateTaskInput {
+  /** The follow-up's full title as it should appear on the board (caller decides any prefix, e.g. "CR: ..."). */
+  title: string;
+  /** The verify file's task (TASK-XXX or BUG-XXX) this follow-up was raised from, if any. */
+  sourceTask?: string;
+  /** The use-case (verify item) id that triggered the follow-up, if any. */
+  sourceItem?: string;
+  /** A note carried onto the new task (e.g. the verdict note at spawn time). */
+  note?: string;
+  /** ISO date (YYYY-MM-DD). The caller supplies it (server uses new Date()). */
+  date: string;
+}
+
+export type CreateTaskResult =
+  | { ok: true; content: string; taskId: string }
+  | { ok: false; code: "no_todo_section" };
+
+/** The next TASK-NNN id: (max existing TASK number + 1), zero-padded to 3. */
+export function nextTaskId(content: string): string {
+  const lines = content.split(/\r?\n/);
+  let max = 0;
+  const state: CommentScanState = { inComment: false };
+  for (const line of lines) {
+    if (isCommentedOut(line, state)) continue;
+    const m = matchTaskHeading(line);
+    if (m && m.prefix === "TASK") {
+      const n = parseInt(m.num, 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+  }
+  return `TASK-${String(max + 1).padStart(3, "0")}`;
+}
+
+/**
+ * Append a new follow-up task to the Feature Lane's `### Todo (...)` section.
+ * Pure (no I/O). Used by the verify PUT handler to spawn a linked task when a
+ * use case's verdict is set to `cr` (change request) — see verify-routes.ts.
+ * Mirrors createBug's shape exactly: a lone `_(none)_` placeholder in Todo is
+ * replaced; otherwise the task is appended after the existing entries. Every
+ * byte outside the Todo section is preserved.
+ */
+export function createTask(content: string, input: CreateTaskInput): CreateTaskResult {
+  const taskId = nextTaskId(content);
+  const title = input.title.trim() || "Follow-up task";
+
+  const sourceLine = input.sourceTask
+    ? `- **Source:** ${input.sourceTask} verification${input.sourceItem ? ` · use-case \`${input.sourceItem}\`` : ""}`
+    : `- **Source:** flagged in the Console (Verify)`;
+
+  // Preserve the board's on-disk ID style (CHANNEL [11]): bracketed if the board
+  // uses brackets anywhere, else the framework's bare house style.
+  const heading = usesBracketedIds(content)
+    ? `#### [${taskId}] ${title}`
+    : `#### ${taskId} ${title}`;
+
+  const block: string[] = [
+    heading,
+    sourceLine,
+    `- **Reported:** ${input.date} by the author (flagged in Verify)`,
+  ];
+  if (input.note && input.note.trim()) {
+    block.push(`- **Note:** ${input.note.trim()}`);
+  }
+
+  // Locate the Feature Lane's "### Todo" section. normaliseStatus strips the
+  // trailing "(Priority Order)" parenthetical the board's on-disk heading
+  // carries, so the comparison target is the bare "Todo".
+  const lines = content.split(/\r?\n/);
+  const eol = detectEol(content);
+  let scanningLane: Lane = "feature";
+  let todoIndex = -1;
+  {
+    const state: CommentScanState = { inComment: false };
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (isCommentedOut(line, state)) continue;
+      if (FEATURE_LANE_RE.test(line)) { scanningLane = "feature"; continue; }
+      if (BUG_LANE_RE.test(line)) { scanningLane = "bug"; continue; }
+      if (scanningLane !== "feature") continue;
+      const m = STATUS_HEADING_RE.exec(line);
+      if (m && normaliseStatus(m[1]) === "Todo") { todoIndex = i; break; }
+    }
+  }
+  if (todoIndex === -1) return { ok: false, code: "no_todo_section" };
+
+  // Section extent up to the next STATUS (###) or LANE (##) heading — NOT the
+  // next structural boundary (isStructuralBoundary also fires on a `####`
+  // task heading, which is exactly what the Todo section may already contain;
+  // stopping there would truncate the section at its FIRST existing task and
+  // wrongly look empty). A task heading inside the section is section BODY,
+  // not a section boundary.
+  let sectionEnd = todoIndex + 1;
+  {
+    const state: CommentScanState = { inComment: false };
+    while (sectionEnd < lines.length && !isSectionBoundary(lines[sectionEnd], state)) {
+      sectionEnd++;
+    }
+  }
+
+  const sectionBody = lines.slice(todoIndex + 1, sectionEnd);
+  const onlyPlaceholder = sectionBody.every(
+    (l) => l.trim() === "" || NONE_PLACEHOLDER_RE.test(l.trim())
+  );
+
+  let result: string[];
+  if (onlyPlaceholder) {
+    // Replace the placeholder body with the task block.
+    result = [
+      ...lines.slice(0, todoIndex + 1),
+      "",
+      ...block,
+      "",
+      ...lines.slice(sectionEnd),
+    ];
+  } else {
+    // Append after the existing entries (trim trailing blanks first).
+    let contentEnd = sectionEnd;
+    while (contentEnd > todoIndex + 1 && lines[contentEnd - 1].trim() === "") {
+      contentEnd--;
+    }
+    result = [
+      ...lines.slice(0, contentEnd),
+      "",
+      ...block,
+      ...lines.slice(contentEnd),
+    ];
+  }
+
+  return { ok: true, content: result.join(eol), taskId };
 }

@@ -9,7 +9,8 @@
  * Verdict colour mapping (Harvey severity bands):
  *   pass    → --status-ok (green)
  *   fail    → --status-error (rose)
- *   warn    → --status-blocked (amber)
+ *   cr      → --status-blocked (amber) — "change request": passes as specified,
+ *             but the owner wants a change (tracked as its own follow-up task)
  *   blocked → --status-info (blue) — "waiting on something", not a defect
  *   pending → --text-subtle (neutral)
  */
@@ -295,7 +296,7 @@
   .vv-rollup-bar--fail {
     background: var(--status-error);
   }
-  .vv-rollup-bar--warn {
+  .vv-rollup-bar--cr {
     background: var(--status-blocked);
   }
   .vv-rollup-bar--blocked {
@@ -392,7 +393,7 @@
   .vv-item--fail {
     border-left-color: var(--status-error);
   }
-  .vv-item--warn {
+  .vv-item--cr {
     border-left-color: var(--status-blocked);
   }
   .vv-item--blocked {
@@ -661,7 +662,7 @@
     background: var(--crit-soft);
     border-color: var(--crit-border);
   }
-  .vv-seg-btn.is-selected.vv-seg--warn {
+  .vv-seg-btn.is-selected.vv-seg--cr {
     color: var(--status-blocked);
     background: var(--warn-soft);
     border-color: var(--warn-tint-border);
@@ -968,7 +969,7 @@
   .vv-queue-count.vv-rollup-bar--pending { background: transparent; color: var(--text-subtle); }
   .vv-queue-count.vv-rollup-bar--pass    { background: transparent; color: var(--status-ok); }
   .vv-queue-count.vv-rollup-bar--fail    { background: transparent; color: var(--status-error); }
-  .vv-queue-count.vv-rollup-bar--warn    { background: transparent; color: var(--status-blocked); }
+  .vv-queue-count.vv-rollup-bar--cr      { background: transparent; color: var(--status-blocked); }
   .vv-queue-count.vv-rollup-bar--blocked { background: transparent; color: var(--status-info); }
 
   .vv-queue-empty {

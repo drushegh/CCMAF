@@ -23,6 +23,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { CardDetailPanel } from "../src/app/components/CardDetailPanel.js";
 import type { TaskBoardColumn } from "../src/app/api/state.js";
 import type { TaskDetail, CommentThread } from "../src/app/api/tasks-write.js";
+import type { VerifyFile } from "../src/app/api/verify.js";
 
 // ── Module mocks ──────────────────────────────────────────────────────────
 
@@ -30,6 +31,7 @@ const mockFetchTaskDetail = vi.fn<() => Promise<TaskDetail>>();
 const mockFetchComments = vi.fn<() => Promise<CommentThread>>();
 const mockPutTaskStatus = vi.fn();
 const mockPostComment = vi.fn<() => Promise<CommentThread>>();
+const mockFetchVerifyFile = vi.fn<() => Promise<VerifyFile>>();
 
 vi.mock("../src/app/api/tasks-write.js", () => ({
   fetchTaskDetail: (...args: unknown[]) => mockFetchTaskDetail(...args),
@@ -44,6 +46,11 @@ vi.mock("../src/app/api/tasks-write.js", () => ({
       this.status = status;
     }
   },
+}));
+
+vi.mock("../src/app/api/verify.js", () => ({
+  fetchVerifyFile: (...args: unknown[]) => mockFetchVerifyFile(...args),
+  isComplete: (verdict: string) => verdict === "pass" || verdict === "cr",
 }));
 
 // ── Fixtures ──────────────────────────────────────────────────────────────
@@ -97,10 +104,19 @@ beforeEach(() => {
   mockFetchComments.mockResolvedValue(THREAD);
   mockPutTaskStatus.mockResolvedValue({ ok: true, board: { columns: [] } });
   mockPostComment.mockResolvedValue(EMPTY_THREAD);
+  // Default: no verify file for this task (the common case for most tasks —
+  // a 404 from the real endpoint). The dropdown-guard tests override this.
+  mockFetchVerifyFile.mockRejectedValue(new Error("404"));
+  // Default: the user confirms, so pre-existing tests that jump straight to
+  // Done (from a pre-Verify status) keep their original behaviour. The
+  // guard-specific tests below override this per case.
+  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 afterEach(() => {
-  vi.clearAllMocks();
+  // restoreAllMocks (not just clearAllMocks) so the window.confirm spy is
+  // torn down cleanly between tests instead of stacking.
+  vi.restoreAllMocks();
 });
 
 describe("CardDetailPanel — renders task detail", () => {
@@ -195,6 +211,86 @@ describe("CardDetailPanel — inline status select", () => {
     const select = await screen.findByTestId("cdp-status-select");
     fireEvent.change(select, { target: { value: "In Progress" } }); // same as current
     await waitFor(() => expect(mockPutTaskStatus).not.toHaveBeenCalled());
+  });
+});
+
+describe("CardDetailPanel — Done dropdown guard (change 6)", () => {
+  it("shows a confirm and aborts the move when a pre-Verify task is jumped straight to Done and the user cancels", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderPanel(); // DETAIL.status = "In Progress" — pre-Verify
+    const select = await screen.findByTestId("cdp-status-select");
+    fireEvent.change(select, { target: { value: "Done" } });
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/verify/i));
+    expect(mockPutTaskStatus).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with the same putTaskStatus call once the user confirms a pre-Verify → Done jump", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPanel();
+    const select = await screen.findByTestId("cdp-status-select");
+    fireEvent.change(select, { target: { value: "Done" } });
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mockPutTaskStatus).toHaveBeenCalledWith("TASK-011", "Done", "feature"));
+  });
+
+  it("shows the truthful unverified-use-case count when the task is already at Verify but not all items are complete", async () => {
+    mockFetchVerifyFile.mockResolvedValue({
+      schemaVersion: 1,
+      task: "TASK-011",
+      status: "in-review",
+      items: [
+        { id: "uc-1", kind: "usecase", title: "a", verdict: "pass" },
+        { id: "uc-2", kind: "usecase", title: "b", verdict: "pending" },
+      ],
+    });
+    mockFetchTaskDetail.mockResolvedValue({ ...DETAIL, status: "Verify" });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderPanel({
+      columns: [
+        { status: "In Progress", lane: "feature", items: [] },
+        { status: "Verify", lane: "feature", items: [] },
+        { status: "Done", lane: "feature", items: [] },
+      ],
+    });
+
+    const select = await screen.findByTestId("cdp-status-select");
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("Verify"));
+    fireEvent.change(select, { target: { value: "Done" } });
+
+    await waitFor(() => expect(window.confirm).toHaveBeenCalledOnce());
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringMatching(/1 use case unverified/i));
+    expect(mockPutTaskStatus).toHaveBeenCalledWith("TASK-011", "Done", "feature");
+  });
+
+  it("does not show a confirm when the task is at Verify and every use case is pass/cr", async () => {
+    mockFetchVerifyFile.mockResolvedValue({
+      schemaVersion: 1,
+      task: "TASK-011",
+      status: "in-review",
+      items: [
+        { id: "uc-1", kind: "usecase", title: "a", verdict: "pass" },
+        { id: "uc-2", kind: "usecase", title: "b", verdict: "cr" },
+      ],
+    });
+    mockFetchTaskDetail.mockResolvedValue({ ...DETAIL, status: "Verify" });
+    const confirmSpy = vi.spyOn(window, "confirm");
+    renderPanel({
+      columns: [
+        { status: "In Progress", lane: "feature", items: [] },
+        { status: "Verify", lane: "feature", items: [] },
+        { status: "Done", lane: "feature", items: [] },
+      ],
+    });
+
+    const select = await screen.findByTestId("cdp-status-select");
+    await waitFor(() => expect((select as HTMLSelectElement).value).toBe("Verify"));
+    fireEvent.change(select, { target: { value: "Done" } });
+
+    await waitFor(() => expect(mockPutTaskStatus).toHaveBeenCalledWith("TASK-011", "Done", "feature"));
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 });
 

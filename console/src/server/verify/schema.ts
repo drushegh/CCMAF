@@ -6,8 +6,11 @@
  *
  * Business rules (from ECOSYSTEM.md contract:console-verify-file):
  *   - schemaVersion must be 1
- *   - verdict ∈ { pending, pass, fail, warn, blocked }
- *   - severity is non-null ONLY when verdict ∈ { fail, warn }
+ *   - verdict ∈ { pending, pass, fail, cr, blocked } — "cr" = change request:
+ *     "passes as specified, but the owner wants a change". Legacy on-disk
+ *     files may carry the old name `warn`; `normalizeLegacyVerdicts` aliases
+ *     it to `cr` on READ (see io.ts) — writes always use `cr` going forward.
+ *   - severity is non-null ONLY when verdict ∈ { fail, cr }
  *   - severity ∈ { P0, P1, P2, P3, null }
  *   - status ∈ { in-review, processing-fixes, done }
  *   - task must match ^(TASK|BUG)-[0-9]+$
@@ -15,7 +18,7 @@
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-export type Verdict = "pending" | "pass" | "fail" | "warn" | "blocked";
+export type Verdict = "pending" | "pass" | "fail" | "cr" | "blocked";
 export type Severity = "P0" | "P1" | "P2" | "P3" | null;
 export type FileStatus = "in-review" | "processing-fixes" | "done";
 
@@ -58,6 +61,15 @@ export interface VerifyItem {
    * TASKS.md and the use case flips back to `pending` for a retest.
    */
   bugId?: string | null;
+  /**
+   * The TASK-XXX follow-up spawned in the Feature Lane's Todo column the first
+   * time this item's verdict was set to `cr`. Recorded so re-saving (or
+   * toggling cr→cr again) never spawns a duplicate — the PUT handler only
+   * creates a follow-up when verdict === "cr" AND this is still null/absent.
+   * Once set, it is left in place even if the verdict later changes away from
+   * `cr` (the follow-up is real work now; the owner manages it on the board).
+   */
+  crTaskId?: string | null;
   changed?: boolean;
   provenance?: Record<string, unknown>;
 }
@@ -73,12 +85,14 @@ export interface VerifyFile {
 
 // ── Validation constants ─────────────────────────────────────────────────────
 
-const VALID_VERDICTS = new Set<string>(["pending", "pass", "fail", "warn", "blocked"]);
-const SEVERITY_VERDICTS = new Set<string>(["fail", "warn"]);
+const VALID_VERDICTS = new Set<string>(["pending", "pass", "fail", "cr", "blocked"]);
+const SEVERITY_VERDICTS = new Set<string>(["fail", "cr"]);
 const VALID_SEVERITIES = new Set<string | null>(["P0", "P1", "P2", "P3", null]);
 const VALID_STATUSES = new Set<string>(["in-review", "processing-fixes", "done"]);
 const TASK_ID_RE = /^(TASK|BUG)-[0-9]+$/;
 const BUG_ID_RE = /^BUG-[0-9]+$/;
+/** crTaskId is always a follow-up TASK (Feature Lane), never a BUG. */
+const CR_TASK_ID_RE = /^TASK-[0-9]+$/;
 
 // ── Validation result ─────────────────────────────────────────────────────────
 
@@ -115,10 +129,10 @@ function validateItem(item: unknown, index: number): string[] {
     errors.push(`${prefix}.verdict: required`);
   } else if (typeof obj["verdict"] !== "string" || !VALID_VERDICTS.has(obj["verdict"])) {
     errors.push(
-      `${prefix}.verdict: must be one of pending|pass|fail|warn|blocked, got ${JSON.stringify(obj["verdict"])}`
+      `${prefix}.verdict: must be one of pending|pass|fail|cr|blocked, got ${JSON.stringify(obj["verdict"])}`
     );
   } else {
-    // severity: non-null only on fail/warn
+    // severity: non-null only on fail/cr
     const verdict = obj["verdict"] as string;
     const severity = "severity" in obj ? obj["severity"] : undefined;
 
@@ -128,9 +142,9 @@ function validateItem(item: unknown, index: number): string[] {
           `${prefix}.severity: must be P0|P1|P2|P3|null, got ${JSON.stringify(severity)}`
         );
       } else if (severity !== null && !SEVERITY_VERDICTS.has(verdict)) {
-        // severity non-null on a non-fail/warn verdict
+        // severity non-null on a non-fail/cr verdict
         errors.push(
-          `${prefix}.severity: must be null when verdict is '${verdict}' (non-null only on fail|warn)`
+          `${prefix}.severity: must be null when verdict is '${verdict}' (non-null only on fail|cr)`
         );
       }
     }
@@ -163,6 +177,11 @@ function validateItem(item: unknown, index: number): string[] {
   if ("bugId" in obj && obj["bugId"] !== undefined && obj["bugId"] !== null) {
     if (typeof obj["bugId"] !== "string" || !BUG_ID_RE.test(obj["bugId"])) {
       errors.push(`${prefix}.bugId: must be null or match BUG-[0-9]+`);
+    }
+  }
+  if ("crTaskId" in obj && obj["crTaskId"] !== undefined && obj["crTaskId"] !== null) {
+    if (typeof obj["crTaskId"] !== "string" || !CR_TASK_ID_RE.test(obj["crTaskId"])) {
+      errors.push(`${prefix}.crTaskId: must be null or match TASK-[0-9]+`);
     }
   }
   if ("noteRounds" in obj && obj["noteRounds"] !== undefined) {
@@ -267,11 +286,13 @@ export function assertVerifyFile(data: unknown): VerifyFile {
 
 /**
  * Fill the retest-loop defaults so every item is uniform in memory, regardless
- * of whether it came from a legacy pass-file (no round/noteRounds/bugId). Pure.
- *   - round   → 1 if absent
- *   - bugId   → null if absent
+ * of whether it came from a legacy pass-file (no round/noteRounds/bugId/crTaskId).
+ * Pure.
+ *   - round     → 1 if absent
+ *   - bugId     → null if absent
+ *   - crTaskId  → null if absent
  *   - noteRounds → seeded from the legacy `notes` (or one empty round)
- *   - notes   → mirrored from the current (last) round so old readers still work
+ *   - notes     → mirrored from the current (last) round so old readers still work
  */
 export function normalizeItem(item: VerifyItem): VerifyItem {
   const round = typeof item.round === "number" && item.round >= 1 ? item.round : 1;
@@ -289,6 +310,7 @@ export function normalizeItem(item: VerifyItem): VerifyItem {
     ...item,
     round,
     bugId: item.bugId ?? null,
+    crTaskId: item.crTaskId ?? null,
     noteRounds,
     notes: currentNote,
   };
@@ -299,8 +321,61 @@ export function normalizeVerifyFile(file: VerifyFile): VerifyFile {
   return { ...file, items: file.items.map(normalizeItem) };
 }
 
+// ── Legacy verdict alias (warn → cr) ───────────────────────────────────────────
+
 /**
- * Validate a VerdictPatch entry (used in PUT body).
+ * Map the retired verdict name `warn` to its current name `cr` ("change
+ * request"). Anything else passes through unchanged. Called on every raw
+ * verdict string before validation so existing on-disk pass-files written
+ * under the old name keep reading correctly — writes always emit `cr`.
+ */
+function aliasLegacyVerdict(v: unknown): unknown {
+  return v === "warn" ? "cr" : v;
+}
+
+/**
+ * Alias an incoming VerdictPatch's `verdict` from the legacy `warn` to `cr`
+ * before validating/applying it — defends against a stale cached client (or
+ * external caller) still on the old wire name. Returns a NEW object (does not
+ * mutate the input); non-object input is returned unchanged (validation
+ * reports the real error for it).
+ */
+export function aliasLegacyVerdictPatch<T>(patch: T): T {
+  if (typeof patch !== "object" || patch === null || Array.isArray(patch)) return patch;
+  const p = patch as Record<string, unknown>;
+  if (!("verdict" in p)) return patch;
+  return { ...p, verdict: aliasLegacyVerdict(p["verdict"]) } as T;
+}
+
+/**
+ * Walk a freshly-parsed (unvalidated) verify-file JSON value and alias any
+ * legacy `warn` verdicts (top-level items only — the shape the contract
+ * defines) to `cr`, BEFORE schema validation runs. Defensive: any shape that
+ * doesn't match `{ items: [...] }` is returned unchanged (validation is what
+ * reports the real error for a malformed file) — this never throws.
+ * Pure; does not mutate the input.
+ */
+export function normalizeLegacyVerdicts(data: unknown): unknown {
+  if (typeof data !== "object" || data === null || Array.isArray(data)) return data;
+  const obj = data as Record<string, unknown>;
+  if (!Array.isArray(obj["items"])) return data;
+
+  const items = obj["items"].map((raw) => {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+    const item = raw as Record<string, unknown>;
+    if (!("verdict" in item)) return raw;
+    return { ...item, verdict: aliasLegacyVerdict(item["verdict"]) };
+  });
+
+  return { ...obj, items };
+}
+
+/**
+ * Validate a VerdictPatch entry (used in PUT body). Callers that also want to
+ * accept the legacy `warn` verdict name (e.g. applyPatches, defending against
+ * a stale cached client) must alias the patch BEFORE calling this — see
+ * `aliasLegacyVerdictPatch` — so the same object this validates is the one
+ * that gets applied.
  * Returns an error string or null if valid.
  */
 export function validateVerdictPatch(
@@ -321,10 +396,10 @@ export function validateVerdictPatch(
     return `${prefix}.verdict: required`;
   }
   if (typeof p["verdict"] !== "string" || !VALID_VERDICTS.has(p["verdict"])) {
-    return `${prefix}.verdict: must be one of pending|pass|fail|warn|blocked`;
+    return `${prefix}.verdict: must be one of pending|pass|fail|cr|blocked`;
   }
 
-  // severity: if present, must be valid and respect the fail/warn rule
+  // severity: if present, must be valid and respect the fail/cr rule
   if ("severity" in p && p["severity"] !== undefined) {
     const verdict = p["verdict"] as string;
     const sev = p["severity"];
@@ -332,7 +407,7 @@ export function validateVerdictPatch(
       return `${prefix}.severity: must be P0|P1|P2|P3|null`;
     }
     if (sev !== null && sev !== undefined && !SEVERITY_VERDICTS.has(verdict)) {
-      return `${prefix}.severity: non-null severity only allowed on fail|warn`;
+      return `${prefix}.severity: non-null severity only allowed on fail|cr`;
     }
   }
 

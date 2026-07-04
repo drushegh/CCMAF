@@ -46,7 +46,7 @@ type FileState =
  *   todo     = nothing reviewed yet (all pending)  → red
  *   progress = some reviewed, some pending          → amber
  *   done     = every item has a verdict             → green
- * (Outcome — pass/fail/warn — is shown by the coloured count chips, not the icon.)
+ * (Outcome — pass/fail/cr — is shown by the coloured count chips, not the icon.)
  */
 type ProgressState = "todo" | "progress" | "done";
 
@@ -408,7 +408,7 @@ export function VerifyPage() {
 }
 
 function QueueCounts({ counts }: { counts: Record<string, number> }) {
-  const order = ["pending", "pass", "fail", "warn", "blocked"];
+  const order = ["pending", "pass", "fail", "cr", "blocked"];
   const present = order.filter((v) => (counts[v] ?? 0) > 0);
   if (present.length === 0) {
     return <span className="vv-queue-counts vv-queue-counts--none">no items</span>;

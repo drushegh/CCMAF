@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { resolve, dirname, join } from "node:path";
 import { dotClaudePath } from "../project-root.js";
 import { resolveVerifyPath } from "../security.js";
-import { assertVerifyFile, validateVerifyFile, normalizeItem } from "./schema.js";
+import { assertVerifyFile, validateVerifyFile, normalizeItem, normalizeLegacyVerdicts } from "./schema.js";
 import { computeRollup, applyBugFixes } from "./reconcile.js";
 import { parseTasksFile } from "../parsers/tasks-parser.js";
 import type { VerifyRef } from "../types.js";
@@ -43,6 +43,28 @@ function doneBugIds(): Set<string> {
     }
   } catch {
     // TASKS.md unreadable — no done bugs → no resets. Graceful.
+  }
+  return ids;
+}
+
+/**
+ * The set of task/bug ids (either lane) currently in a "Done" column of
+ * TASKS.md. Used to filter the Verify queue: once the board says a task is
+ * Done, it's no longer "awaiting human verification" — listVerifyRefs drops
+ * it. Reads TASKS.md fresh; degrades to empty (no filtering) on error, so a
+ * missing/unreadable board never hides the queue.
+ */
+function doneTaskIds(): Set<string> {
+  const ids = new Set<string>();
+  try {
+    const board = parseTasksFile(dotClaudePath("TASKS.md"));
+    for (const col of board.columns) {
+      if (col.status.toLowerCase() === "done") {
+        for (const item of col.items) ids.add(item.id);
+      }
+    }
+  } catch {
+    // TASKS.md unreadable — no filtering. Graceful.
   }
   return ids;
 }
@@ -108,6 +130,12 @@ function ensureVerifyDir(): void {
  * A file that fails validation or can't be read is NOT silently dropped
  * (M5-minor) — it is surfaced as an `invalid` entry (by filename) so it
  * doesn't vanish from the human's queue without a visible trace.
+ *
+ * Queue filter: the Verify tab means "awaiting human verification" — a
+ * task/bug whose board status in TASKS.md is already Done is filtered out
+ * entirely (not even as an `invalid` entry), regardless of what its pass-file
+ * says. This runs BEFORE the per-file try/read so a Done task costs nothing
+ * beyond the id check.
  */
 export function listVerifyRefs(): VerifyRef[] {
   ensureVerifyDir();
@@ -123,14 +151,19 @@ export function listVerifyRefs(): VerifyRef[] {
 
   const refs: VerifyRef[] = [];
   const done = doneBugIds();
+  const doneOnBoard = doneTaskIds();
   const titles = taskTitleById();
 
   for (const filename of entries) {
     const filePath = resolve(dir, filename);
     const taskFromFilename = filename.replace(/\.json$/i, "");
+
+    // Already Done on the board → not part of the "awaiting verification" queue.
+    if (doneOnBoard.has(taskFromFilename)) continue;
+
     try {
       const raw = readFileSync(filePath, "utf8");
-      const parsed: unknown = JSON.parse(raw);
+      const parsed: unknown = normalizeLegacyVerdicts(JSON.parse(raw));
 
       const { valid, errors } = validateVerifyFile(parsed);
       if (!valid) {
@@ -220,6 +253,9 @@ export function readVerifyFileWithMeta(taskId: string): VerifyFileWithMeta {
   } catch (err) {
     throw new Error(`Verify file for ${taskId} is not valid JSON: ${String(err)}`);
   }
+  // Legacy wire-format alias: existing on-disk files may still carry the
+  // retired verdict name `warn` — normalize to `cr` before validating.
+  parsed = normalizeLegacyVerdicts(parsed);
 
   // assertVerifyFile throws with a descriptive error if validation fails.
   const file = assertVerifyFile(parsed);
@@ -324,7 +360,7 @@ export function writeVerifyFile(file: VerifyFile, expected?: VerifyWriteToken): 
 // ── Apply VerdictPatch[] ──────────────────────────────────────────────────────
 
 import type { VerdictPatch } from "../types.js";
-import { validateVerdictPatch } from "./schema.js";
+import { validateVerdictPatch, aliasLegacyVerdictPatch } from "./schema.js";
 
 /**
  * Apply a list of VerdictPatch entries to an existing VerifyFile.
@@ -336,9 +372,14 @@ import { validateVerdictPatch } from "./schema.js";
  * Throws if any patch entry fails validation.
  */
 export function applyPatches(file: VerifyFile, patches: VerdictPatch[]): VerifyFile {
+  // Legacy wire-format alias: defends against a stale cached client (or an
+  // external caller) still sending the retired verdict name `warn`. Applied
+  // BEFORE validation so the same (aliased) object is what gets applied below.
+  const aliasedPatches = patches.map((p) => aliasLegacyVerdictPatch(p));
+
   // Validate all patches before applying any — fail fast.
-  for (let i = 0; i < patches.length; i++) {
-    const err = validateVerdictPatch(patches[i], i);
+  for (let i = 0; i < aliasedPatches.length; i++) {
+    const err = validateVerdictPatch(aliasedPatches[i], i);
     if (err !== null) {
       throw new Error(`Invalid patch: ${err}`);
     }
@@ -346,7 +387,7 @@ export function applyPatches(file: VerifyFile, patches: VerdictPatch[]): VerifyF
 
   // Build patch lookup by id.
   const patchById = new Map<string, VerdictPatch>();
-  for (const p of patches) {
+  for (const p of aliasedPatches) {
     patchById.set(p.id, p);
   }
 
@@ -363,8 +404,8 @@ export function applyPatches(file: VerifyFile, patches: VerdictPatch[]): VerifyF
     const severity =
       patch.severity !== undefined
         ? (patch.severity as Severity)
-        : // On verdict change away from fail/warn, clear severity.
-          (verdict === "fail" || verdict === "warn" ? item.severity ?? null : null);
+        : // On verdict change away from fail/cr, clear severity.
+          (verdict === "fail" || verdict === "cr" ? item.severity ?? null : null);
 
     // bugId: an explicit value in the patch wins; a pass clears the link.
     let bugId = patch.bugId !== undefined ? patch.bugId : item.bugId ?? null;

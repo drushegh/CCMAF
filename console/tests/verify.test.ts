@@ -9,7 +9,7 @@
  *      - bad schemaVersion
  *      - bad verdict enum
  *      - severity on pass/pending/blocked (must be null/absent)
- *      - severity on fail/warn (allowed)
+ *      - severity on fail/cr (allowed)
  *      - missing required fields
  *
  *   B. VerdictPatch validation (validateVerdictPatch)
@@ -65,7 +65,7 @@ vi.mock("../src/server/project-root.js", () => {
 });
 
 // Now import the modules under test (after vi.mock is set up).
-const { validateVerifyFile, validateVerdictPatch, assertVerifyFile } = await import(
+const { validateVerifyFile, validateVerdictPatch, assertVerifyFile, normalizeLegacyVerdicts } = await import(
   "../src/server/verify/schema.js"
 );
 const { reconcile, computeRollup } = await import(
@@ -138,7 +138,7 @@ describe("validateVerifyFile — schema validation", () => {
           severity: "P1",
           notes: "Button missing",
         }),
-        makeItem({ id: "item-c", verdict: "warn", severity: "P3" }),
+        makeItem({ id: "item-c", verdict: "cr", severity: "P3" }),
       ],
     };
     const result = validateVerifyFile(file);
@@ -233,9 +233,9 @@ describe("validateVerifyFile — schema validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("accepts non-null severity on verdict=warn", () => {
+  it("accepts non-null severity on verdict=cr", () => {
     const file = makeMinimalFile({
-      items: [makeItem({ verdict: "warn", severity: "P3" })],
+      items: [makeItem({ verdict: "cr", severity: "P3" })],
     });
     const result = validateVerifyFile(file);
     expect(result.valid).toBe(true);
@@ -248,6 +248,42 @@ describe("validateVerifyFile — schema validation", () => {
 
   it("assertVerifyFile throws on invalid input", () => {
     expect(() => assertVerifyFile({ schemaVersion: 99 })).toThrow(/Invalid verify file/);
+  });
+});
+
+describe("normalizeLegacyVerdicts — legacy `warn` verdict aliases to `cr`", () => {
+  it("aliases a legacy warn verdict to cr", () => {
+    const file = makeMinimalFile({
+      items: [makeItem({ verdict: "warn" as unknown as "cr", severity: "P2" })],
+    });
+    const out = normalizeLegacyVerdicts(file) as VerifyFile;
+    expect(out.items[0].verdict).toBe("cr");
+    // severity and every other field pass through untouched.
+    expect(out.items[0].severity).toBe("P2");
+  });
+
+  it("leaves current verdicts (including cr) unchanged", () => {
+    const file = makeMinimalFile({
+      items: [
+        makeItem({ id: "a", verdict: "pass" }),
+        makeItem({ id: "b", verdict: "cr" }),
+      ],
+    });
+    const out = normalizeLegacyVerdicts(file) as VerifyFile;
+    expect(out.items.map((i) => i.verdict)).toEqual(["pass", "cr"]);
+  });
+
+  it("is defensive against malformed shapes (no items array, non-object) — returns input unchanged", () => {
+    expect(normalizeLegacyVerdicts("not an object")).toBe("not an object");
+    expect(normalizeLegacyVerdicts(null)).toBeNull();
+    expect(normalizeLegacyVerdicts({ schemaVersion: 1 })).toEqual({ schemaVersion: 1 });
+  });
+
+  it("a file normalized this way then validates successfully (the read-path behaviour)", () => {
+    const raw = { ...makeMinimalFile(), items: [{ id: "x", kind: "usecase", title: "t", verdict: "warn" }] };
+    const normalized = normalizeLegacyVerdicts(raw);
+    const result = validateVerifyFile(normalized);
+    expect(result.valid).toBe(true);
   });
 });
 
@@ -589,6 +625,28 @@ describe("applyPatches", () => {
     applyPatches(file, [{ id: "item-1", verdict: "pass" }]);
     expect(file.items[0].verdict).toBe("pending"); // input untouched
   });
+
+  it("aliases a legacy warn patch verdict to cr (defensive back-compat for a stale cached client)", () => {
+    const file: VerifyFile = makeMinimalFile({
+      items: [makeItem({ id: "item-1", verdict: "pending" })],
+    });
+    const updated = applyPatches(file, [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      { id: "item-1", verdict: "warn" as any, severity: "P2" },
+    ]);
+    expect(updated.items[0].verdict).toBe("cr");
+    expect(updated.items[0].severity).toBe("P2");
+  });
+
+  it("carries an existing crTaskId forward across a save, unmodified", () => {
+    const file: VerifyFile = makeMinimalFile({
+      items: [
+        { ...makeItem({ id: "item-1", verdict: "cr" }), crTaskId: "TASK-777" },
+      ],
+    });
+    const updated = applyPatches(file, [{ id: "item-1", verdict: "cr", notes: "still relevant" }]);
+    expect(updated.items[0].crTaskId).toBe("TASK-777");
+  });
 });
 
 // Title-join: the queue shows the real feature title from TASKS.md, not the bare
@@ -638,6 +696,81 @@ describe("listVerifyRefs — joins the feature title from TASKS.md", () => {
     const ref = listVerifyRefs().find((r) => r.task === "TASK-001");
     expect(ref).toBeDefined();
     expect(ref!.title).toBe("TASK-001");
+  });
+});
+
+// Queue filter (change 5): the Verify tab means "awaiting human verification" —
+// a task/bug whose board status is already Done drops out of listVerifyRefs
+// entirely, regardless of what its pass-file says.
+describe("listVerifyRefs — filters out tasks/bugs already Done on the board", () => {
+  const tasksMd = () => join(tempRoot, ".claude", "TASKS.md");
+
+  afterAll(() => {
+    try {
+      unlinkSync(tasksMd());
+    } catch {
+      /* already gone */
+    }
+  });
+
+  it("excludes a task whose board status is Done, but keeps one still in Verify", () => {
+    writeVerifyFile({
+      schemaVersion: 1,
+      task: "TASK-640",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pass" })],
+    });
+    writeVerifyFile({
+      schemaVersion: 1,
+      task: "TASK-641",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pending" })],
+    });
+
+    writeFileSync(
+      tasksMd(),
+      [
+        "# Task Board",
+        "",
+        "## Feature Lane",
+        "",
+        "### Verify",
+        "",
+        "#### [TASK-641] Still awaiting verification",
+        "- body",
+        "",
+        "### Done",
+        "",
+        "#### [TASK-640] Already accepted",
+        "- body",
+        "",
+      ].join("\n"),
+      "utf8"
+    );
+
+    const refs = listVerifyRefs();
+    expect(refs.find((r) => r.task === "TASK-640")).toBeUndefined();
+    expect(refs.find((r) => r.task === "TASK-641")).toBeDefined();
+  });
+
+  it("excludes a Done BUG the same way as a Done TASK", () => {
+    writeVerifyFile({
+      schemaVersion: 1,
+      task: "BUG-095",
+      status: "in-review",
+      items: [makeItem({ id: "item-1", verdict: "pass" })],
+    });
+
+    writeFileSync(
+      tasksMd(),
+      ["# Task Board", "", "## Bug-Fix Lane", "", "### Done", "", "#### [BUG-095] Fixed and accepted", "- body", ""].join(
+        "\n"
+      ),
+      "utf8"
+    );
+
+    const refs = listVerifyRefs();
+    expect(refs.find((r) => r.task === "BUG-095")).toBeUndefined();
   });
 });
 

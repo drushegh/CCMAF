@@ -19,7 +19,7 @@ export const MOCK_VERIFY_FILE: VerifyFile = {
       group: "Verdict controls",
       title: "Segmented verdict control sets the item verdict",
       subject:
-        "Clicking a segment (pending/pass/fail/warn/blocked) updates the item and re-colours the row.",
+        "Clicking a segment (pending/pass/fail/cr/blocked) updates the item and re-colours the row.",
       expected:
         "Selected segment is visually distinct and announced as the checked radio.",
       verdict: "pass",
@@ -30,9 +30,9 @@ export const MOCK_VERIFY_FILE: VerifyFile = {
       id: "TP-02",
       kind: "test-plan-item",
       group: "Verdict controls",
-      title: "Severity is enabled only for fail / warn",
+      title: "Severity is enabled only for fail / cr",
       subject:
-        "The severity selector is disabled for pending/pass/blocked and enabled for fail and warn.",
+        "The severity selector is disabled for pending/pass/blocked and enabled for fail and cr.",
       expected: "Disabled control cannot be changed and is visually dimmed.",
       verdict: "fail",
       severity: "P1",
@@ -45,7 +45,7 @@ export const MOCK_VERIFY_FILE: VerifyFile = {
       title: "Progress rollup recomputes on every edit",
       subject: "Counts by verdict and the proportional bar track draft edits live.",
       expected: "reviewed/total updates immediately when a verdict changes.",
-      verdict: "warn",
+      verdict: "cr",
       severity: "P3",
       notes: "Bar segment widths look right; legend totals match.",
     },

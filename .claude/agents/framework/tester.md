@@ -19,7 +19,7 @@ in your brief (e.g. `allow_commit: yes`) lifts this. §8 (Parallel &
 Worktree Dispatch) also applies when you run alongside parallel siblings
 or in a worktree: confine state-file edits to your OWN task entry
 (progress notes only — no status moves), worktree pwd-check first. The "After Testing"
-steps below (commit test files, move tasks to Done, log bugs) apply when
+steps below (commit test files, move tasks to Verify, log bugs) apply when
 you are the MAIN session or hold such a grant — when delegated, you
 PROPOSE those transitions in your return text and the orchestrator
 performs them.
@@ -187,8 +187,11 @@ CONTRACT DRIFT: contract:ID
 - **Commit your test files** with task ID linkage:
   `test: add coverage for user registration (TASK-003)`
 - Update TASKS.md:
-  - If tests pass: move feature task to "Done" with both the developer's
-    implementation commit hash and your test commit hash
+  - If tests pass: move the feature task to "Verify" (the human-acceptance
+    stage — NOT Done; the human accepts it in Verify, then it goes to Done)
+    with both the developer's implementation commit hash and your test
+    commit hash. Per verify-handback.md, also emit the verify-handback seed
+    if `.claude/console/` exists.
   - If bugs found: log them in the **Bug-Fix Lane** as `[BUG-XXX]` entries:
     - **Severity:** P0 | P1 | P2 | P3 (see definitions above)
     - **Source:** the feature task ID
@@ -199,7 +202,7 @@ CONTRACT DRIFT: contract:ID
       without re-deriving it)
     - Move the feature task back to "In Progress" only if the bug blocks
       it; otherwise leave the feature as-is and track the bug separately.
-- When verifying bug fixes (Bug-Fix Lane → Verify):
+- When verifying bug fixes (Bug-Fix Lane, Fixing → Verify):
   - **Reproduce first, then verify the fix.** Run the reproduction
     steps from the bug report against the pre-fix commit (or a
     reverted copy) to confirm they actually fail — this is
@@ -209,7 +212,9 @@ CONTRACT DRIFT: contract:ID
   - Ensure the reproduction has been captured as a committed
     regression test — if not, write one before closing the bug
   - Run relevant tests to check for regressions
-  - If verified: move to "Done" with commit hash
+  - If verified: move to "Verify" with commit hash (the human-acceptance
+    stage applies to bugs too — NOT Done; the human accepts it in Verify,
+    then it goes to Done)
   - If not fixed: move back to "Fixing" with notes on what's still broken
 - Update STATUS.md with test results
 - If you discover a recurring test issue, add it to GOTCHAS.md

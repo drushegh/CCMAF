@@ -11,14 +11,14 @@
 
 // ── Domain types (contract:console-verify-file) ────────────────────────────
 
-export type Verdict = "pending" | "pass" | "fail" | "warn" | "blocked";
+export type Verdict = "pending" | "pass" | "fail" | "cr" | "blocked";
 export type Severity = "P0" | "P1" | "P2" | "P3";
 
 export const VERDICTS: readonly Verdict[] = [
   "pending",
   "pass",
   "fail",
-  "warn",
+  "cr",
   "blocked",
 ] as const;
 
@@ -26,7 +26,17 @@ export const SEVERITIES: readonly Severity[] = ["P0", "P1", "P2", "P3"] as const
 
 /** Severity is meaningful (and required by the contract) only for these verdicts. */
 export function severityApplies(verdict: Verdict): boolean {
-  return verdict === "fail" || verdict === "warn";
+  return verdict === "fail" || verdict === "cr";
+}
+
+/**
+ * True for a "terminal-good" verdict — one that counts as complete for the
+ * purposes of auto-move-to-Done and the Accept & Done gate: `pass` (matches
+ * as specified) or `cr` (matches, but the owner wants a change — the change
+ * itself is tracked as a separate follow-up task, not a blocker on this story).
+ */
+export function isComplete(verdict: Verdict): boolean {
+  return verdict === "pass" || verdict === "cr";
 }
 
 /**
@@ -56,6 +66,11 @@ export interface VerifyItem {
   round?: number;
   /** The BUG-XXX raised for this use case while it's failing; null once retested. */
   bugId?: string | null;
+  /**
+   * The TASK-XXX follow-up spawned the first time this item's verdict was set
+   * to `cr`. Set once and left in place even if the verdict later changes.
+   */
+  crTaskId?: string | null;
   changed?: boolean;
   provenance?: Record<string, unknown>;
 }

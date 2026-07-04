@@ -8,6 +8,7 @@ import {
 import { Save, RotateCcw, Check, CheckCheck } from "lucide-react";
 import {
   severityApplies,
+  isComplete,
   type Severity,
   type Verdict,
   type VerdictPatch,
@@ -76,7 +77,7 @@ function itemsEqual(a: VerifyItem, b: VerifyItem): boolean {
 
 /**
  * The reusable verify viewer (US2). Renders ANY VerifyFile: per item a verdict
- * segmented control, a severity selector (enabled only for fail/warn), and a
+ * segmented control, a severity selector (enabled only for fail/cr), and a
  * notes field, with a live progress rollup. Save sends VerdictPatch[] via the
  * injected onSave (PUT /api/verify/:task + X-Console-Token).
  *
@@ -141,8 +142,8 @@ export const VerifyViewer = forwardRef<VerifyViewerHandle, VerifyViewerProps>(
   }
 
   function handleVerdict(id: string, verdict: Verdict): void {
-    // Clear severity when leaving fail/warn — contract: severity non-null
-    // ONLY on fail/warn.
+    // Clear severity when leaving fail/cr — contract: severity non-null
+    // ONLY on fail/cr.
     const patch: Partial<VerifyItem> = severityApplies(verdict)
       ? { verdict }
       : { verdict, severity: null };
@@ -230,9 +231,10 @@ export const VerifyViewer = forwardRef<VerifyViewerHandle, VerifyViewerProps>(
   }
 
   // Accept gating: the story can be accepted (→ Done) only when EVERY use case
-  // passes. The button additionally requires a clean save state so the verdicts
-  // on disk match what's accepted.
-  const allPass = items.length > 0 && items.every((it) => it.verdict === "pass");
+  // is terminal-good — pass OR cr (a change request is tracked as its own
+  // follow-up task, not a blocker on this story). The button additionally
+  // requires a clean save state so the verdicts on disk match what's accepted.
+  const allComplete = items.length > 0 && items.every((it) => isComplete(it.verdict));
 
   // Preserve item order but cluster by group for readability.
   const groups = useMemo(() => groupItems(items), [items]);
@@ -296,11 +298,11 @@ export const VerifyViewer = forwardRef<VerifyViewerHandle, VerifyViewerProps>(
               type="button"
               className="vv-btn vv-btn--accept"
               onClick={() => void handleAccept()}
-              disabled={!allPass || dirty || saveState.phase === "saving" || accepting}
+              disabled={!allComplete || dirty || saveState.phase === "saving" || accepting}
               data-testid="accept-btn"
               title={
-                !allPass
-                  ? "Every use case must pass before you can accept"
+                !allComplete
+                  ? "Every use case must pass or CR before you can accept"
                   : dirty
                     ? "Save your verdicts first"
                     : "Accept this story and move it to Done"

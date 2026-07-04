@@ -4,7 +4,7 @@ const VERDICT_LABEL: Record<Verdict, string> = {
   pending: "Pending",
   pass: "Pass",
   fail: "Fail",
-  warn: "Warn",
+  cr: "CR",
   blocked: "Blocked",
 };
 
@@ -14,7 +14,7 @@ export function rollupCounts(items: VerifyItem[]): Record<Verdict, number> {
     pending: 0,
     pass: 0,
     fail: 0,
-    warn: 0,
+    cr: 0,
     blocked: 0,
   };
   for (const item of items) counts[item.verdict] += 1;

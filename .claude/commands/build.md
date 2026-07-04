@@ -9,6 +9,11 @@ Then:
    independently-verifiable features, STOP and decompose it first — one board task
    per feature (see `.claude/framework/agent_docs/verify-handback.md`). Do NOT build
    one umbrella task covering many features; that destroys the per-feature review surface.
+   **Move it to In Progress now, before any code changes** — Todo → In Progress
+   in TASKS.md (Blocked instead if you discover a blocker before you can start).
+   Subagents don't make this move themselves (RED-LINES, behavioral-principles.md
+   §7); the main session does it here, symmetric with the Ready-for-Review check
+   in step 5a below.
 2. Estimate the task's token cost against the current context window
 3. If current usage + estimated cost >= 90%, ask the user:
    "Context is at X%. This task will need ~YK tokens (Z% projected).
