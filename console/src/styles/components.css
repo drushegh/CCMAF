@@ -972,6 +972,14 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    /* Cap at ~4 items and scroll internally — a long queue must not stretch the
+       card taller and strand a dead gap under its row-mate (Framework Activity).
+       The box keeps the height it has at 4 items regardless of queue length. */
+    max-height: 252px;
+    overflow-y: auto;
+    /* room for the scrollbar so it never overlaps the row's alert icon */
+    padding-right: 2px;
+    scrollbar-width: thin;
   }
 
   .handback-queue-item {

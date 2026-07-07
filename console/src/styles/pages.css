@@ -383,6 +383,7 @@
   .markdown-body table {
     border-collapse: collapse;
     width: 100%;
+    table-layout: auto;
     margin: 0 0 1em;
     font-size: 12.5px;
   }
@@ -392,6 +393,10 @@
     border: 1px solid var(--border-subtle);
     padding: 6px 10px;
     text-align: left;
+    vertical-align: top;
+    /* Long prose / hashes / paths wrap inside the cell instead of forcing the
+       table wider than its column (the overspill bug). */
+    overflow-wrap: anywhere;
   }
 
   .markdown-body th {

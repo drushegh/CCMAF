@@ -14,8 +14,14 @@
   .docpage {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 216px;
-    gap: 24px;
+    gap: 32px;
     align-items: start;
+    /* Cap + centre the doc so prose keeps a sane measure AND the layout stays
+       symmetric — no narrow column stranded against a wide dead gap before the
+       rail (the "squished to one side" bug). Doc pages read as a centred
+       document; the full-bleed data dashboards keep their own width. */
+    max-width: 1180px;
+    margin-inline: auto;
   }
 
   .docpage--no-toc {
@@ -24,8 +30,9 @@
 
   .docpage-main {
     min-width: 0;
-    /* The readable measure — the whole point of the pattern. */
-    max-width: 72ch;
+    /* Fills its track. The readable measure now comes from the capped, centred
+       .docpage container above — starving this column to 72ch is what left the
+       dead gap and squeezed wide tables into an unreadable sliver. */
   }
 
   .docpage-content {
