@@ -7,6 +7,11 @@
  *     stat tiles, shell chrome, kanban board, etc.).
  *   - No runtime <style> injection in React components.
  *   - Design tokens come from theme.css (@theme + :root); never hard-code values.
+ *
+ * Visual language ("Nocturne Violet", 2026-07-06): glass cards = sheen gradient
+ * over a surface tone + 1px --border-card + --shadow-card; violet is the only
+ * brand accent; green/red/amber/blue are reserved for status. The shell chrome
+ * uses translucent veils so the body's aurora wash reads through.
  */
 
 /* ============================================================
@@ -19,7 +24,8 @@
     grid-template-rows: var(--shell-header-h) 1fr var(--shell-statusbar-h);
     height: 100dvh;
     overflow: hidden;
-    background: var(--surface-0);
+    /* Transparent — the body carries the canvas colour + aurora wash. */
+    background: transparent;
     color: var(--text-primary);
   }
 
@@ -29,8 +35,10 @@
     align-items: center;
     gap: 16px;
     padding: 0 20px;
-    background: var(--surface-1);
-    border-bottom: 1px solid var(--border-subtle);
+    background: var(--veil-chrome);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border-card);
     height: var(--shell-header-h);
     flex-shrink: 0;
   }
@@ -43,26 +51,28 @@
   }
 
   .console-header-logo {
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-md);
-    background: color-mix(in oklch, var(--color-accent) 18%, var(--surface-2));
-    border: 1px solid color-mix(in oklch, var(--color-accent) 30%, var(--border-subtle));
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+    background: var(--accent-grad);
+    border: 1px solid color-mix(in oklch, white 18%, transparent);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-accent);
+    color: var(--on-accent); /* dark ink on yellow/orange accents */
     flex-shrink: 0;
+    box-shadow: var(--glow-accent);
   }
 
   .console-header-titles {
     display: flex;
     flex-direction: column;
-    gap: 1px;
+    gap: 2px;
   }
 
   .console-header-name {
-    font-size: 13px;
+    font-family: var(--font-heading);
+    font-size: 13.5px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.01em;
@@ -70,9 +80,9 @@
   }
 
   .console-header-sub {
-    font-size: 10px;
+    font-size: 9.5px;
     color: var(--text-subtle);
-    letter-spacing: 0.12em;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     line-height: 1;
   }
@@ -88,6 +98,7 @@
   .console-header-breadcrumb-sep {
     color: var(--text-subtle);
     font-size: 13px;
+    opacity: 0.6;
   }
 
   .console-header-breadcrumb-page {
@@ -108,7 +119,7 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: var(--radius-pill);
     background: color-mix(in oklch, var(--status-ok) 10%, transparent);
     border: 1px solid color-mix(in oklch, var(--status-ok) 30%, transparent);
@@ -120,14 +131,15 @@
     height: 6px;
     border-radius: 50%;
     background: var(--status-ok);
+    box-shadow: 0 0 8px var(--status-ok);
     flex-shrink: 0;
   }
 
   .console-status-label {
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--status-ok);
-    font-weight: 500;
-    letter-spacing: 0.06em;
+    font-weight: 600;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
   }
 
@@ -139,6 +151,7 @@
     flex-shrink: 0;
   }
 
+  /* Circular glass control (inspo-3's round icon-button DNA). */
   .console-theme-toggle {
     display: inline-flex;
     align-items: center;
@@ -146,20 +159,113 @@
     width: 30px;
     height: 30px;
     padding: 0;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
+    background: color-mix(in oklch, var(--surface-2) 70%, transparent);
     color: var(--text-muted);
     cursor: pointer;
     transition:
       background var(--duration-fast) var(--ease-snappy),
       color var(--duration-fast) var(--ease-snappy),
-      border-color var(--duration-fast) var(--ease-snappy);
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
   .console-theme-toggle:hover {
     background: var(--surface-3);
     color: var(--color-accent);
-    border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
+    box-shadow: var(--glow-accent-soft);
+  }
+
+  /* ── Accent picker: palette button (reuses .console-theme-toggle) +
+        glass swatch popover ── */
+  .console-accent {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .console-accent-pop {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    display: flex;
+    gap: 8px;
+    padding: 10px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-3) 92%, transparent);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow-float);
+    /* Portaled to <body> (see AccentPicker.tsx): must clear page content that
+       leaks a root-level stacking (Verify uses z 60), so sit at toast level. */
+    z-index: var(--z-toast);
+  }
+
+  .console-accent-swatch {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: var(--radius-pill);
+    /* --ink flips per theme, so the chip edge reads on both grounds. */
+    border: 1px solid color-mix(in oklch, var(--ink) 22%, transparent);
+    background: var(--swatch);
+    color: var(--swatch-ink);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition:
+      transform var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
+  }
+  .console-accent-swatch:hover {
+    transform: scale(1.12);
+  }
+  .console-accent-swatch.is-active {
+    box-shadow:
+      0 0 0 2px var(--surface-3),
+      0 0 0 4px var(--swatch),
+      0 0 14px -2px color-mix(in oklch, var(--swatch) 60%, transparent);
+  }
+  /* Keep the chip round under the global :focus-visible radius override. */
+  .console-accent-swatch:focus-visible {
+    border-radius: var(--radius-pill);
+  }
+
+  /* Swatch preview colours — literal BY DESIGN: each chip previews the accent
+     it WOULD apply, independent of the active accent, so they can't ride the
+     live --accent* tokens. Values mirror the per-accent fill grades in
+     theme.css (keep in sync); yellow/orange check-ink is the dark --on-accent
+     ink those accents use. */
+  .console-accent-swatch[data-swatch="purple"] {
+    --swatch: oklch(0.54 0.21 293);
+    --swatch-ink: white;
+  }
+  .console-accent-swatch[data-swatch="blue"] {
+    --swatch: oklch(0.5 0.17 258);
+    --swatch-ink: white;
+  }
+  .console-accent-swatch[data-swatch="red"] {
+    --swatch: oklch(0.53 0.19 30);
+    --swatch-ink: white;
+  }
+  .console-accent-swatch[data-swatch="green"] {
+    --swatch: oklch(0.52 0.105 158);
+    --swatch-ink: white;
+  }
+  .console-accent-swatch[data-swatch="yellow"] {
+    --swatch: oklch(0.8 0.16 93);
+    --swatch-ink: oklch(0.24 0.05 95);
+  }
+  .console-accent-swatch[data-swatch="orange"] {
+    --swatch: oklch(0.7 0.17 55);
+    --swatch-ink: oklch(0.23 0.05 55);
   }
 
   /* ── Body ── */
@@ -173,8 +279,10 @@
   .console-rail {
     display: flex;
     flex-direction: column;
-    background: var(--surface-1);
-    border-right: 1px solid var(--border-subtle);
+    background: var(--veil-chrome);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-right: 1px solid var(--border-card);
     width: var(--nav-rail-w);
     transition: width var(--duration-base) var(--ease-snappy);
     overflow: hidden;
@@ -189,7 +297,7 @@
   .console-rail-list {
     list-style: none;
     margin: 0;
-    padding: 8px 6px;
+    padding: 10px 8px;
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -197,11 +305,12 @@
   }
 
   .console-rail-item {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 8px 10px;
-    border-radius: var(--radius-md);
+    gap: 11px;
+    padding: 8px 11px;
+    border-radius: var(--radius-lg);
     color: var(--text-muted);
     text-decoration: none;
     font-size: 13px;
@@ -209,29 +318,77 @@
     white-space: nowrap;
     transition:
       background var(--duration-fast) var(--ease-snappy),
-      color var(--duration-fast) var(--ease-snappy);
+      color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .console-rail-item:hover {
-    background: var(--surface-2);
+    background: color-mix(in oklch, var(--surface-3) 55%, transparent);
     color: var(--text-primary);
   }
 
+  /* Active nav item — a LIT violet pill (inspo-3's glowing active-nav
+     signature): solid accent fill with a top-left catch-light, white text,
+     and a soft purple bloom beneath. --accent-fill is the ≥4.5:1-with-white
+     grade, so the label stays AA at 13px. */
   .console-rail-item.is-active {
-    background: var(--surface-accent-tint);
-    color: var(--color-accent);
-    font-weight: 500;
+    background:
+      radial-gradient(
+        130% 160% at 18% -20%,
+        color-mix(in oklch, white 22%, transparent),
+        transparent 55%
+      ),
+      linear-gradient(135deg, var(--accent-fill-hi), var(--accent-fill));
+    color: var(--on-accent);
+    font-weight: 550;
+    box-shadow:
+      inset 0 1px 0 color-mix(in oklch, white 25%, transparent),
+      0 8px 22px -6px color-mix(in oklch, var(--accent-strong) 65%, transparent);
+  }
+
+  .console-rail-item.is-active::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    border-radius: var(--radius-pill);
+    background: var(--color-accent);
+    box-shadow: 0 0 8px var(--color-accent);
   }
 
   .console-rail-item.is-active .console-rail-item-icon {
-    color: var(--color-accent);
+    color: var(--on-accent);
+  }
+
+  /* Hover on the lit pill: keep the white-on-violet pairing (the generic
+     hover rules above would otherwise dim the icon back to grey). */
+  .console-rail-item.is-active:hover {
+    background:
+      radial-gradient(
+        130% 160% at 18% -20%,
+        color-mix(in oklch, white 26%, transparent),
+        transparent 55%
+      ),
+      linear-gradient(135deg, var(--accent-fill-hi), var(--accent-fill));
+    color: var(--on-accent);
+  }
+  .console-rail-item.is-active:hover .console-rail-item-icon {
+    color: var(--on-accent);
   }
 
   .console-rail-item-icon {
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    color: currentColor;
+    color: var(--text-subtle);
+    transition: color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .console-rail-item:hover .console-rail-item-icon {
+    color: var(--text-primary);
   }
 
   .console-rail-item-label {
@@ -243,10 +400,10 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin: 6px;
-    padding: 7px 10px;
-    border: none;
-    border-radius: var(--radius-md);
+    margin: 8px;
+    padding: 7px 11px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
     background: transparent;
     color: var(--text-subtle);
     font-size: 11px;
@@ -254,12 +411,14 @@
     white-space: nowrap;
     transition:
       background var(--duration-fast) var(--ease-snappy),
-      color var(--duration-fast) var(--ease-snappy);
+      color var(--duration-fast) var(--ease-snappy),
+      border-color var(--duration-fast) var(--ease-snappy);
     letter-spacing: 0.04em;
   }
 
   .console-rail-collapse-btn:hover {
-    background: var(--surface-2);
+    background: color-mix(in oklch, var(--surface-3) 55%, transparent);
+    border-color: var(--border-card);
     color: var(--text-muted);
   }
 
@@ -273,7 +432,7 @@
     overflow-y: auto;
     overflow-x: hidden;
     min-width: 0;
-    background: var(--surface-0);
+    background: transparent;
   }
 
   /* ── Status bar ── */
@@ -282,8 +441,10 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 14px;
-    background: var(--surface-1);
-    border-top: 1px solid var(--border-subtle);
+    background: var(--veil-chrome);
+    -webkit-backdrop-filter: blur(14px);
+    backdrop-filter: blur(14px);
+    border-top: 1px solid var(--border-card);
     height: var(--shell-statusbar-h);
   }
 
@@ -292,6 +453,7 @@
     align-items: center;
     gap: 6px;
     font-size: 10.5px;
+    font-family: var(--font-mono);
     color: var(--text-subtle);
     letter-spacing: 0.04em;
   }
@@ -314,9 +476,9 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    padding: 20px 24px 16px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-1);
+    padding: 20px 28px 16px;
+    border-bottom: 1px solid var(--border-card);
+    background: var(--veil-canvas);
     flex-shrink: 0;
   }
 
@@ -334,12 +496,15 @@
     min-width: 0;
   }
 
+  /* Page titles ride the display grade — larger and LIGHTER than a bold
+     17px h1 (size carries the hierarchy, per the design language). */
   .page-title {
-    font-size: 16px;
-    font-weight: 600;
+    font-family: var(--font-heading);
+    font-size: var(--font-size-display);
+    font-weight: 450;
     color: var(--text-primary);
     margin: 0;
-    letter-spacing: -0.01em;
+    letter-spacing: var(--tracking-tight);
     line-height: 1.2;
   }
 
@@ -355,7 +520,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    padding: 3px 8px;
+    padding: 3px 9px;
     border-radius: var(--radius-pill);
     flex-shrink: 0;
   }
@@ -389,15 +554,19 @@
   }
 
   /* The in-page title block was removed (identity lives in the top breadcrumb);
-     a page that supplies `actions` gets only this slim right-aligned bar. */
+     a page that supplies `actions` gets only this slim right-aligned bar.
+     Transparent + borderless so it floats on the canvas instead of drawing a
+     second, mostly-empty chrome band under the app header. */
   .page-header--actions-only {
     justify-content: flex-end;
-    padding: 10px 24px;
+    padding: 12px 28px 0;
+    background: transparent;
+    border-bottom: none;
   }
 
   .page-body {
     flex: 1;
-    padding: 20px 24px;
+    padding: 22px 28px;
     overflow-y: auto;
   }
 
@@ -413,11 +582,12 @@
   }
 
   .empty-state-icon {
-    width: 44px;
-    height: 44px;
+    width: 48px;
+    height: 48px;
     border-radius: var(--radius-lg);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-2);
+    border: 1px solid var(--border-card);
+    box-shadow: var(--shadow-card);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -446,9 +616,10 @@
 
   /* Placeholder card */
   .placeholder-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     padding: 16px 20px;
     display: flex;
     flex-direction: column;
@@ -480,51 +651,86 @@
 
   /* ── Hero ── */
   .dashboard-hero {
+    position: relative;
+    overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 20px 24px;
-    border-bottom: 1px solid var(--border-subtle);
+    padding: 26px 28px;
+    border-bottom: 1px solid var(--border-card);
     background: linear-gradient(
       120deg,
-      color-mix(in oklch, var(--color-accent) 14%, var(--surface-1)) 0%,
-      var(--surface-1) 55%
+      color-mix(in oklch, var(--accent-strong) 16%, transparent) 0%,
+      color-mix(in oklch, var(--accent-strong) 4%, transparent) 45%,
+      transparent 70%
     );
-    box-shadow: inset 0 -1px 0 color-mix(in oklch, var(--color-accent) 20%, var(--border-subtle));
+  }
+
+  /* Vertical aurora streak behind the hero title (inspo-3's light-flare
+     signature): a blurred violet ribbon on screen blend — decorative only,
+     kept behind the content layer. On the light theme, screen-blending a
+     mid-violet over a near-white ground resolves to ~white, so the streak
+     fades out automatically without a theme override. */
+  .dashboard-hero::after {
+    content: "";
+    position: absolute;
+    top: -55%;
+    bottom: -55%;
+    left: 26%;
+    width: 150px;
+    transform: rotate(12deg);
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      color-mix(in oklch, var(--accent-bright) 55%, transparent) 45%,
+      color-mix(in oklch, var(--accent-strong) 45%, transparent) 62%,
+      transparent 100%
+    );
+    filter: blur(34px);
+    opacity: 0.5;
+    mix-blend-mode: screen;
+    pointer-events: none;
+  }
+
+  .dashboard-hero > * {
+    position: relative;
+    z-index: 1;
   }
 
   .dashboard-hero-content {
     display: flex;
     align-items: center;
-    gap: 14px;
+    gap: 16px;
   }
 
   .dashboard-hero-icon {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-lg);
-    background: color-mix(in oklch, var(--color-accent) 16%, var(--surface-2));
-    border: 1px solid color-mix(in oklch, var(--color-accent) 35%, transparent);
+    width: 46px;
+    height: 46px;
+    border-radius: 14px;
+    background: var(--accent-grad);
+    border: 1px solid color-mix(in oklch, white 20%, transparent);
     display: flex;
     align-items: center;
     justify-content: center;
-    color: var(--color-accent);
-    box-shadow: 0 0 20px -6px color-mix(in oklch, var(--color-accent) 40%, transparent);
+    color: var(--on-accent); /* dark ink on yellow/orange accents */
+    box-shadow: var(--glow-accent), var(--shadow-card);
   }
 
   .dashboard-hero-title {
-    font-size: 18px;
-    font-weight: 700;
+    font-family: var(--font-heading);
+    font-size: var(--font-size-hero);
+    font-weight: var(--weight-display);
     color: var(--text-primary);
     margin: 0;
-    letter-spacing: -0.02em;
+    letter-spacing: var(--tracking-tight);
+    line-height: 1.1;
   }
 
   .dashboard-hero-desc {
     font-size: 12px;
     color: var(--text-subtle);
     margin: 0;
-    margin-top: 2px;
+    margin-top: 4px;
   }
 
   .dashboard-hero-meta {
@@ -562,8 +768,8 @@
   .vitals-strip {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 8px;
-    padding: 16px 24px 4px;
+    gap: 12px;
+    padding: 20px 28px 6px;
   }
 
   /* Wide monitor: the whole vitals bar reflows onto one row of ten. */
@@ -601,27 +807,34 @@
      so every tile reads as the same shape regardless of descriptor length. */
   .vitals-strip .stat-card {
     height: 100%;
-    min-height: 96px;
+    min-height: 104px;
     align-items: flex-start;
     justify-content: flex-start;
     gap: 3px;
-    padding: 12px 14px;
+    padding: 13px 15px;
   }
   .vitals-strip .stat-card-icon {
     display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-4) 55%, transparent);
+    border: 1px solid var(--border-card);
     color: var(--text-subtle);
-    margin-bottom: 2px;
+    margin-bottom: 5px;
   }
   .vitals-strip .stat-card-value {
-    font-size: 23px;
+    font-size: var(--font-size-stat);
   }
   .vitals-strip .stat-card-status {
     margin-top: auto;
-    padding-top: 6px;
+    padding-top: 7px;
     font-size: 9.5px;
     font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.07em;
     color: var(--text-subtle);
   }
 
@@ -635,9 +848,9 @@
   .dashboard-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
-    gap: 12px;
+    gap: 16px;
     align-items: stretch;
-    padding: 12px 24px 16px;
+    padding: 16px 28px 24px;
   }
 
   .dashboard-col-5 {
@@ -678,10 +891,11 @@
   }
 
   .dashboard-section {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
-    padding: 16px 18px;
+    box-shadow: var(--shadow-card);
+    padding: 18px 20px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -715,11 +929,11 @@
   .dashboard-section-title {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     font-size: 10.5px;
-    font-weight: 600;
+    font-weight: 650;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.15em;
     color: var(--text-subtle);
   }
 
@@ -740,7 +954,7 @@
   .dashboard-section-footer {
     margin-top: auto;
     padding-top: 10px;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-card);
     font-size: 11px;
   }
 
@@ -761,7 +975,7 @@
     height: 6px;
     border-radius: var(--radius-pill);
     background: var(--status-ok);
-    box-shadow: 0 0 6px var(--status-ok);
+    box-shadow: 0 0 8px var(--status-ok);
   }
 
   .section-link {
@@ -769,8 +983,10 @@
     color: var(--color-accent);
     text-decoration: none;
     letter-spacing: 0.02em;
+    transition: color var(--duration-fast) var(--ease-snappy);
   }
   .section-link:hover {
+    color: var(--accent-bright);
     text-decoration: underline;
   }
 
@@ -779,8 +995,8 @@
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--text-subtle);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: color-mix(in oklch, var(--surface-3) 70%, transparent);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-pill);
     padding: 1px 8px;
   }
@@ -796,8 +1012,8 @@
   }
 
   .handback-empty-icon {
-    color: var(--text-subtle);
-    opacity: 0.5;
+    color: var(--status-ok);
+    opacity: 0.55;
   }
 
   .handback-empty-title {
@@ -815,7 +1031,7 @@
 
   .handback-empty-desc code {
     font-size: 10.5px;
-    background: var(--surface-2);
+    background: color-mix(in oklch, var(--surface-3) 80%, transparent);
     padding: 1px 4px;
     border-radius: var(--radius-sm);
     color: var(--color-accent);
@@ -828,11 +1044,11 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
   }
 
   .handback-queue-item {
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     overflow: hidden;
   }
 
@@ -840,19 +1056,26 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px 8px 0;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    padding: 9px 12px 9px 0;
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     text-decoration: none;
     overflow: hidden;
-    transition: background var(--duration-fast) var(--ease-snappy),
-                border-color var(--duration-fast) var(--ease-snappy);
+    transition:
+      background var(--duration-fast) var(--ease-snappy),
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .handback-queue-link:hover {
     background: var(--surface-accent-tint);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
+    box-shadow: var(--glow-accent-soft);
   }
 
   /* Status left-bar: idle (none reviewed) → grey, in-progress → accent,
@@ -869,6 +1092,8 @@
   }
   .handback-queue-bar--active {
     background: var(--color-accent);
+    box-shadow: 0 0 6px
+      color-mix(in oklch, var(--color-accent) 60%, transparent);
   }
   .handback-queue-bar--done {
     background: var(--status-ok);
@@ -923,7 +1148,11 @@
     display: block;
     height: 100%;
     border-radius: var(--radius-pill);
-    background: var(--color-accent);
+    background: linear-gradient(
+      90deg,
+      var(--accent-strong),
+      var(--color-accent)
+    );
   }
   .handback-queue-fill--idle {
     background: color-mix(in oklch, var(--text-subtle) 50%, transparent);
@@ -958,12 +1187,14 @@
     display: flex;
     align-items: flex-start;
     gap: 6px;
-    margin-top: 8px;
+    margin-top: 10px;
     max-width: 460px;
-    padding: 8px 10px;
-    background: color-mix(in oklch, var(--surface-0) 55%, transparent);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    padding: 8px 11px;
+    background: color-mix(in oklch, var(--surface-0) 45%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
   }
 
   .dashboard-hero-brief-icon {
@@ -991,7 +1222,7 @@
     /* Flex (not a fixed 4-col grid) so all tiles — 4 or 5 incl. Bugs — share the
        row and shrink rather than wrapping the last one to a second line. */
     display: flex;
-    gap: 8px;
+    gap: 10px;
   }
 
   .stat-grid > * {
@@ -1005,50 +1236,78 @@
   }
 
   .stat-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
-    padding: 12px 14px;
+    box-shadow: var(--shadow-card);
+    padding: 13px 15px;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    transition: border-color var(--duration-fast) var(--ease-snappy),
-                background var(--duration-fast) var(--ease-snappy);
+    transition:
+      border-color var(--duration-fast) var(--ease-snappy),
+      background var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy),
+      transform var(--duration-fast) var(--ease-snappy);
   }
 
   .stat-card-link:hover .stat-card {
-    border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-subtle));
-    background: var(--surface-accent-tint);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
+    background: var(--card-sheen), var(--surface-accent-tint);
+    box-shadow: var(--shadow-raised), var(--glow-accent-soft);
+    transform: translateY(-1px);
   }
 
   .stat-card--accent {
-    border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-subtle));
-    background: var(--surface-accent-tint);
-    box-shadow: inset 0 2px 0 color-mix(in oklch, var(--color-accent) 55%, transparent);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
+    background:
+      var(--card-sheen),
+      color-mix(in oklch, var(--accent-strong) 12%, var(--surface-1));
+    box-shadow: var(--shadow-card), var(--glow-accent-soft);
   }
 
   .stat-card--ok {
     border-color: var(--ok-border);
-    background: var(--ok-soft);
-    box-shadow: inset 0 2px 0 color-mix(in oklch, var(--status-ok) 55%, transparent);
+    background:
+      var(--card-sheen),
+      color-mix(in oklch, var(--status-ok) 8%, var(--surface-1));
   }
 
   .stat-card--info {
-    border-color: color-mix(in oklch, var(--status-info) 35%, var(--border-subtle));
-    background: var(--info-soft);
-    box-shadow: inset 0 2px 0 color-mix(in oklch, var(--status-info) 55%, transparent);
+    border-color: color-mix(
+      in oklch,
+      var(--status-info) 35%,
+      var(--border-card)
+    );
+    background:
+      var(--card-sheen),
+      color-mix(in oklch, var(--status-info) 7%, var(--surface-1));
   }
 
   .stat-card--warn {
     border-color: var(--warn-tint-border);
-    background: var(--warn-soft);
-    box-shadow: inset 0 2px 0 color-mix(in oklch, var(--status-blocked) 55%, transparent);
+    background:
+      var(--card-sheen),
+      color-mix(in oklch, var(--status-blocked) 7%, var(--surface-1));
   }
 
   .stat-card--danger {
-    border-color: color-mix(in oklch, var(--status-error) 35%, var(--border-subtle));
-    background: color-mix(in oklch, var(--status-error) 12%, transparent);
-    box-shadow: inset 0 2px 0 color-mix(in oklch, var(--status-error) 55%, transparent);
+    border-color: color-mix(
+      in oklch,
+      var(--status-error) 35%,
+      var(--border-card)
+    );
+    background:
+      var(--card-sheen),
+      color-mix(in oklch, var(--status-error) 9%, var(--surface-1));
   }
 
   /* Tone-tinted icon + status (value colours handled below). */
@@ -1074,10 +1333,12 @@
   }
 
   .stat-card-value {
-    font-size: 22px;
-    font-weight: 700;
+    font-family: var(--font-heading);
+    font-size: var(--font-size-stat);
+    font-weight: var(--weight-stat);
     color: var(--text-primary);
-    line-height: 1;
+    line-height: 1.05;
+    letter-spacing: var(--tracking-tight);
     font-variant-numeric: tabular-nums;
   }
 
@@ -1127,14 +1388,14 @@
 
   .contract-count {
     flex: 1;
-    background: var(--surface-2);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border-radius: var(--radius-lg);
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 4px;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-card);
   }
 
   .contract-count--stable {
@@ -1143,8 +1404,9 @@
   }
 
   .contract-count-n {
+    font-family: var(--font-heading);
     font-size: 20px;
-    font-weight: 700;
+    font-weight: var(--weight-stat);
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
   }
@@ -1175,9 +1437,9 @@
     align-items: center;
     gap: 8px;
     padding: 6px 10px;
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
   }
 
   .contract-list-icon--ok {
@@ -1211,17 +1473,17 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
   }
 
   .decision-list-item {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    padding: 8px 10px;
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    padding: 8px 11px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
   }
 
   .decision-list-id {
@@ -1253,10 +1515,12 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 9px;
+    padding: 4px 10px;
     border-radius: var(--radius-pill);
     border: 1px solid transparent;
     white-space: nowrap;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
   }
 
   .hero-stat-icon {
@@ -1299,8 +1563,8 @@
 
   .hero-stat--neutral {
     color: var(--text-muted);
-    background: var(--surface-2);
-    border-color: var(--border-subtle);
+    background: color-mix(in oklch, var(--surface-2) 70%, transparent);
+    border-color: var(--border-card);
   }
 
   /* ── Analytics cards (TASK-025) ── */
@@ -1316,10 +1580,10 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 8px 10px;
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    padding: 8px 11px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
   }
 
   .quality-row-label {
@@ -1402,7 +1666,7 @@
     gap: 2px;
     margin-top: 4px;
     padding-top: 4px;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-card);
   }
 
   .hook-row {
@@ -1410,13 +1674,13 @@
     grid-template-columns: minmax(58px, auto) 3em minmax(0, 1fr) auto;
     gap: 10px;
     align-items: center;
-    padding: 3px 4px;
+    padding: 4px 4px;
   }
 
   .hook-row--head {
     padding-bottom: 4px;
     margin-bottom: 2px;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-card);
   }
 
   .hook-row--head span {
@@ -1529,7 +1793,7 @@
   .analytics-caption {
     margin-top: 6px;
     padding-top: 6px;
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--border-card);
     font-size: 10px;
     font-family: var(--font-mono);
     color: var(--text-subtle);
@@ -1542,17 +1806,17 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 4px;
   }
 
   .suggestions-item {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 5px 8px;
-    border-radius: var(--radius-md);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    padding: 5px 9px;
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
   }
 
   .suggestions-id {
@@ -1578,7 +1842,7 @@
   .quick-nav {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: 10px;
   }
 
   .quick-nav-item {
@@ -1586,18 +1850,26 @@
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    border-radius: var(--radius-card);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
     text-decoration: none;
     transition:
       background var(--duration-fast) var(--ease-snappy),
-      border-color var(--duration-fast) var(--ease-snappy);
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy),
+      transform var(--duration-fast) var(--ease-snappy);
   }
 
   .quick-nav-item:hover {
     background: var(--surface-accent-tint);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
+    box-shadow: var(--glow-accent-soft);
+    transform: translateY(-1px);
   }
 
   .quick-nav-icon {
@@ -1633,7 +1905,7 @@
   .kanban-note {
     background: var(--info-soft);
     border: 1px solid var(--info-tint-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 10px 14px;
     font-size: 11.5px;
     color: var(--text-muted);
@@ -1667,7 +1939,7 @@
        label wraps to 2 lines, every header grows to 2 lines together (card
        bodies then start at the same Y). */
     grid-template-rows: auto 1fr;
-    gap: 8px;
+    gap: 10px;
     margin-bottom: 8px;
   }
 
@@ -1686,9 +1958,11 @@
   }
 
   .kanban-column {
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-1) 82%, transparent);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     /* Subgrid so the header/body rows are shared with the board (header-height
        equalisation above). Falls back to flex column below 720px. */
     display: grid;
@@ -1701,16 +1975,29 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border-subtle);
+    padding: 11px 12px;
+    border-bottom: 1px solid var(--border-card);
+    /* Hairline lifecycle-coloured glow along the top edge of the column. */
+    box-shadow: inset 0 2px 0 color-mix(in oklch, currentColor 35%, transparent);
+    border-radius: var(--radius-card) var(--radius-card) 0 0;
   }
 
   /* Per-lifecycle colour classes — maps ColorKey to the design token */
-  .kanban-column-header--active  { color: var(--life-active);  }
-  .kanban-column-header--review  { color: var(--life-review);  }
-  .kanban-column-header--todo    { color: var(--life-todo);    }
-  .kanban-column-header--done    { color: var(--life-done);    }
-  .kanban-column-header--blocked { color: var(--life-blocked); }
+  .kanban-column-header--active {
+    color: var(--life-active);
+  }
+  .kanban-column-header--review {
+    color: var(--life-review);
+  }
+  .kanban-column-header--todo {
+    color: var(--life-todo);
+  }
+  .kanban-column-header--done {
+    color: var(--life-done);
+  }
+  .kanban-column-header--blocked {
+    color: var(--life-blocked);
+  }
 
   .kanban-column-icon {
     display: flex;
@@ -1720,7 +2007,7 @@
   .kanban-column-status {
     flex: 1;
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 650;
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
@@ -1730,7 +2017,7 @@
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     background: color-mix(in oklch, currentColor 15%, transparent);
-    padding: 1px 6px;
+    padding: 1px 7px;
     border-radius: var(--radius-pill);
   }
 
@@ -1738,7 +2025,7 @@
     padding: 8px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
     flex: 1;
   }
 
@@ -1751,28 +2038,39 @@
   }
 
   .task-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: var(--card-sheen), var(--surface-2);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
     transition:
       border-color var(--duration-fast) var(--ease-snappy),
-      background var(--duration-fast) var(--ease-snappy);
+      background var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy),
+      transform var(--duration-fast) var(--ease-snappy);
   }
 
   .task-card:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-subtle));
-    background: var(--surface-accent-tint);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
+    background: var(--card-sheen), var(--surface-accent-tint);
+    box-shadow: var(--shadow-raised);
+    transform: translateY(-1px);
   }
 
   .task-card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 6px;
+    gap: 4px 6px;
+    /* Narrow columns: the badge cluster wraps below the ID as a unit — the ID
+       itself never splits mid-token ("TASK-" / "066"). */
+    flex-wrap: wrap;
   }
 
   .task-card-id {
@@ -1781,6 +2079,7 @@
     color: var(--color-accent);
     font-weight: 600;
     letter-spacing: 0.04em;
+    white-space: nowrap;
   }
 
   .task-card-size {
@@ -1789,9 +2088,9 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-subtle);
-    background: var(--surface-3);
-    padding: 1px 5px;
-    border-radius: var(--radius-sm);
+    background: color-mix(in oklch, var(--surface-4) 60%, transparent);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
   }
 
   .task-card-title {
@@ -1817,8 +2116,8 @@
     letter-spacing: 0.08em;
     color: var(--color-accent);
     background: var(--pill-neutral-bg);
-    padding: 1px 5px;
-    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    border-radius: var(--radius-pill);
     border: 1px solid var(--pill-neutral-border);
   }
 }
@@ -1829,9 +2128,10 @@
 
 @layer components {
   .contracts-intro {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     padding: 12px 16px;
     font-size: 12px;
     color: var(--text-muted);
@@ -1847,18 +2147,19 @@
 
   .contracts-counts-bar {
     display: flex;
-    gap: 8px;
+    gap: 10px;
     margin-bottom: 20px;
   }
 
   .contracts-count-chip {
     display: flex;
     align-items: baseline;
-    gap: 6px;
-    padding: 8px 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
-    background: var(--surface-2);
+    gap: 7px;
+    padding: 9px 16px;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-card);
+    background: var(--card-sheen), var(--surface-2);
+    box-shadow: var(--shadow-card);
     /* Clickable status filter (BUG-014) */
     cursor: pointer;
     font: inherit;
@@ -1871,7 +2172,7 @@
   }
 
   .contracts-count-chip:hover {
-    border-color: color-mix(in oklch, var(--p-accent) 40%, var(--border-subtle));
+    border-color: color-mix(in oklch, var(--p-accent) 40%, var(--border-card));
   }
 
   .contracts-count-chip:active {
@@ -1886,7 +2187,9 @@
   /* Active filter — a clear selected state with an accent ring. */
   .contracts-count-chip.is-active {
     border-color: var(--p-accent);
-    box-shadow: inset 0 0 0 1px var(--p-accent);
+    box-shadow:
+      inset 0 0 0 1px var(--p-accent),
+      var(--glow-accent-soft);
   }
 
   .contracts-count-chip--stable {
@@ -1895,8 +2198,9 @@
   }
 
   .contracts-count-n {
+    font-family: var(--font-heading);
     font-size: 22px;
-    font-weight: 700;
+    font-weight: var(--weight-stat);
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
   }
@@ -1916,22 +2220,30 @@
   .contracts-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
   }
 
   .contract-row {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     padding: 16px 18px;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    transition: border-color var(--duration-fast) var(--ease-snappy);
+    transition:
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .contract-row:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
+    box-shadow: var(--shadow-raised);
   }
 
   .contract-row-header {
@@ -1956,7 +2268,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    padding: 2px 7px;
+    padding: 2px 8px;
     border-radius: var(--radius-pill);
   }
 
@@ -1968,8 +2280,8 @@
 
   .contract-status-badge--draft {
     color: var(--text-subtle);
-    background: var(--surface-3);
-    border: 1px solid var(--border-subtle);
+    background: color-mix(in oklch, var(--surface-3) 70%, transparent);
+    border: 1px solid var(--border-card);
   }
 
   .contract-row-title {
@@ -1993,9 +2305,10 @@
 
 @layer components {
   .decisions-note {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     padding: 10px 14px;
     font-size: 11.5px;
     color: var(--text-muted);
@@ -2005,7 +2318,7 @@
 
   .decisions-note code {
     font-size: 10.5px;
-    background: var(--surface-3);
+    background: color-mix(in oklch, var(--surface-3) 80%, transparent);
     padding: 1px 5px;
     border-radius: var(--radius-sm);
     color: var(--color-accent);
@@ -2014,25 +2327,33 @@
   .decisions-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
   }
 
   .decision-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     overflow: hidden;
-    transition: border-color var(--duration-fast) var(--ease-snappy);
+    transition:
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .decision-card:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
+    box-shadow: var(--shadow-raised);
   }
 
   .decision-card-header {
     padding: 14px 18px 12px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-card);
+    background: color-mix(in oklch, var(--surface-0) 35%, transparent);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -2063,7 +2384,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    padding: 2px 6px;
+    padding: 2px 7px;
     border-radius: var(--radius-pill);
   }
 
@@ -2074,7 +2395,8 @@
   }
 
   .decision-card-title {
-    font-size: 14px;
+    font-family: var(--font-heading);
+    font-size: 14.5px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -2128,14 +2450,15 @@
   .spec-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 10px;
     margin-bottom: 24px;
   }
 
   .spec-card {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     padding: 14px 18px;
     display: flex;
     flex-direction: column;
@@ -2182,7 +2505,7 @@
   }
 
   .spec-placeholder-body {
-    background: var(--surface-1);
+    background: color-mix(in oklch, var(--surface-1) 70%, transparent);
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-card);
     min-height: 200px;
@@ -2198,9 +2521,10 @@
 
 @layer components {
   .readme-note {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     padding: 10px 14px;
     font-size: 11.5px;
     color: var(--text-subtle);
@@ -2219,7 +2543,7 @@
     gap: 12px;
     background: var(--info-soft);
     border: 1px solid var(--info-tint-border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     padding: 14px 16px;
     margin-bottom: 24px;
     align-items: flex-start;
@@ -2259,7 +2583,7 @@
   }
 
   .verify-queue-empty {
-    background: var(--surface-1);
+    background: color-mix(in oklch, var(--surface-1) 70%, transparent);
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-card);
     min-height: 200px;

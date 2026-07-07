@@ -56,11 +56,32 @@ export function isValidToken(headerValue: string | undefined): boolean {
 
 // ── Origin / Host guard ───────────────────────────────────────────────────────
 
-const LOOPBACK_HOSTS = new Set([
-  "127.0.0.1",
-  "localhost",
-  "[::1]",
-]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/**
+ * Return true if the request's `Host` header names a loopback address (any/no port).
+ *
+ * DNS-rebinding defence for READ routes (and the SPA): the console binds to 127.0.0.1,
+ * but a browser page on an attacker domain rebound to 127.0.0.1 becomes same-origin and
+ * could otherwise read responses (transcripts, projectRoot). A rebound request still
+ * carries the ATTACKER's domain in its `Host` header, so a loopback-only Host allowlist
+ * rejects it while every legitimate 127.0.0.1/localhost/[::1] request passes. Absence of
+ * Host (non-browser CLI callers — the rebinding attack always sends a Host) is accepted.
+ */
+export function isAllowedHost(host: string | undefined): boolean {
+  if (!host) return true;
+  let hostname = host.trim();
+  if (hostname.startsWith("[")) {
+    // IPv6 literal, e.g. "[::1]:6120" → keep the bracketed "[::1]".
+    const end = hostname.indexOf("]");
+    if (end >= 0) hostname = hostname.slice(0, end + 1);
+  } else {
+    // "127.0.0.1:6120" / "localhost:6120" → strip the port.
+    const colon = hostname.indexOf(":");
+    if (colon >= 0) hostname = hostname.slice(0, colon);
+  }
+  return LOOPBACK_HOSTS.has(hostname);
+}
 
 /**
  * Return true if the request comes from an acceptable origin (loopback only).
@@ -71,7 +92,7 @@ const LOOPBACK_HOSTS = new Set([
  */
 export function isAllowedOrigin(
   origin: string | undefined,
-  _port: number
+  _port: number,
 ): boolean {
   // No Origin header — accept (CLI / server-side callers, not browser-page CSRF risk)
   if (!origin) return true;
@@ -107,7 +128,7 @@ const TASK_ID_RE = /^(TASK|BUG)-[0-9]+$/;
 export function resolveVerifyPath(taskId: string): string {
   if (!TASK_ID_RE.test(taskId)) {
     throw new Error(
-      `Invalid task id '${taskId}'. Must match (TASK|BUG)-[0-9]+.`
+      `Invalid task id '${taskId}'. Must match (TASK|BUG)-[0-9]+.`,
     );
   }
 

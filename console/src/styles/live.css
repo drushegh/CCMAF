@@ -25,12 +25,24 @@
 
   .live-dot[data-live="true"] {
     background: var(--color-success, #22c55e);
+    box-shadow: 0 0 8px var(--color-success, #22c55e);
     /* Subtle pulse to signal live data */
     animation: live-pulse 2s ease-in-out infinite;
   }
 
   @keyframes live-pulse {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.55; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot[data-live="true"] {
+      animation: none;
+    }
   }
 }

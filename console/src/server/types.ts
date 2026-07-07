@@ -169,6 +169,136 @@ export interface LastSessionInfo {
   sessionId: string | null;
 }
 
+// ── Sessions agent-visualisation types (read-only transcript viewer) ──────────
+
+/** One Claude Code session of the current project (a <uuid>.jsonl transcript). */
+export interface SessionSummary {
+  id: string;
+  /** ISO timestamp of the first transcript line carrying one; null if none. */
+  startedAt: string | null;
+  /** ISO timestamp derived from the newest mtime across the main transcript
+   *  and its subagent files. */
+  lastActivity: string | null;
+  /** user + assistant lines in the main transcript. */
+  messageCount: number;
+  /** Number of subagent transcripts under <id>/subagents/. */
+  agentCount: number;
+  gitBranch: string | null;
+  /** Snippet of the first real user prompt (command/caveat XML skipped). */
+  firstPrompt: string | null;
+  /** Claude Code's own session label (`ai-title`/`summary` line) when present. */
+  title: string | null;
+}
+
+export type AgentStatus = "running" | "done";
+
+/** A node in a session's agent tree — the root session or one subagent. */
+export interface AgentNode {
+  /** "root" for the main session, else the subagent id (meta/agentId). */
+  id: string;
+  /** null for root; "root" or another agent id for nested spawns. */
+  parentId: string | null;
+  /** meta.agentType (e.g. developer / reviewer); "session" for the root. */
+  agentType: string;
+  /** meta.description — the Task/Agent tool call's description. */
+  description: string | null;
+  /** The Task/Agent tool_use id that spawned this agent; null for root. */
+  toolUseId: string | null;
+  /** meta.spawnDepth (0 for root; defaults to 1 when the sidecar omits it). */
+  spawnDepth: number;
+  status: AgentStatus;
+  startedAt: string | null;
+  lastActivity: string | null;
+  messageCount: number;
+  /** Last assistant `message.model` seen in this agent's transcript. */
+  model: string | null;
+}
+
+export interface SessionTree {
+  sessionId: string;
+  root: AgentNode;
+  /** Subagent nodes (root excluded), in spawn (file-name) order. */
+  agents: AgentNode[];
+}
+
+/** One display block within a conversation turn. */
+export type TurnBlock =
+  | { kind: "text"; text: string; truncated: boolean }
+  | { kind: "thinking"; text: string; truncated: boolean }
+  | { kind: "tool_use"; toolUseId: string; name: string; summary: string }
+  | {
+      kind: "tool_result";
+      toolUseId: string;
+      text: string;
+      isError: boolean;
+      truncated: boolean;
+    };
+
+/** One transcript line of type user/assistant, display-ready. */
+export interface ConversationTurn {
+  uuid: string;
+  role: "user" | "assistant";
+  timestamp: string | null;
+  /** Assistant turns only — message.model. */
+  model: string | null;
+  blocks: TurnBlock[];
+}
+
+export interface AgentConversation {
+  sessionId: string;
+  /** "root" for the main transcript, else the subagent id. */
+  agentId: string;
+  agentType: string;
+  description: string | null;
+  /** Last assistant `message.model` in the FULL conversation (not just the window). */
+  model: string | null;
+  /**
+   * A WINDOW of the agent's conversation, in chronological order. Default (no
+   * `before`) is the TAIL of `limit` turns; `before=<uuid>` returns the `limit`
+   * turns immediately BEFORE that turn. `all` returns every turn.
+   */
+  turns: ConversationTurn[];
+  /** Full turn count for the agent (not just the returned window). */
+  total: number;
+  /** True when older turns exist before the returned window. */
+  hasMore: boolean;
+  /** uuid of the first returned turn — the cursor for the next "load earlier". */
+  oldestUuid: string | null;
+}
+
+/**
+ * Full, UNTRUNCATED tool_result for one tool call (the conversation view
+ * truncates results; the tool rail's "open full" fetches this). `truncated` is
+ * always false — this is the complete text.
+ */
+export interface ToolResultDetail {
+  toolUseId: string;
+  name: string;
+  /** The raw tool_use input object (untruncated); null if the call wasn't found. */
+  input: unknown;
+  result: { text: string; isError: boolean; truncated: false };
+}
+
+/** One in-session search hit (case-insensitive substring across all agents). */
+export interface SearchMatch {
+  /** "root" or the subagent id owning the matched turn. */
+  agentId: string;
+  /** Display label for the owning agent ("session" for root, else agentType). */
+  agentLabel: string;
+  turnUuid: string;
+  role: "user" | "assistant";
+  blockType: "text" | "thinking" | "tool_use" | "tool_result";
+  /** ~120 chars of context around the first hit in the block. */
+  snippet: string;
+}
+
+export interface SessionSearchResult {
+  q: string;
+  matches: SearchMatch[];
+  /** True when the match cap was reached and results were truncated. */
+  capped: boolean;
+}
+
 export interface HookMetrics {
   generated_at: string | null;
   total_events: number;
@@ -177,7 +307,13 @@ export interface HookMetrics {
   sessions: number;
   by_session: Record<
     string,
-    { total: number; blocked: number; flagged: number; drift_fires: number; stop_blocked?: number }
+    {
+      total: number;
+      blocked: number;
+      flagged: number;
+      drift_fires: number;
+      stop_blocked?: number;
+    }
   >;
 }
 

@@ -6,7 +6,7 @@
  * stay clear of the existing `.verify-*` page classes in components.css.
  *
  * Tokens come from theme.css (@theme + :root) — never hard-code colours.
- * Verdict colour mapping (Harvey severity bands):
+ * Verdict colour mapping (severity bands):
  *   pass    → --status-ok (green)
  *   fail    → --status-error (rose)
  *   cr      → --status-blocked (amber) — "change request": passes as specified,
@@ -21,24 +21,25 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 7px 12px;
+    padding: 7px 13px;
     border-radius: var(--radius-button);
     font-size: 12px;
     font-weight: 500;
     letter-spacing: 0.01em;
     cursor: pointer;
-    border: 1px solid var(--border-subtle);
-    background: var(--surface-2);
+    border: 1px solid var(--border-card);
+    background: var(--card-sheen), var(--surface-2);
     color: var(--text-muted);
     transition:
       background var(--duration-fast) var(--ease-snappy),
       border-color var(--duration-fast) var(--ease-snappy),
       color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy),
       opacity var(--duration-fast) var(--ease-snappy);
   }
 
   .vv-btn:hover:not(:disabled) {
-    background: var(--surface-3);
+    background: var(--card-sheen), var(--surface-3);
     color: var(--text-primary);
   }
 
@@ -47,24 +48,36 @@
     cursor: not-allowed;
   }
 
+  /* Primary = the one FILLED violet action on screen (Save verdicts). */
   .vv-btn--primary {
-    background: color-mix(in oklch, var(--color-accent) 20%, var(--surface-2));
-    border-color: color-mix(in oklch, var(--color-accent) 45%, var(--border-subtle));
-    color: var(--color-accent);
+    background: linear-gradient(
+      180deg,
+      var(--accent-fill-hi),
+      var(--accent-fill)
+    );
+    border-color: color-mix(in oklch, white 16%, var(--accent-fill));
+    color: var(--on-accent);
     font-weight: 600;
+    box-shadow: var(--shadow-card);
   }
 
   .vv-btn--primary:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--color-accent) 30%, var(--surface-2));
-    color: var(--color-accent);
+    background: linear-gradient(
+      180deg,
+      var(--accent-fill-hi),
+      var(--accent-fill-hi)
+    );
+    color: var(--on-accent);
+    box-shadow: var(--shadow-card), var(--glow-accent);
   }
 
-  /* Disabled primary = clearly inactive (grey), not a faded teal — so "Save
+  /* Disabled primary = clearly inactive (grey), not a faded violet — so "Save
      verdicts" only reads as lit when there are unsaved edits to save. */
   .vv-btn--primary:disabled {
     background: var(--surface-2);
-    border-color: var(--border-subtle);
+    border-color: var(--border-card);
     color: var(--text-subtle);
+    box-shadow: none;
     opacity: 1;
   }
 
@@ -75,7 +88,11 @@
   /* Flag-as-bug — a danger-toned action on a failing use case. */
   .vv-btn--flag {
     background: color-mix(in oklch, var(--status-error) 12%, var(--surface-2));
-    border-color: color-mix(in oklch, var(--status-error) 40%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--status-error) 40%,
+      var(--border-card)
+    );
     color: var(--status-error);
     font-weight: 600;
   }
@@ -87,18 +104,19 @@
   /* Accept & Done — the success terminal action; lit only when all use cases pass. */
   .vv-btn--accept {
     background: color-mix(in oklch, var(--status-ok) 20%, var(--surface-2));
-    border-color: color-mix(in oklch, var(--status-ok) 45%, var(--border-subtle));
+    border-color: color-mix(in oklch, var(--status-ok) 45%, var(--border-card));
     color: var(--status-ok);
     font-weight: 600;
   }
 
   .vv-btn--accept:hover:not(:disabled) {
     background: color-mix(in oklch, var(--status-ok) 30%, var(--surface-2));
+    box-shadow: var(--glow-ok);
   }
 
   .vv-btn--accept:disabled {
     background: var(--surface-2);
-    border-color: var(--border-subtle);
+    border-color: var(--border-card);
     color: var(--text-subtle);
     opacity: 1;
   }
@@ -121,9 +139,10 @@
     gap: 16px;
     flex-wrap: wrap;
     padding: 12px 16px;
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 
   .vv-toolbar-meta {
@@ -154,11 +173,11 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    padding: 2px 8px;
+    padding: 2px 9px;
     border-radius: var(--radius-pill);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-card);
     color: var(--text-muted);
-    background: var(--surface-3);
+    background: color-mix(in oklch, var(--surface-3) 70%, transparent);
   }
 
   .vv-toolbar-status--in-review {
@@ -207,23 +226,37 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
+    padding: 6px 13px;
     font-size: 12px;
     font-weight: 600;
     color: var(--status-ok);
-    background: var(--ok-soft);
+    background: color-mix(in oklch, var(--status-ok) 14%, var(--surface-1));
     border: 1px solid var(--ok-border);
     border-radius: var(--radius-pill);
-    box-shadow: 0 8px 24px color-mix(in oklch, black 35%, transparent);
+    box-shadow: var(--shadow-float), var(--glow-ok);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     pointer-events: none;
     animation: vv-saved-toast 2.5s var(--ease-fluid) forwards;
   }
 
   @keyframes vv-saved-toast {
-    0%   { opacity: 0; transform: translateY(-8px); }
-    10%  { opacity: 1; transform: translateY(0); }
-    82%  { opacity: 1; transform: translateY(0); }
-    100% { opacity: 0; transform: translateY(-8px); }
+    0% {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    10% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    82% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -231,10 +264,18 @@
       animation-name: vv-saved-toast-fade;
     }
     @keyframes vv-saved-toast-fade {
-      0%   { opacity: 0; }
-      10%  { opacity: 1; }
-      82%  { opacity: 1; }
-      100% { opacity: 0; }
+      0% {
+        opacity: 0;
+      }
+      10% {
+        opacity: 1;
+      }
+      82% {
+        opacity: 1;
+      }
+      100% {
+        opacity: 0;
+      }
     }
   }
 
@@ -245,9 +286,10 @@
     flex-direction: column;
     gap: 10px;
     padding: 14px 16px;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 
   .vv-rollup-head {
@@ -259,9 +301,9 @@
 
   .vv-rollup-title {
     font-size: 10.5px;
-    font-weight: 600;
+    font-weight: 650;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.15em;
     color: var(--text-subtle);
   }
 
@@ -276,7 +318,7 @@
     height: 8px;
     border-radius: var(--radius-pill);
     overflow: hidden;
-    background: var(--surface-0);
+    background: color-mix(in oklch, var(--surface-0) 80%, transparent);
     gap: 2px;
   }
 
@@ -358,7 +400,7 @@
     font-size: 10.5px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.15em;
     color: var(--text-subtle);
     margin: 0;
     padding-left: 2px;
@@ -376,10 +418,11 @@
     grid-template-columns: 1fr minmax(220px, 280px);
     gap: 18px;
     padding: 16px 18px;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-left: 3px solid var(--border-subtle);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     transition: border-color var(--duration-fast) var(--ease-snappy);
   }
 
@@ -428,7 +471,7 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-subtle);
-    background: var(--surface-3);
+    background: color-mix(in oklch, var(--surface-3) 70%, transparent);
     padding: 1px 6px;
     border-radius: var(--radius-sm);
   }
@@ -466,13 +509,21 @@
   .vv-item-retest {
     color: var(--color-accent);
     background: var(--surface-accent-tint);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
   }
 
   .vv-item-bug {
     color: var(--status-error);
     background: color-mix(in oklch, var(--status-error) 12%, transparent);
-    border-color: color-mix(in oklch, var(--status-error) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--status-error) 35%,
+      var(--border-card)
+    );
     font-family: var(--font-mono);
     text-transform: none;
     letter-spacing: 0.02em;
@@ -528,9 +579,9 @@
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-primary);
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-0) 65%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     transition: border-color var(--duration-fast) var(--ease-snappy);
   }
 
@@ -548,9 +599,9 @@
     flex-direction: column;
     gap: 6px;
     padding: 8px 10px;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
   }
 
   .vv-item-round {
@@ -607,9 +658,9 @@
     grid-template-columns: repeat(5, 1fr);
     gap: 3px;
     padding: 3px;
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-0) 70%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
   }
 
   .vv-seg-btn {
@@ -620,14 +671,15 @@
     gap: 3px;
     padding: 6px 2px;
     border: 1px solid transparent;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-subtle);
     cursor: pointer;
     transition:
       background var(--duration-fast) var(--ease-snappy),
       color var(--duration-fast) var(--ease-snappy),
-      border-color var(--duration-fast) var(--ease-snappy);
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .vv-seg-btn-icon {
@@ -642,11 +694,14 @@
   }
 
   .vv-seg-btn:hover {
-    background: var(--surface-3);
+    background: color-mix(in oklch, var(--surface-3) 70%, transparent);
     color: var(--text-muted);
   }
 
-  /* selected segment carries its verdict colour */
+  /* selected segment carries its verdict colour + a raised chip feel */
+  .vv-seg-btn.is-selected {
+    box-shadow: var(--shadow-card);
+  }
   .vv-seg-btn.is-selected.vv-seg--pending {
     color: var(--text-primary);
     background: color-mix(in oklch, var(--text-subtle) 22%, transparent);
@@ -701,9 +756,9 @@
     font-family: var(--font-mono);
     font-size: 12px;
     color: var(--text-primary);
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
+    background: color-mix(in oklch, var(--surface-0) 65%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-md);
     cursor: pointer;
   }
 
@@ -714,14 +769,19 @@
   /* ── Split (master-detail) layout — fixed page header, independently-scrolling panes ──
      The page header (.page-header) stays put; the queue list (left) and the items
      (right) each scroll on their own; the page itself does not scroll. */
-  .page-layout:has(.vv-split) { height: 100%; min-height: 0; }
+  .page-layout:has(.vv-split) {
+    height: 100%;
+    min-height: 0;
+  }
   .page-body:has(.vv-split) {
     overflow: hidden;
     min-height: 0;
     display: flex;
     flex-direction: column;
   }
-  .console-content:has(.vv-split) { overflow: hidden; }
+  .console-content:has(.vv-split) {
+    overflow: hidden;
+  }
 
   .vv-split {
     flex: 1;
@@ -759,7 +819,7 @@
     min-height: 300px;
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-card);
-    background: color-mix(in oklch, var(--surface-2) 45%, transparent);
+    background: color-mix(in oklch, var(--surface-2) 40%, transparent);
   }
 
   /* ── Unsaved-changes confirm modal ── */
@@ -772,8 +832,8 @@
     justify-content: center;
     padding: 24px;
     background: color-mix(in oklch, var(--surface-0) 70%, transparent);
-    -webkit-backdrop-filter: blur(2px);
-    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(4px);
   }
 
   .vv-confirm {
@@ -783,14 +843,15 @@
     flex-direction: column;
     gap: 12px;
     padding: 20px;
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    box-shadow: 0 16px 48px color-mix(in oklch, black 45%, transparent);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-overlay);
+    box-shadow: var(--shadow-float);
   }
 
   .vv-confirm-title {
     margin: 0;
+    font-family: var(--font-heading);
     font-size: 15px;
     font-weight: 600;
     color: var(--text-primary);
@@ -812,13 +873,26 @@
 
   /* Narrow viewports: stack the panes + fall back to normal page scroll. */
   @media (max-width: 880px) {
-    .page-layout:has(.vv-split) { height: auto; }
+    .page-layout:has(.vv-split) {
+      height: auto;
+    }
     .page-body:has(.vv-split),
-    .console-content:has(.vv-split) { overflow: visible; }
-    .vv-split { grid-template-columns: 1fr; flex: none; min-height: 0; }
+    .console-content:has(.vv-split) {
+      overflow: visible;
+    }
+    .vv-split {
+      grid-template-columns: 1fr;
+      flex: none;
+      min-height: 0;
+    }
     .vv-split-list,
-    .vv-split-detail { overflow: visible; min-height: 0; }
-    .vv-items { overflow: visible; }
+    .vv-split-detail {
+      overflow: visible;
+      min-height: 0;
+    }
+    .vv-items {
+      overflow: visible;
+    }
   }
 
   /* ── Queue ── */
@@ -838,24 +912,37 @@
     gap: 14px;
     padding: 14px 16px;
     text-align: left;
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
     cursor: pointer;
     transition:
       background var(--duration-fast) var(--ease-snappy),
-      border-color var(--duration-fast) var(--ease-snappy);
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .vv-queue-item:hover {
-    background: var(--surface-accent-tint);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    background: var(--card-sheen), var(--surface-accent-tint);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
   }
 
   .vv-queue-item--active {
-    background: var(--surface-accent-tint);
-    border-color: var(--color-accent);
-    box-shadow: inset 3px 0 0 0 var(--color-accent);
+    background: var(--card-sheen), var(--surface-accent-tint);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 55%,
+      var(--border-card)
+    );
+    box-shadow:
+      inset 3px 0 0 0 var(--color-accent),
+      var(--shadow-card),
+      var(--glow-accent-soft);
   }
 
   .vv-queue-item-icon {
@@ -865,7 +952,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     background: color-mix(in oklch, var(--color-accent) 14%, var(--surface-3));
     color: var(--color-accent);
   }
@@ -876,7 +963,11 @@
     color: var(--status-error);
   }
   .vv-queue-item-icon--progress {
-    background: color-mix(in oklch, var(--status-blocked) 16%, var(--surface-3));
+    background: color-mix(
+      in oklch,
+      var(--status-blocked) 16%,
+      var(--surface-3)
+    );
     color: var(--status-blocked);
   }
   .vv-queue-item-icon--done {
@@ -966,14 +1057,29 @@
   }
   /* Per-verdict colour for the whole count chip (text + dot via currentColor).
      `background: transparent` overrides the shared .vv-rollup-bar--* fill. */
-  .vv-queue-count.vv-rollup-bar--pending { background: transparent; color: var(--text-subtle); }
-  .vv-queue-count.vv-rollup-bar--pass    { background: transparent; color: var(--status-ok); }
-  .vv-queue-count.vv-rollup-bar--fail    { background: transparent; color: var(--status-error); }
-  .vv-queue-count.vv-rollup-bar--cr      { background: transparent; color: var(--status-blocked); }
-  .vv-queue-count.vv-rollup-bar--blocked { background: transparent; color: var(--status-info); }
+  .vv-queue-count.vv-rollup-bar--pending {
+    background: transparent;
+    color: var(--text-subtle);
+  }
+  .vv-queue-count.vv-rollup-bar--pass {
+    background: transparent;
+    color: var(--status-ok);
+  }
+  .vv-queue-count.vv-rollup-bar--fail {
+    background: transparent;
+    color: var(--status-error);
+  }
+  .vv-queue-count.vv-rollup-bar--cr {
+    background: transparent;
+    color: var(--status-blocked);
+  }
+  .vv-queue-count.vv-rollup-bar--blocked {
+    background: transparent;
+    color: var(--status-info);
+  }
 
   .vv-queue-empty {
-    background: var(--surface-1);
+    background: color-mix(in oklch, var(--surface-1) 70%, transparent);
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-card);
     min-height: 200px;
@@ -991,7 +1097,7 @@
     gap: 10px;
     padding: 48px 24px;
     text-align: center;
-    background: var(--surface-1);
+    background: color-mix(in oklch, var(--surface-1) 70%, transparent);
     border: 1px dashed var(--border-subtle);
     border-radius: var(--radius-card);
     min-height: 200px;

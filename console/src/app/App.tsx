@@ -11,6 +11,7 @@ import { StatusPage } from "./pages/StatusPage";
 import { GotchasPage } from "./pages/GotchasPage";
 import { FindingsPage } from "./pages/FindingsPage";
 import { DocsPage } from "./pages/DocsPage";
+import { SessionsPage } from "./pages/SessionsPage";
 
 export function App() {
   return (
@@ -20,6 +21,12 @@ export function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
           <Route path="kanban" element={<KanbanPage />} />
+          <Route path="sessions" element={<SessionsPage />} />
+          <Route path="sessions/:sessionId" element={<SessionsPage />} />
+          <Route
+            path="sessions/:sessionId/:agentId"
+            element={<SessionsPage />}
+          />
           <Route path="status" element={<StatusPage />} />
           <Route path="gotchas" element={<GotchasPage />} />
           <Route path="findings" element={<FindingsPage />} />

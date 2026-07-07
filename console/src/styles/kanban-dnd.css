@@ -2,8 +2,8 @@
  * kanban-dnd.css — drag-and-drop affordances for the Kanban board (TASK-011).
  *
  * Covers: drag handle cursor, drag-ghost overlay, drop-target highlight, and
- * smooth column highlight transitions.  All colours from the vendored Harvey
- * token palette (theme.css).  No hard-coded values.
+ * smooth column highlight transitions.  All colours from the theme token
+ * palette (theme.css).  No hard-coded values.
  *
  * Imported via globals.css.
  */
@@ -14,7 +14,7 @@
     display: flex;
     gap: 4px;
     margin-bottom: 18px;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-card);
   }
 
   .kanban-lane-tab {
@@ -42,6 +42,8 @@
   .kanban-lane-tab--active {
     color: var(--color-accent);
     border-bottom-color: var(--color-accent);
+    text-shadow: 0 0 12px
+      color-mix(in oklch, var(--color-accent) 45%, transparent);
   }
 
   .kanban-lane-tab-count {
@@ -52,7 +54,8 @@
     height: 18px;
     padding: 0 6px;
     border-radius: 9px;
-    background: var(--surface-3);
+    background: color-mix(in oklch, var(--surface-3) 80%, transparent);
+    border: 1px solid var(--border-card);
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 11px;
@@ -61,6 +64,7 @@
 
   .kanban-lane-tab--active .kanban-lane-tab-count {
     background: color-mix(in oklch, var(--color-accent) 22%, var(--surface-3));
+    border-color: color-mix(in oklch, var(--color-accent) 35%, transparent);
     color: var(--color-accent);
   }
 
@@ -92,7 +96,11 @@
 
   .task-card--clickable:hover,
   .task-card--link:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
   }
 
   /* ── Drag overlay (the ghost that follows the pointer) ──────── */
@@ -101,16 +109,15 @@
    * We give it the same card styling but slightly elevated and no opacity fade.
    */
   .drag-overlay-card {
-    background: var(--surface-3);
-    border: 1px solid color-mix(in oklch, var(--color-accent) 55%, var(--border-subtle));
-    border-radius: var(--radius-md);
+    background: var(--card-sheen), var(--surface-3);
+    border: 1px solid
+      color-mix(in oklch, var(--color-accent) 55%, var(--border-card));
+    border-radius: var(--radius-lg);
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
     gap: 6px;
-    box-shadow:
-      0 8px 24px -4px rgba(0, 0, 0, 0.45),
-      0 0 0 1px color-mix(in oklch, var(--color-accent) 25%, transparent);
+    box-shadow: var(--shadow-float), var(--glow-accent-soft);
     cursor: grabbing;
     pointer-events: none;
     -webkit-user-select: none;
@@ -125,7 +132,11 @@
 
   .kanban-column--drop-target {
     background: color-mix(in oklch, var(--color-accent) 6%, var(--surface-1));
-    border-color: color-mix(in oklch, var(--color-accent) 50%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 50%,
+      var(--border-card)
+    );
     transition:
       background var(--duration-fast) var(--ease-snappy),
       border-color var(--duration-fast) var(--ease-snappy);
@@ -133,7 +144,8 @@
 
   .kanban-column--drop-target .kanban-column-body {
     /* Subtle inset accent stripe on the bottom to reinforce the drop zone */
-    box-shadow: inset 0 -2px 0 color-mix(in oklch, var(--color-accent) 45%, transparent);
+    box-shadow: inset 0 -2px 0
+      color-mix(in oklch, var(--color-accent) 45%, transparent);
   }
 
   /* ── Keyboard drag focus ring ───────────────────────────────── */
@@ -170,8 +182,8 @@
     text-transform: uppercase;
     letter-spacing: 0.1em;
     color: var(--text-subtle);
-    background: var(--surface-3);
-    border: 1px solid var(--border-subtle);
+    background: color-mix(in oklch, var(--surface-3) 80%, transparent);
+    border: 1px solid var(--border-card);
     padding: 1px 6px;
     border-radius: var(--radius-pill);
     white-space: nowrap;
@@ -226,7 +238,7 @@
     gap: 8px;
     padding: 10px 14px;
     margin-bottom: 12px;
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     background: var(--crit-tint-bg);
     border: 1px solid var(--crit-tint-border);
     font-size: 12px;

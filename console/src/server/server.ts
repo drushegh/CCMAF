@@ -22,6 +22,7 @@ import { join, resolve } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createRequire } from "node:module";
 
 import { getProjectRoot } from "./project-root.js";
 import {
@@ -29,6 +30,7 @@ import {
   TOKEN_HEADER,
   isValidToken,
   isAllowedOrigin,
+  isAllowedHost,
 } from "./security.js";
 import {
   assignPort,
@@ -51,12 +53,30 @@ import { docsRoutes } from "./routes/docs-routes.js";
 import { shellRoutes } from "./routes/shell-routes.js";
 import { settingsRoutes } from "./routes/settings-routes.js";
 import { hubRoutes } from "./routes/hub-routes.js";
+import { sessionsRoutes } from "./routes/sessions-routes.js";
 import { getWatcher } from "./watch/watcher.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const APP_ID = "ccmaf-console";
-const VERSION = "0.1.0";
+/**
+ * Real package version, so /api/health.version and the registry `version` field
+ * are truthful (the Stage-2 version-skew handshake depends on it). package.json
+ * sits at ../ from the built dist-server/server.js and at ../../ from the source
+ * src/server/server.ts (dev/test) — try both so it resolves in every layout.
+ */
+function readPackageVersion(): string {
+  const require = createRequire(import.meta.url);
+  for (const rel of ["../package.json", "../../package.json"]) {
+    try {
+      return (require(rel) as { version?: string }).version ?? "0.0.0";
+    } catch {
+      /* try the next layout */
+    }
+  }
+  return "0.0.0";
+}
+const VERSION = readPackageVersion();
 /** Header carrying the per-instance shutdown token (TASK-037, DEC-025). */
 const SHUTDOWN_HEADER = "x-console-shutdown";
 
@@ -143,7 +163,7 @@ function makeWriteGuard(port: number) {
   return function writeGuard(
     req: FastifyRequest,
     reply: FastifyReply,
-    done: () => void
+    done: () => void,
   ): void {
     // 1. Origin check (DNS-rebinding / CSRF defence)
     const origin = req.headers.origin as string | undefined;
@@ -182,6 +202,22 @@ export async function buildServer(opts: {
   const shutdownToken = opts.shutdownToken ?? randomBytes(24).toString("hex");
 
   const fastify = Fastify({ logger: false });
+
+  // DNS-rebinding defence for EVERY route (reads, SSE, the SPA): reject any request
+  // whose Host header isn't loopback. Read routes carry no token, and the Sessions
+  // feature exposes transcripts (secrets) + projectRoot, so loopback binding alone is
+  // not enough — a rebound attacker page is same-origin but sends its own Host. Absent
+  // Host (CLI callers) is allowed; the rebinding attack always carries one.
+  fastify.addHook("onRequest", (req, reply, done) => {
+    if (!isAllowedHost(req.headers.host)) {
+      reply
+        .code(403)
+        .send({ error: "Forbidden: non-loopback Host header rejected" });
+      return;
+    }
+    done();
+  });
+
   const writeGuard = makeWriteGuard(port);
 
   // Default shutdown action: close the HTTP server, then exit. (Tests pass their
@@ -199,12 +235,13 @@ export async function buildServer(opts: {
   await fastify.register(dashboardRoutes);
   await fastify.register(eventsRoutes);
   await fastify.register(tasksWriteRoutes, { writeGuard }); // TASK-010 status write-back
-  await fastify.register(commentsRoutes, { writeGuard });   // TASK-013 comments
-  await fastify.register(analyticsRoutes);                  // TASK-025 analytics
-  await fastify.register(docsRoutes);                       // TASK-028 docs browser
-  await fastify.register(shellRoutes);                      // TASK-041 tabbed shell + /api/registry
-  await fastify.register(settingsRoutes, { writeGuard });   // TASK-042 settings window + /api/settings
-  await fastify.register(hubRoutes, { writeGuard, port });  // TASK-043 Hub flyout window + actions
+  await fastify.register(commentsRoutes, { writeGuard }); // TASK-013 comments
+  await fastify.register(analyticsRoutes); // TASK-025 analytics
+  await fastify.register(docsRoutes); // TASK-028 docs browser
+  await fastify.register(shellRoutes); // TASK-041 tabbed shell + /api/registry
+  await fastify.register(settingsRoutes, { writeGuard }); // TASK-042 settings window + /api/settings
+  await fastify.register(hubRoutes, { writeGuard, port }); // TASK-043 Hub flyout window + actions
+  await fastify.register(sessionsRoutes); // Sessions agent-visualisation (read-only)
 
   // File-watcher → SSE stream (TASK-008): start once per server; stop on close.
   getWatcher().start();
@@ -236,7 +273,9 @@ export async function buildServer(opts: {
     const header = req.headers[SHUTDOWN_HEADER];
     const provided = Array.isArray(header) ? header[0] : header;
     if (!tokensMatch(provided, shutdownToken)) {
-      return reply.code(403).send({ error: "Forbidden: invalid shutdown token" });
+      return reply
+        .code(403)
+        .send({ error: "Forbidden: invalid shutdown token" });
     }
     // Respond first, then tear down on the next tick.
     void reply.code(200).send({ ok: true });
@@ -260,10 +299,16 @@ export async function buildServer(opts: {
     // at a now-deleted asset hash → the asset 404s → SPA fallback returns HTML
     // → white screen. Reading per request self-heals after a rebuild. A read
     // that fails mid-rebuild falls back to the last good HTML.
-    let lastGoodHtml = injectTokenIntoHtml(readFileSync(indexPath, "utf8"), LAUNCH_TOKEN);
+    let lastGoodHtml = injectTokenIntoHtml(
+      readFileSync(indexPath, "utf8"),
+      LAUNCH_TOKEN,
+    );
     const renderSpa = (): string => {
       try {
-        lastGoodHtml = injectTokenIntoHtml(readFileSync(indexPath, "utf8"), LAUNCH_TOKEN);
+        lastGoodHtml = injectTokenIntoHtml(
+          readFileSync(indexPath, "utf8"),
+          LAUNCH_TOKEN,
+        );
       } catch {
         /* mid-rebuild read race — serve the last good HTML */
       }
@@ -329,16 +374,19 @@ export async function buildServer(opts: {
     // (dist/ may exist but be empty if a build was interrupted.)
     console.log(
       "[console] dist/index.html not found — running in API-only mode. " +
-        "Run `npm run build` to serve the SPA, or `npm run dev` for Vite dev mode."
+        "Run `npm run build` to serve the SPA, or `npm run dev` for Vite dev mode.",
     );
     fastify.setNotFoundHandler((_req, reply) => {
-      void reply.code(200).header("content-type", "text/html").send(
-        `<!doctype html><html><body>
+      void reply
+        .code(200)
+        .header("content-type", "text/html")
+        .send(
+          `<!doctype html><html><body>
           <p>Console API server running on port ${port}.</p>
           <p>Run <code>npm run dev</code> in a separate terminal for the SPA (Vite dev server).</p>
           <p>Or run <code>npm run build &amp;&amp; npm run serve</code> for production.</p>
-        </body></html>`
-      );
+        </body></html>`,
+        );
     });
   }
 
@@ -367,7 +415,9 @@ export async function startServer(): Promise<{ url: string; isNew: boolean }> {
   const shutdownToken = randomBytes(24).toString("hex");
 
   /** Bind, register in the tray registry, and wire graceful cleanup. */
-  const launch = async (port: number): Promise<{ url: string; isNew: boolean }> => {
+  const launch = async (
+    port: number,
+  ): Promise<{ url: string; isNew: boolean }> => {
     const server = await buildServer({
       port,
       distDir,
@@ -394,7 +444,9 @@ export async function startServer(): Promise<{ url: string; isNew: boolean }> {
         autoStart: true,
       });
     } catch (err) {
-      console.warn(`[console] registry write failed (continuing): ${String(err)}`);
+      console.warn(
+        `[console] registry write failed (continuing): ${String(err)}`,
+      );
     }
 
     // mtime self-reaper (DEC-025 backstop). Active ONLY when CONSOLE_REAP_GRACE_MIN
@@ -455,7 +507,7 @@ export async function startServer(): Promise<{ url: string; isNew: boolean }> {
     const fallbackPort = await findFreePort(preferredPort + 1);
     console.warn(
       `[console] Port ${preferredPort} in use by another process. ` +
-        `Falling back to port ${fallbackPort}.`
+        `Falling back to port ${fallbackPort}.`,
     );
     return launch(fallbackPort);
   }

@@ -9,11 +9,15 @@
    Project Console — global styles
    ============================================================ */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   margin: 0;
   padding: 0;
@@ -21,6 +25,12 @@ html, body, #root {
 
 body {
   background-color: var(--surface-0);
+  /* Ambient aurora wash — fixed so it doesn't scroll with content; the shell
+     chrome uses translucent veils so the glow reads through everywhere. */
+  background-image: var(--aurora);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  background-size: cover;
   color: var(--text-primary);
   font-family: var(--font-body);
   font-size: var(--font-size-body);
@@ -29,20 +39,46 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar styling — dark cockpit */
+/* Dot-grid speckle over the aurora (inspo-3's quiet star-field texture).
+   A fixed pseudo-element rather than an extra body background layer: the
+   aurora layers are `cover`-sized/non-repeating while the dots must TILE, and
+   per-layer background-size lists can't mix cleanly across the themed
+   --aurora var (2 layers in light, 3 in dark). z-index:-1 paints it above the
+   body background but beneath all content; the blurred chrome veils frost it. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(
+    var(--dot-grid-color) 1px,
+    transparent 1.4px
+  );
+  background-size: var(--dot-grid-size) var(--dot-grid-size);
+}
+
+/* Scrollbar styling — slim, glassy */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--surface-0);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--surface-3);
+  background: color-mix(in oklch, var(--text-subtle) 28%, transparent);
   border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--surface-4);
+  background: color-mix(in oklch, var(--text-subtle) 45%, transparent);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Selection */
@@ -52,6 +88,8 @@ body {
 }
 
 /* Code / mono */
-code, pre, kbd {
+code,
+pre,
+kbd {
   font-family: var(--font-mono);
 }

@@ -15,10 +15,12 @@ import {
   ClipboardCheck,
   ListChecks,
   FolderOpen,
+  Network,
   Sun,
   Moon,
 } from "lucide-react";
 import { useTheme } from "../useTheme";
+import { AccentPicker } from "./AccentPicker";
 
 interface NavItem {
   to: string;
@@ -39,6 +41,12 @@ const NAV_ITEMS: NavItem[] = [
     icon: <Kanban size={18} />,
     label: "Kanban",
     description: "Task board",
+  },
+  {
+    to: "/sessions",
+    icon: <Network size={18} />,
+    label: "Sessions",
+    description: "Agent activity viewer",
   },
   {
     to: "/verify",
@@ -102,7 +110,7 @@ export function Shell() {
   const location = useLocation();
 
   const currentPage = NAV_ITEMS.find((item) =>
-    location.pathname.startsWith(item.to)
+    location.pathname.startsWith(item.to),
   );
 
   return (
@@ -134,6 +142,7 @@ export function Shell() {
         </div>
 
         <div className="console-header-right">
+          <AccentPicker />
           <button
             type="button"
             className="console-theme-toggle"
@@ -171,7 +180,9 @@ export function Shell() {
                 >
                   <span className="console-rail-item-icon">{item.icon}</span>
                   {!collapsed && (
-                    <span className="console-rail-item-label">{item.label}</span>
+                    <span className="console-rail-item-label">
+                      {item.label}
+                    </span>
                   )}
                 </NavLink>
               </li>
@@ -201,10 +212,9 @@ export function Shell() {
       <footer className="console-statusbar">
         <div className="console-statusbar-left">
           <Terminal size={11} />
-          <span>Console v0.1</span>
+          <span>Console</span>
         </div>
       </footer>
-
     </div>
   );
 }

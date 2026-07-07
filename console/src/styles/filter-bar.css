@@ -10,10 +10,12 @@
     gap: 12px;
     flex-wrap: wrap;
     padding: 10px 12px;
-    margin-bottom: 12px;
-    background: var(--surface-1);
-    border: 1px solid var(--border-subtle);
+    margin-bottom: 14px;
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-1) 82%, transparent);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
   }
 
   /* ── Search ── */
@@ -38,10 +40,12 @@
     font-family: var(--font-body);
     font-size: 12.5px;
     color: var(--text-primary);
-    background: var(--surface-0);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
-    transition: border-color var(--duration-fast) var(--ease-snappy);
+    background: color-mix(in oklch, var(--surface-0) 65%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
+    transition:
+      border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy);
   }
 
   .tfb-search-input::placeholder {
@@ -50,7 +54,12 @@
 
   .tfb-search-input:focus {
     outline: none;
-    border-color: color-mix(in oklch, var(--color-accent) 50%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 50%,
+      var(--border-card)
+    );
+    box-shadow: var(--glow-accent-soft);
   }
 
   .tfb-search-clear {
@@ -62,7 +71,7 @@
     width: 20px;
     height: 20px;
     border: none;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-pill);
     background: transparent;
     color: var(--text-subtle);
     cursor: pointer;
@@ -89,6 +98,7 @@
     font-size: 12px;
     color: var(--text-muted);
     cursor: pointer;
+    -webkit-user-select: none;
     user-select: none;
     white-space: nowrap;
   }
@@ -119,20 +129,21 @@
     font-family: var(--font-body);
     font-size: 12px;
     color: var(--text-primary);
-    background: var(--surface-0);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
+    background: color-mix(in oklch, var(--surface-0) 65%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-md);
     cursor: pointer;
   }
 
+  /* Circular glass control (inspo-3's round icon-button DNA). */
   .tfb-sort-dir {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 28px;
     height: 28px;
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
     background: var(--surface-2);
     color: var(--text-muted);
     cursor: pointer;
@@ -145,7 +156,11 @@
   .tfb-sort-dir:hover {
     background: var(--surface-3);
     color: var(--text-primary);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
   }
 
   .tfb-result {

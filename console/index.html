@@ -6,11 +6,15 @@
     <title>Project Console</title>
     <link rel="icon" type="image/svg+xml" href="/console-icon.svg" />
     <script>
-      // Apply the saved theme before first paint (no flash). Dark is the
-      // default — only "light" sets the attribute. Mirrors useTheme.ts.
+      // Apply the saved theme + accent before first paint (no flash). Dark and
+      // purple are the defaults — only non-defaults set an attribute. Mirrors
+      // useTheme.ts / useAccent.ts.
       try {
         if (localStorage.getItem("console-theme") === "light")
           document.documentElement.setAttribute("data-theme", "light");
+        var accent = localStorage.getItem("console-accent");
+        if (["blue", "red", "green", "yellow", "orange"].indexOf(accent) !== -1)
+          document.documentElement.setAttribute("data-accent", accent);
       } catch (e) {}
     </script>
   </head>

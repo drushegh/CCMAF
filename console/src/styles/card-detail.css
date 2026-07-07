@@ -3,7 +3,7 @@
  *
  * A slide-in side drawer anchored to the right edge of the console-content
  * area.  Uses a backdrop overlay to allow click-outside-to-close.  All
- * colours from the vendored Harvey palette (theme.css).  No hard-coded values.
+ * colours from the theme tokens (theme.css).  No hard-coded values.
  *
  * Imported via globals.css.
  */
@@ -14,15 +14,21 @@
   .card-detail-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.42);
+    background: color-mix(in oklch, var(--surface-0) 55%, transparent);
+    -webkit-backdrop-filter: blur(3px);
+    backdrop-filter: blur(3px);
     z-index: var(--z-overlay);
     /* Backdrop fades in; the panel slides in separately */
     animation: cdp-backdrop-in var(--duration-base) var(--ease-fluid) both;
   }
 
   @keyframes cdp-backdrop-in {
-    from { opacity: 0; }
-    to   { opacity: 1; }
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
 
   /* ── Panel ───────────────────────────────────────────────────── */
@@ -33,19 +39,23 @@
     right: 0;
     bottom: 0;
     width: min(480px, 100vw);
-    background: var(--surface-1);
-    border-left: 1px solid var(--border-subtle);
+    background: var(--card-sheen), var(--surface-1);
+    border-left: 1px solid var(--border-card);
     display: flex;
     flex-direction: column;
     z-index: calc(var(--z-overlay) + 1);
     overflow: hidden;
-    box-shadow: -8px 0 32px -4px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-float);
     animation: cdp-panel-in var(--duration-base) var(--ease-snappy) both;
   }
 
   @keyframes cdp-panel-in {
-    from { transform: translateX(100%); }
-    to   { transform: translateX(0); }
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -62,8 +72,8 @@
     align-items: flex-start;
     gap: 10px;
     padding: 16px 18px 14px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-1);
+    border-bottom: 1px solid var(--border-card);
+    background: transparent;
     flex-shrink: 0;
   }
 
@@ -95,7 +105,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.12em;
-    padding: 2px 6px;
+    padding: 2px 7px;
     border-radius: var(--radius-pill);
     background: var(--pill-neutral-bg);
     color: var(--color-accent);
@@ -105,11 +115,16 @@
   .cdp-lane-badge--bug {
     background: color-mix(in oklch, var(--status-error) 12%, transparent);
     color: var(--status-error);
-    border-color: color-mix(in oklch, var(--status-error) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--status-error) 35%,
+      var(--border-card)
+    );
   }
 
   .cdp-title {
-    font-size: 14px;
+    font-family: var(--font-heading);
+    font-size: 14.5px;
     font-weight: 600;
     color: var(--text-primary);
     margin: 0;
@@ -141,7 +156,9 @@
 
   .cdp-close-btn:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 4px var(--focus-outer);
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
   }
 
   /* ── Status section ──────────────────────────────────────────── */
@@ -151,8 +168,8 @@
     align-items: center;
     gap: 10px;
     padding: 12px 18px;
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--surface-0);
+    border-bottom: 1px solid var(--border-card);
+    background: color-mix(in oklch, var(--surface-0) 45%, transparent);
     flex-shrink: 0;
   }
 
@@ -173,7 +190,7 @@
     font-weight: 500;
     color: var(--text-primary);
     background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-md);
     cursor: pointer;
     -webkit-appearance: none;
@@ -189,13 +206,19 @@
   }
 
   .cdp-status-select:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 45%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 45%,
+      var(--border-card)
+    );
     background-color: var(--surface-3);
   }
 
   .cdp-status-select:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 4px var(--focus-outer);
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
   }
 
   .cdp-status-select:disabled {
@@ -219,7 +242,7 @@
     font-weight: 500;
     color: var(--text-muted);
     background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
+    border: 1px solid var(--border-card);
     border-radius: var(--radius-button);
     cursor: pointer;
     transition:
@@ -231,7 +254,11 @@
   .cdp-archive-btn:hover:not(:disabled) {
     background: var(--surface-3);
     color: var(--text-primary);
-    border-color: color-mix(in oklch, var(--color-accent) 35%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 35%,
+      var(--border-card)
+    );
   }
 
   .cdp-archive-btn:disabled {
@@ -313,9 +340,9 @@
   }
 
   .cdp-comment {
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-2) 80%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
@@ -375,23 +402,28 @@
     font-size: 12.5px;
     font-family: var(--font-body);
     color: var(--text-primary);
-    background: var(--surface-2);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-md);
+    background: color-mix(in oklch, var(--surface-0) 55%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-lg);
     resize: vertical;
     line-height: 1.5;
-    transition:
-      border-color var(--duration-fast) var(--ease-snappy);
+    transition: border-color var(--duration-fast) var(--ease-snappy);
     box-sizing: border-box;
   }
 
   .cdp-comment-textarea:hover {
-    border-color: color-mix(in oklch, var(--color-accent) 40%, var(--border-subtle));
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
   }
 
   .cdp-comment-textarea:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 4px var(--focus-outer);
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
     border-color: var(--color-accent);
   }
 
@@ -423,7 +455,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 6px 12px;
+    padding: 6px 13px;
     font-size: 12px;
     font-weight: 600;
     border-radius: var(--radius-button);
@@ -432,12 +464,15 @@
     transition:
       background var(--duration-fast) var(--ease-snappy),
       border-color var(--duration-fast) var(--ease-snappy),
+      box-shadow var(--duration-fast) var(--ease-snappy),
       opacity var(--duration-fast) var(--ease-snappy);
   }
 
   .cdp-btn:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-inner), 0 0 0 4px var(--focus-outer);
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
   }
 
   .cdp-btn:disabled {
@@ -446,13 +481,22 @@
   }
 
   .cdp-btn--primary {
-    background: color-mix(in oklch, var(--color-accent) 18%, var(--surface-3));
-    border-color: color-mix(in oklch, var(--color-accent) 45%, var(--border-subtle));
-    color: var(--color-accent);
+    background: linear-gradient(
+      180deg,
+      var(--accent-fill-hi),
+      var(--accent-fill)
+    );
+    border-color: color-mix(in oklch, white 16%, var(--accent-fill));
+    color: var(--on-accent);
+    box-shadow: var(--shadow-card);
   }
 
   .cdp-btn--primary:not(:disabled):hover {
-    background: color-mix(in oklch, var(--color-accent) 28%, var(--surface-3));
-    border-color: var(--color-accent);
+    background: linear-gradient(
+      180deg,
+      var(--accent-fill-hi),
+      var(--accent-fill-hi)
+    );
+    box-shadow: var(--shadow-card), var(--glow-accent);
   }
 }
