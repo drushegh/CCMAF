@@ -1,9 +1,8 @@
 name: CI
 
-# Two independent surfaces, one workflow:
-#   - console/  : React + Fastify TypeScript app (Vitest + tsc --noEmit)
-#   - framework : bats behavioural tests + shellcheck, via the framework's
-#                 own self-test harness (.claude/framework/tests/run-tests.sh)
+# Framework self-tests: bats behavioural tests + shellcheck, via the framework's
+# own self-test harness (.claude/framework/tests/run-tests.sh). The Console has
+# its own repo + CI now (drushegh/console) — it is no longer built here.
 #
 # This repo auto-closes inbound PRs (see .github/workflows/close-prs.yml —
 # published-mirror model), so CI's real value is on pushes to main. The
@@ -25,35 +24,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  console:
-    name: Console (type-check + test)
-    runs-on: ubuntu-latest
-    # Job-level default so every step below runs with cwd=console, matching
-    # console/package.json's script layout (package.json lives in console/,
-    # not repo root).
-    defaults:
-      run:
-        working-directory: console
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v6
-        with:
-          # console/package.json has no "engines" field, so no version is
-          # pinned by the project itself; 22 (current Node LTS) is used here.
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: console/package-lock.json
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type-check
-        run: npm run type-check
-
-      - name: Test
-        run: npm run test
-
   framework:
     name: Framework shell tests (bats + shellcheck)
     runs-on: ubuntu-latest

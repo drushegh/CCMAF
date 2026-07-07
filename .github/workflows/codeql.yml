@@ -1,9 +1,9 @@
 name: "CodeQL"
 
-# Scoped to the console/ app (React + Fastify TypeScript) via the init step's
-# inline `paths` config below — the rest of the repo (.claude/ shell/python
-# framework tooling) is out of scope for CodeQL's javascript-typescript
-# analysis anyway.
+# JavaScript/TypeScript analysis over the repo's remaining JS surface — the
+# tools/*.mjs Console driver + the framework's .mjs test harness. The Console app
+# itself has its own repo + CodeQL now (drushegh/console); the rest of the
+# framework is shell/python and out of scope for JS/TS analysis.
 
 on:
   push:
@@ -39,13 +39,6 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          config: |
-            paths:
-              - console
-            paths-ignore:
-              - console/node_modules
-              - console/dist
-              - console/dist-server
 
       # No-op for pure JS/TS extraction (CodeQL parses source directly and
       # doesn't require a real compile), kept for parity with GitHub's
