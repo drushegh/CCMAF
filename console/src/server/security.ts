@@ -41,15 +41,19 @@ export const TOKEN_HEADER = "x-console-token";
  */
 export function isValidToken(headerValue: string | undefined): boolean {
   if (!headerValue) return false;
-  // Explicit length check first — rejects TOKEN+"garbage" prefix-bypass.
+  // Explicit length check first — rejects TOKEN+"garbage" prefix-bypass, and
+  // makes the constant-time compare safe (timingSafeEqual needs equal lengths).
   if (headerValue.length !== LAUNCH_TOKEN.length) return false;
-  // Buffer.from(_, "hex") silently truncates at the first invalid hex pair, so a
-  // correct-LENGTH but non-hex header (e.g. "00"×15 + "ZZ") yields a shorter
-  // buffer and makes timingSafeEqual throw. Reject on a decoded-length mismatch:
-  // a throw in this sync preHandler would surface as a 500 + error leak (DoS),
-  // not the intended 401.
-  const a = Buffer.from(headerValue, "hex");
-  const b = Buffer.from(LAUNCH_TOKEN, "hex");
+  // Compare the RAW utf8 bytes, NOT a hex decode. Hex-decoding both sides is a
+  // foot-gun when CONSOLE_TOKEN is non-hex: Buffer.from(_, "hex") silently
+  // truncates at the first invalid pair, so a non-hex token AND every non-hex
+  // header decode to the SAME empty buffer → timingSafeEqual(∅, ∅) === true, an
+  // auth bypass. utf8 keeps every byte significant. It also never throws (equal
+  // string length ⇒ equal byte length for the ASCII hex token), so no 500/DoS.
+  const a = Buffer.from(headerValue, "utf8");
+  const b = Buffer.from(LAUNCH_TOKEN, "utf8");
+  // Multibyte input can make equal string-lengths differ in byte-length; guard
+  // so timingSafeEqual never throws on a length mismatch.
   if (a.length !== b.length) return false;
   return timingSafeEqual(a, b);
 }

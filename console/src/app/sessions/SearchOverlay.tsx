@@ -25,6 +25,8 @@ export interface SearchOverlayProps {
 }
 
 const DEBOUNCE_MS = 250;
+/** Matches actually rendered (the server may return up to ~200). */
+const RENDER_CAP = 50;
 
 export function SearchOverlay({
   sessionId,
@@ -42,6 +44,14 @@ export function SearchOverlay({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const genRef = useRef(0);
+
+  // Latest loaded window for the 404 fallback — a REF, not an effect dep:
+  // every SSE tick rebuilds conv.turns, and with loadedTurns in the search
+  // effect's deps each tick re-ran the full ~1s server search.
+  const loadedTurnsRef = useRef(loadedTurns);
+  useEffect(() => {
+    loadedTurnsRef.current = loadedTurns;
+  }, [loadedTurns]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -69,7 +79,7 @@ export function SearchOverlay({
         if (genRef.current !== gen) return;
         if (err instanceof ApiError && err.status === 404) {
           // Pre-pagination backend — search what we have, and say so.
-          const local = searchLoadedTurns(loadedTurns, trimmed);
+          const local = searchLoadedTurns(loadedTurnsRef.current, trimmed);
           setScope("loaded");
           setMatches(
             local.map((m) => ({
@@ -92,7 +102,7 @@ export function SearchOverlay({
     return () => {
       if (timerRef.current !== null) clearTimeout(timerRef.current);
     };
-  }, [q, sessionId, agentId, agentLabel, loadedTurns]);
+  }, [q, sessionId, agentId, agentLabel]);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -100,7 +110,10 @@ export function SearchOverlay({
       onClose();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIdx((i) => Math.min(matches.length - 1, i + 1));
+      // Clamp to the RENDERED slice — Enter must never pick an invisible row.
+      setActiveIdx((i) =>
+        Math.min(Math.min(matches.length, RENDER_CAP) - 1, i + 1),
+      );
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIdx((i) => Math.max(0, i - 1));
@@ -161,7 +174,7 @@ export function SearchOverlay({
             role="listbox"
             aria-label="Matches"
           >
-            {matches.slice(0, 50).map((m, i) => (
+            {matches.slice(0, RENDER_CAP).map((m, i) => (
               <li key={`${m.agentId}:${m.turnUuid}:${i}`} role="presentation">
                 <button
                   type="button"

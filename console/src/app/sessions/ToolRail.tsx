@@ -351,8 +351,8 @@ function CardResult({
   entry: LedgerEntry;
   sessionId: string;
 }) {
-  const [full, setFull] = useState<string | null>(
-    fullResultCache.get(entry.toolUseId) ?? null,
+  const [full, setFull] = useState<string | null>(() =>
+    cachedFullResult(entry.toolUseId),
   );
   const [fullState, setFullState] = useState<
     "idle" | "loading" | "unavailable" | "error"
@@ -362,7 +362,7 @@ function CardResult({
     setFullState("loading");
     try {
       const detail = await fetchToolResult(sessionId, entry.toolUseId);
-      fullResultCache.set(entry.toolUseId, detail.result.text);
+      cacheFullResult(entry.toolUseId, detail.result.text);
       setFull(detail.result.text);
       setFullState("idle");
     } catch (err) {
@@ -425,5 +425,30 @@ function CardResult({
   );
 }
 
-/** Session-lifetime cache of untruncated results (keyed by toolUseId). */
+/**
+ * LRU cache of untruncated results (keyed by toolUseId). Full results run
+ * multi-MB — an unbounded module Map would grow for the tab's lifetime, so
+ * the size is capped and reads refresh recency (Map iteration order =
+ * insertion order, so the first key is always the least recently used).
+ */
+const FULL_RESULT_CACHE_MAX = 32;
 const fullResultCache = new Map<string, string>();
+
+function cachedFullResult(toolUseId: string): string | null {
+  const hit = fullResultCache.get(toolUseId);
+  if (hit === undefined) return null;
+  // Refresh recency.
+  fullResultCache.delete(toolUseId);
+  fullResultCache.set(toolUseId, hit);
+  return hit;
+}
+
+function cacheFullResult(toolUseId: string, text: string): void {
+  fullResultCache.delete(toolUseId);
+  fullResultCache.set(toolUseId, text);
+  while (fullResultCache.size > FULL_RESULT_CACHE_MAX) {
+    const oldest = fullResultCache.keys().next().value;
+    if (oldest === undefined) break;
+    fullResultCache.delete(oldest);
+  }
+}

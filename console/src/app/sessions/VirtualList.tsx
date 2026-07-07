@@ -68,6 +68,10 @@ interface VirtualListProps<T extends VirtualItem> {
 /** Viewport fallback when clientHeight is 0 (jsdom / first paint). */
 const FALLBACK_VIEWPORT = 800;
 const AT_BOTTOM_SLACK = 48;
+/** How long a programmatic scrollTop write may echo as a scroll event. */
+const PROGRAMMATIC_ECHO_MS = 150;
+/** Longer echo window for smooth scrollToBottom (browser-animated). */
+const SMOOTH_ECHO_MS = 600;
 
 function VirtualListInner<T extends VirtualItem>(
   {
@@ -134,19 +138,46 @@ function VirtualListInner<T extends VirtualItem>(
       ? -1
       : Math.min(items.length - 1, indexAt(scrollTop + viewportH) + overscan);
 
-  /* ── Scroll handling ── */
-  const readScroll = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    setScrollTop(el.scrollTop);
-    const vh = el.clientHeight || FALLBACK_VIEWPORT;
-    setViewportH(vh);
-    const atBottom = el.scrollHeight - el.scrollTop - vh < AT_BOTTOM_SLACK;
-    if (atBottom !== atBottomRef.current) {
-      atBottomRef.current = atBottom;
-      onAtBottomChange?.(atBottom);
-    }
-  }, [onAtBottomChange]);
+  /* ── Scroll handling ──
+     Programmatic vs user attribution: our OWN scrollTop writes (pin re-glue,
+     prepend anchoring, ResizeObserver height compensation, scrollTo*) echo
+     back as scroll events. Before the attribution existed, such an echo could
+     read a transient off-bottom position and report atBottom=false — the
+     owner then dropped follow-mode before the pin re-glued (the agent-switch
+     "lands 260px above bottom, follow OFF" bug). Each programmatic write
+     records its expected scrollTop + a validity window; a scroll event that
+     matches is an echo, everything else is the user. */
+  const expectedScrollRef = useRef<{ top: number; until: number } | null>(null);
+  const nowMs = (): number =>
+    typeof performance !== "undefined" ? performance.now() : Date.now();
+  const noteProgrammaticScroll = useCallback(
+    (top: number, echoMs: number = PROGRAMMATIC_ECHO_MS) => {
+      expectedScrollRef.current = { top, until: nowMs() + echoMs };
+    },
+    [],
+  );
+
+  const readScroll = useCallback(
+    (source: "user" | "programmatic" = "programmatic") => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      setScrollTop(el.scrollTop);
+      const vh = el.clientHeight || FALLBACK_VIEWPORT;
+      setViewportH(vh);
+      const atBottom = el.scrollHeight - el.scrollTop - vh < AT_BOTTOM_SLACK;
+      if (atBottom !== atBottomRef.current) {
+        // Leaving the bottom is a USER decision (it drops follow-mode); a
+        // programmatic adjustment may only report REACHING it. A transient
+        // programmatic off-bottom reading stays un-latched so the pin can
+        // re-glue and a later real scroll still reports the transition.
+        if (source === "user" || atBottom) {
+          atBottomRef.current = atBottom;
+          onAtBottomChange?.(atBottom);
+        }
+      }
+    },
+    [onAtBottomChange],
+  );
 
   const onScroll = useCallback(() => {
     if (rafRef.current !== null) return;
@@ -157,7 +188,14 @@ function VirtualListInner<T extends VirtualItem>(
             setTimeout(() => cb(0), 16) as unknown as number;
     rafRef.current = raf(() => {
       rafRef.current = null;
-      readScroll();
+      const el = scrollerRef.current;
+      const exp = expectedScrollRef.current;
+      const isEcho =
+        el !== null &&
+        exp !== null &&
+        nowMs() <= exp.until &&
+        Math.abs(el.scrollTop - exp.top) <= 1;
+      readScroll(isEcho ? "programmatic" : "user");
     }) as unknown as number;
   }, [readScroll]);
 
@@ -191,6 +229,7 @@ function VirtualListInner<T extends VirtualItem>(
       const idx = items.findIndex((it) => it.key === anchor.key);
       if (idx > anchor.index) {
         el.scrollTop += offsets[idx] - anchor.offset;
+        noteProgrammaticScroll(el.scrollTop);
         setScrollTop(el.scrollTop);
       }
     }
@@ -210,6 +249,7 @@ function VirtualListInner<T extends VirtualItem>(
     const shape = `${items.length}:${Math.round(totalHeight)}`;
     if (pinToBottom && shape !== lastPinShapeRef.current) {
       el.scrollTop = el.scrollHeight;
+      noteProgrammaticScroll(el.scrollTop);
       readScroll();
     }
     lastPinShapeRef.current = shape;
@@ -257,6 +297,7 @@ function VirtualListInner<T extends VirtualItem>(
       }
       if (aboveDelta !== 0 && el) {
         el.scrollTop += aboveDelta;
+        noteProgrammaticScroll(el.scrollTop);
       }
       if (dirty) setMeasureNonce((n) => n + 1);
     });
@@ -265,6 +306,8 @@ function VirtualListInner<T extends VirtualItem>(
       ro.disconnect();
       roRef.current = null;
     };
+    // noteProgrammaticScroll is stable (useCallback []) — safe to close over.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const measureRef = useCallback((el: HTMLDivElement | null) => {
@@ -276,21 +319,62 @@ function VirtualListInner<T extends VirtualItem>(
   }, []);
 
   /* ── Imperative API ── */
+  // scrollToKey reads layout via the refs (not the render closure): its
+  // SETTLE passes run across later frames, after re-renders have refreshed
+  // items/offsets with real measurements.
+  const targetTopFor = useCallback(
+    (
+      key: string,
+      align: "center" | "start" | "end",
+      el: HTMLDivElement,
+    ): number | null => {
+      const curItems = itemsRef.current;
+      const curOffsets = offsetsRef.current;
+      const idx = curItems.findIndex((it) => it.key === key);
+      if (idx === -1) return null;
+      const vh = el.clientHeight || FALLBACK_VIEWPORT;
+      const h =
+        heightsRef.current.get(key) ?? estimateRef.current(curItems[idx]);
+      let top = curOffsets[idx];
+      if (align === "center") top -= Math.max(0, (vh - h) / 2);
+      if (align === "end") top -= Math.max(0, vh - h);
+      return Math.max(0, top);
+    },
+    [],
+  );
+
   useImperativeHandle(
     ref,
     (): VirtualListHandle => ({
       scrollToKey: (key, align = "center") => {
         const el = scrollerRef.current;
         if (!el) return;
-        const idx = items.findIndex((it) => it.key === key);
-        if (idx === -1) return;
-        const vh = el.clientHeight || FALLBACK_VIEWPORT;
-        let top = offsets[idx];
-        if (align === "center")
-          top -= Math.max(0, (vh - heightOf(items[idx])) / 2);
-        if (align === "end") top -= Math.max(0, vh - heightOf(items[idx]));
-        el.scrollTop = Math.max(0, top);
-        readScroll();
+        const alignPass = (): void => {
+          const top = targetTopFor(key, align, el);
+          if (top === null) return;
+          el.scrollTop = top;
+          noteProgrammaticScroll(el.scrollTop);
+          readScroll();
+        };
+        alignPass();
+        // ESTIMATE-DRIFT SETTLE: the jump positioned by estimated offsets;
+        // the rows it brings on screen then re-measure, shifting the target
+        // (a deep jump across hundreds of unmeasured rows drifts by up to a
+        // viewport). Re-align for a few frames until the measured layout
+        // stops moving the target.
+        if (typeof requestAnimationFrame !== "function") return;
+        let passes = 0;
+        const settle = (): void => {
+          const want = targetTopFor(key, align, el);
+          if (want === null) return;
+          const clamped = Math.min(
+            want,
+            Math.max(0, el.scrollHeight - el.clientHeight),
+          );
+          if (Math.abs(el.scrollTop - clamped) > 4) alignPass();
+          if (++passes < 10) requestAnimationFrame(settle);
+        };
+        requestAnimationFrame(settle);
       },
       scrollToBottom: (smooth = false) => {
         const el = scrollerRef.current;
@@ -300,14 +384,21 @@ function VirtualListInner<T extends VirtualItem>(
           matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (smooth && !prefersReduced && typeof el.scrollTo === "function") {
           el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+          // Smooth scrolling lands at the clamped bottom after a browser-
+          // animated run — expect that final position, with a longer echo.
+          noteProgrammaticScroll(
+            Math.max(0, el.scrollHeight - el.clientHeight),
+            SMOOTH_ECHO_MS,
+          );
         } else {
           el.scrollTop = el.scrollHeight;
+          noteProgrammaticScroll(el.scrollTop);
         }
         readScroll();
       },
       element: () => scrollerRef.current,
     }),
-    [items, offsets, heightOf, readScroll],
+    [targetTopFor, readScroll, noteProgrammaticScroll],
   );
 
   /* ── Initial viewport read ── */

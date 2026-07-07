@@ -12,6 +12,8 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import {
   mkdtempSync,
   writeFileSync,
+  readFileSync,
+  readdirSync,
   mkdirSync,
   rmSync,
   existsSync,
@@ -33,10 +35,12 @@ const {
   userStateDir,
   registryDir,
   projectName,
+  sameRoot,
   registerConsole,
   deregisterConsole,
   readRegistry,
   readEntry,
+  findByRoot,
   setAutoStart,
   assignPort,
   entryMtimeMs,
@@ -62,6 +66,21 @@ function makeEntry(
     autoStart: true,
     ...over,
   };
+}
+
+/** Parse the on-disk ports.json for the current state dir ({} when absent). */
+function readPortsJson(): Record<string, number> {
+  const f = join(stateDir, "ports.json");
+  return existsSync(f)
+    ? (JSON.parse(readFileSync(f, "utf8")) as Record<string, number>)
+    : {};
+}
+
+/** File names containing ".tmp" left behind in a dir (atomic-write leftovers). */
+function strayTmp(dir: string): string[] {
+  return existsSync(dir)
+    ? readdirSync(dir).filter((f) => f.includes(".tmp"))
+    : [];
 }
 
 beforeEach(() => {
@@ -202,5 +221,85 @@ describe("assignPort — assign-and-remember", () => {
     // ports.json is the source of truth, so a re-read returns the same.
     expect(existsSync(join(stateDir, "ports.json"))).toBe(true);
     expect(assignPort("F:/p/a")).toBe(6120);
+  });
+
+  it("treats a drive-letter case flip as the same project on win32", () => {
+    const p1 = assignPort("F:/proj/x");
+    const p2 = assignPort("f:/proj/x");
+    if (process.platform === "win32") {
+      // Case-insensitive: same pin, no second allocation.
+      expect(p2).toBe(p1);
+      expect(Object.keys(readPortsJson())).toHaveLength(1);
+    } else {
+      // Case-sensitive FS: genuinely distinct roots.
+      expect(p2).not.toBe(p1);
+    }
+  });
+
+  it("does not persist a bogus pin when the range is exhausted", () => {
+    const a = assignPort("F:/x/a", 7000, 2);
+    const b = assignPort("F:/x/b", 7000, 2);
+    expect([a, b]).toEqual([7000, 7001]);
+    // Range [7000, 7002) is full → fall back to base, remember NOTHING new
+    // (no out-of-range 7002, no duplicate).
+    expect(assignPort("F:/x/c", 7000, 2)).toBe(7000);
+    expect(Object.keys(readPortsJson())).toHaveLength(2);
+    // Existing pins are untouched.
+    expect(assignPort("F:/x/a", 7000, 2)).toBe(7000);
+    expect(assignPort("F:/x/b", 7000, 2)).toBe(7001);
+  });
+});
+
+// ── sameRoot + findByRoot — win32 case-insensitive matching ───────────────────
+
+describe("sameRoot", () => {
+  it("matches identical roots", () => {
+    expect(sameRoot("F:/p/a", "F:/p/a")).toBe(true);
+  });
+
+  it("ignores drive-letter case on win32; case-sensitive elsewhere", () => {
+    expect(sameRoot("f:/Git/proj", "F:/Git/proj")).toBe(
+      process.platform === "win32",
+    );
+  });
+
+  it("distinguishes genuinely different roots", () => {
+    expect(sameRoot("F:/p/a", "F:/p/b")).toBe(false);
+  });
+});
+
+describe("findByRoot — locate a live console by its project root", () => {
+  it("finds the entry regardless of drive-letter case on win32", () => {
+    registerConsole(makeEntry(6120, "F:/Git/Personal/proj"));
+    const flipped = findByRoot("f:/Git/Personal/proj");
+    if (process.platform === "win32") {
+      expect(flipped?.port).toBe(6120);
+    } else {
+      expect(flipped).toBeNull(); // different root on a case-sensitive FS
+    }
+    // Exact-case match always works.
+    expect(findByRoot("F:/Git/Personal/proj")?.port).toBe(6120);
+  });
+
+  it("returns null when no live entry serves the root", () => {
+    registerConsole(makeEntry(6120, "F:/p/a"));
+    expect(findByRoot("F:/p/other")).toBeNull();
+  });
+});
+
+// ── atomic writes — no torn/partial ports.json or registry entry ──────────────
+
+describe("atomic writes", () => {
+  it("writes valid JSON with no leftover .tmp files", () => {
+    registerConsole(makeEntry(6120, "F:/p/a"));
+    assignPort("F:/p/b"); // writes ports.json
+
+    // Registry entry parses cleanly.
+    const raw = readFileSync(join(registryDir(), "6120.json"), "utf8");
+    expect(() => JSON.parse(raw)).not.toThrow();
+
+    // No tmp leftovers in either dir.
+    expect(strayTmp(registryDir())).toEqual([]);
+    expect(strayTmp(stateDir)).toEqual([]);
   });
 });

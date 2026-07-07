@@ -16,7 +16,15 @@
  *  11. findProjectRoot: walk-up logic against a real temp dir tree
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  afterEach,
+  vi,
+} from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
@@ -35,10 +43,10 @@ vi.mock("../src/server/project-root.js", () => {
 });
 
 // Import after mock is registered
-const { buildServer } = await import("../src/server/server.js");
-const { LAUNCH_TOKEN, TOKEN_HEADER, resolveVerifyPath, isValidToken } = await import(
-  "../src/server/security.js"
-);
+const { buildServer, probeExistingConsole } =
+  await import("../src/server/server.js");
+const { LAUNCH_TOKEN, TOKEN_HEADER, resolveVerifyPath, isValidToken } =
+  await import("../src/server/security.js");
 
 // ── Server lifecycle ─────────────────────────────────────────────────────────
 
@@ -125,9 +133,7 @@ describe("POST /api/shutdown — token guard (TASK-037)", () => {
 });
 
 describe("PUT /api/verify/:task — write guard", () => {
-  const validPayload = JSON.stringify([
-    { id: "item-1", verdict: "pass" },
-  ]);
+  const validPayload = JSON.stringify([{ id: "item-1", verdict: "pass" }]);
 
   it("rejects request with no token → 401", async () => {
     const res = await app.inject({
@@ -245,7 +251,7 @@ describe("resolveVerifyPath — path-safety helper", () => {
 
   it("rejects a path traversal attempt (..)", () => {
     expect(() => resolveVerifyPath("TASK-../../../etc/passwd")).toThrow(
-      /Invalid task id/
+      /Invalid task id/,
     );
   });
 
@@ -281,7 +287,7 @@ describe("GET / and GET /index.html — SPA token injection", () => {
     writeFileSync(
       join(spaDistDir, "index.html"),
       "<!doctype html><html><head></head><body>Console</body></html>",
-      "utf8"
+      "utf8",
     );
 
     // Build a server pointing at our temp dist dir.
@@ -325,13 +331,19 @@ describe("GET / and GET /index.html — SPA token injection", () => {
   });
 
   it("a MISSING static asset 404s (does NOT fall back to HTML → no white screen)", async () => {
-    const res = await spaApp.inject({ method: "GET", url: "/assets/index-DELETED.js" });
+    const res = await spaApp.inject({
+      method: "GET",
+      url: "/assets/index-DELETED.js",
+    });
     expect(res.statusCode).toBe(404);
     expect(res.headers["content-type"]).not.toMatch(/text\/html/);
   });
 
   it("an extensioned missing path also 404s rather than serving the shell", async () => {
-    const res = await spaApp.inject({ method: "GET", url: "/console-icon.svg" });
+    const res = await spaApp.inject({
+      method: "GET",
+      url: "/console-icon.svg",
+    });
     expect(res.statusCode).toBe(404);
   });
 
@@ -411,5 +423,64 @@ describe("findProjectRoot — walk-up logic (real algorithm)", () => {
     if (found !== null) {
       expect(found).not.toBe(tmpProjectRoot);
     }
+  });
+});
+
+// ── probeExistingConsole — adopt ONLY our own project's console ────────────────
+// Idempotent start must not return a URL for a DIFFERENT project's console (or
+// another app) that happens to hold the pinned port. Health payload is stubbed
+// via a mocked global fetch — no port binding needed.
+
+describe("probeExistingConsole — projectRoot gating", () => {
+  const ROOT = process.platform === "win32" ? "F:\\Git\\proj" : "/home/u/proj";
+  const OTHER =
+    process.platform === "win32" ? "F:\\Git\\other" : "/home/u/other";
+
+  const stubHealth = (body: unknown, ok = true): void => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok, json: async () => body })),
+    );
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the URL when app AND projectRoot both match", async () => {
+    stubHealth({ app: "ccmaf-console", projectRoot: ROOT });
+    expect(await probeExistingConsole(6120, ROOT)).toBe(
+      "http://127.0.0.1:6120",
+    );
+  });
+
+  it("returns null when a ccmaf-console serves a DIFFERENT projectRoot", async () => {
+    stubHealth({ app: "ccmaf-console", projectRoot: OTHER });
+    expect(await probeExistingConsole(6120, ROOT)).toBeNull();
+  });
+
+  it("returns null when the app id is not ccmaf-console", async () => {
+    stubHealth({ app: "some-other-app", projectRoot: ROOT });
+    expect(await probeExistingConsole(6120, ROOT)).toBeNull();
+  });
+
+  it("returns null when projectRoot is absent from the health payload", async () => {
+    stubHealth({ app: "ccmaf-console" });
+    expect(await probeExistingConsole(6120, ROOT)).toBeNull();
+  });
+
+  it("returns null when the health response is not ok", async () => {
+    stubHealth({ app: "ccmaf-console", projectRoot: ROOT }, false);
+    expect(await probeExistingConsole(6120, ROOT)).toBeNull();
+  });
+
+  it("returns null when the fetch throws (port held by something else)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("ECONNREFUSED");
+      }),
+    );
+    expect(await probeExistingConsole(6120, ROOT)).toBeNull();
   });
 });

@@ -252,7 +252,10 @@ function SessionNode({
         <span className="sess-nav-session-meta">
           {live && <span className="sess-live-label">live</span>}
           <span>{timeAgo(session.lastActivity)}</span>
-          <span>· {session.messageCount} msgs</span>
+          {/* Raw transcript records (incl. subagent sidechains) — labelled
+              "lines" so it never reads as the per-agent "turns" count in the
+              conversation header (they measure different things). */}
+          <span>· {session.messageCount} lines</span>
           {session.agentCount > 0 && (
             <span className="sess-nav-session-agents">
               · <Bot size={9} aria-hidden="true" /> {session.agentCount}

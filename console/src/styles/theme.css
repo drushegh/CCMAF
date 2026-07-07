@@ -578,12 +578,14 @@
    -blocked/-info stay reserved for status semantics, and when a chosen
    accent lands ON one of them (green accent ≈ status-ok, red ≈ status-error,
    yellow ≈ status-blocked, blue ≈ status-info) that ONE semantic hue is
-   nudged ~25–40° away (dark + light blocks below) so success/error/warn/info
-   never impersonate the brand colour. The nudged value keeps its semantic
-   family — ok stays a green, error stays a red — and its contrast grade.
-   Errors additionally differ by GEOMETRY, not just hue (inset left bar on
-   cards/chips, hatch pattern on timeline bars — see sessions.css), so error
-   signals survive even a same-family accent.
+   pushed 30–45° away AND past the accent's chroma (dark + light blocks
+   below) so success/error/warn/info never impersonate the brand colour.
+   The pushed value keeps its semantic family — ok stays a green, error
+   stays a red — and its contrast grade. Status additionally differs by
+   GEOMETRY, not just hue: errors carry an inset left bar on cards/chips and
+   a hatch pattern on timeline bars, and the LIVE/done agent dots differ by
+   fill (running=solid disc, done=hollow outline) — see sessions.css — so
+   status signals survive even a same-family accent.
 
    The light-theme blocks below follow the same recipe as violet's light
    block: deeper accent for text on a light ground, fills re-tuned per hue.
@@ -631,9 +633,12 @@
      darks — a whisper over baseline (+5%) is all the crimson needs. */
   --surface-hue: 28;
   --surface-chroma-scale: 1.05;
-  /* error (20) sits on the scarlet accent — nudge to crimson-pink (358);
-     error rings/bars additionally differ by geometry (sessions.css) */
-  --status-error: oklch(0.66 0.22 358);
+  /* error (20) sits on the scarlet accent — push to magenta-pink (345, was
+     358: a 30° nudge wasn't perceptible against the accent in the live
+     build) with chroma raised past the accent's 0.15, so an error reads
+     PINKER and HOTTER than brand red at a glance; error rings/bars
+     additionally differ by geometry (sessions.css) */
+  --status-error: oklch(0.68 0.24 345);
 }
 :root[data-theme="light"][data-accent="red"] {
   --p-accent: oklch(0.5 0.19 30);
@@ -642,7 +647,7 @@
   --accent-fill: oklch(0.49 0.19 30); /* white 6.9:1 */
   --accent-fill-hi: oklch(0.535 0.18 31); /* white 5.7:1 */
   --aurora-companion: oklch(0.6 0.14 358);
-  --status-error: oklch(0.52 0.21 0); /* crimson-shifted error */
+  --status-error: oklch(0.5 0.22 348); /* magenta-shifted error (see dark) */
 }
 
 /* ── Green (emerald — deeper + cooler than status-ok's bright green) ── */
@@ -659,9 +664,13 @@
      dark stately; chroma −10% guards the same edge on the hover ladder. */
   --surface-hue: 168;
   --surface-chroma-scale: 0.9;
-  /* ok (152) sits on the emerald accent — nudge to spring green (132),
-     brighter + more chromatic than the muted emerald so live/ok reads apart */
-  --status-ok: oklch(0.83 0.19 132);
+  /* ok (152) sits on the emerald accent — push to chartreuse-leaning spring
+     green (125, was 132: a 26° nudge wasn't perceptible against the accent
+     in the live build) with chroma well past the accent's muted 0.13, so
+     live/ok reads brighter, yellower and hotter than brand green; the LIVE
+     dot additionally differs by shape (sessions.css: running=filled disc,
+     done=hollow outline) so status never rides on hue alone */
+  --status-ok: oklch(0.85 0.21 125);
 }
 :root[data-theme="light"][data-accent="green"] {
   --p-accent: oklch(0.45 0.105 158);
@@ -670,7 +679,7 @@
   --accent-fill: oklch(0.47 0.105 158); /* white 6.5:1 */
   --accent-fill-hi: oklch(0.5 0.105 159); /* white 5.7:1 */
   --aurora-companion: oklch(0.6 0.1 195);
-  --status-ok: oklch(0.55 0.15 132); /* spring-shifted ok (see dark block) */
+  --status-ok: oklch(0.52 0.16 125); /* spring-shifted ok (see dark block) */
 }
 
 /* ── Yellow (gold — bright chips carry a dark same-hue ink, not white) ── */

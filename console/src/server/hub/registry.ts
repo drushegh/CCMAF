@@ -22,6 +22,7 @@ import {
   readdirSync,
   readFileSync,
   writeFileSync,
+  renameSync,
   unlinkSync,
   statSync,
 } from "node:fs";
@@ -118,6 +119,40 @@ function ensureDir(dir: string): void {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 }
 
+/**
+ * Atomic write: write a sibling tmp file then rename over the target. A reader
+ * (the Hub) never sees a half-written/torn `ports.json` or registry entry, and a
+ * crash mid-write leaves the old file intact. `renameSync` replaces an existing
+ * destination on every supported platform (POSIX rename + Windows MoveFileEx).
+ */
+function atomicWrite(file: string, data: string): void {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tmp, data, "utf8");
+  try {
+    renameSync(tmp, file);
+  } catch (err) {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      /* best effort */
+    }
+    throw err;
+  }
+}
+
+/**
+ * Two project roots are the SAME project. On win32 the drive letter case is
+ * insignificant (a session records `f:\…` while process.cwd() reports `F:\…`),
+ * so compare case-insensitively there; case-sensitive everywhere else.
+ */
+export function sameRoot(a: string, b: string): boolean {
+  const ra = resolve(a);
+  const rb = resolve(b);
+  return platform() === "win32"
+    ? ra.toLowerCase() === rb.toLowerCase()
+    : ra === rb;
+}
+
 /** Display name for a project root (basename, with a sane fallback). */
 export function projectName(rootPath: string): string {
   return basename(resolve(rootPath)) || rootPath;
@@ -128,7 +163,7 @@ export function projectName(rootPath: string): string {
 /** Write (or overwrite) this console's registry entry. */
 export function registerConsole(entry: RegistryEntry): void {
   ensureDir(registryDir());
-  writeFileSync(entryPath(entry.port), JSON.stringify(entry, null, 2), "utf8");
+  atomicWrite(entryPath(entry.port), JSON.stringify(entry, null, 2));
 }
 
 /** Remove a console's registry entry (graceful exit / tray End). Idempotent. */
@@ -168,8 +203,7 @@ export function readRegistry(): RegistryEntry[] {
  *  launcher (`stop`/`open`) + Hub to find a project's console regardless of which
  *  port it actually bound (the pin can differ from the bound port on fallback). */
 export function findByRoot(rootPath: string): RegistryEntry | null {
-  const want = resolve(rootPath);
-  return readRegistry().find((e) => resolve(e.rootPath) === want) ?? null;
+  return readRegistry().find((e) => sameRoot(e.rootPath, rootPath)) ?? null;
 }
 
 /** Read one entry by port (null if absent/malformed). */
@@ -215,7 +249,7 @@ export function setAutoStart(port: number, autoStart: boolean): void {
   const e = readEntry(port);
   if (!e) return;
   e.autoStart = autoStart;
-  writeFileSync(entryPath(port), JSON.stringify(e, null, 2), "utf8");
+  atomicWrite(entryPath(port), JSON.stringify(e, null, 2));
 }
 
 // ── ports.json: assign-and-remember ─────────────────────────────────────────
@@ -235,7 +269,7 @@ function readPorts(): Record<string, number> {
 
 function writePorts(map: Record<string, number>): void {
   ensureDir(userStateDir());
-  writeFileSync(portsFile(), JSON.stringify(map, null, 2), "utf8");
+  atomicWrite(portsFile(), JSON.stringify(map, null, 2));
 }
 
 /**
@@ -260,10 +294,26 @@ export function knownProjects(): { rootPath: string; pinnedPort: number }[] {
 export function assignPort(rootPath: string, base = 6120, range = 80): number {
   const key = resolve(rootPath);
   const map = readPorts();
-  if (typeof map[key] === "number") return map[key];
+  // Remembered? Match case-insensitively on win32 (f:\ vs F:\ = same project),
+  // so a drive-letter case flip can't strand a second pin for the same root.
+  for (const [k, v] of Object.entries(map)) {
+    if (typeof v === "number" && sameRoot(k, key)) return v;
+  }
   const used = new Set(Object.values(map));
+  const limit = base + range;
   let port = base;
-  while (used.has(port) && port < base + range) port++;
+  while (used.has(port) && port < limit) port++;
+  if (port >= limit) {
+    // Every port in [base, base+range) is pinned to another project (the loop
+    // ran off the end). Don't persist a bogus/out-of-range/duplicate pin —
+    // surface it and fall back to `base`; the server's bind-time free-port
+    // search finds a real free port (no stable pin for this project this run).
+    console.warn(
+      `[console] port-pin range [${base}, ${limit}) exhausted ` +
+        `(${used.size} projects) — serving '${key}' without a stable pin.`,
+    );
+    return base;
+  }
   map[key] = port;
   writePorts(map);
   return port;

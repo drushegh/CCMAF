@@ -128,15 +128,135 @@ function* parseLines(content: string): Generator<Line> {
   }
 }
 
-/** Read + tolerantly parse a whole JSONL file; [] when unreadable/absent. */
+// ── Per-file stat-keyed caches ───────────────────────────────────────────────
+//
+// Every read here is O(file): a 74MB transcript costs ~0.5-1s to read + parse,
+// and the SPA refetches the whole session view on ANY `.claude` change (incl.
+// telemetry, which churns on every tool use), while listSessions byte-scans
+// EVERY transcript per call. Almost all of those repeats hit an UNCHANGED file.
+// Keying a cache on (path, mtimeMs, size) turns each such repeat into an
+// in-memory hit — the read + JSON.parse (the expensive parts) run once per file
+// version. A changed transcript (new mtime OR size) misses and recomputes, so a
+// live session is never served stale; transcripts are append-only, so a size
+// change accompanies every real edit. Caches are bounded (LRU) so memory can't
+// grow without limit.
+
+interface StatToken {
+  mtimeMs: number;
+  size: number;
+}
+
+/** (mtimeMs, size) identity of a file; null when it can't be stat'd / isn't a file. */
+function statToken(filePath: string): StatToken | null {
+  try {
+    const st = statSync(filePath);
+    if (!st.isFile()) return null;
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+// readJsonl cache: byte-size-bounded (parsed line arrays are large).
+interface JsonlSlot extends StatToken {
+  lines: Line[];
+}
+const jsonlCache = new Map<string, JsonlSlot>(); // insertion order = LRU
+let jsonlCacheBytes = 0;
+/** File-size budget (a proxy for the parsed footprint) for the readJsonl cache. */
+const JSONL_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+
+// Small-value caches: bounded by entry count (counts / heads are tiny).
+interface ValueSlot<T> extends StatToken {
+  value: T;
+}
+const countCache = new Map<string, ValueSlot<number>>();
+const headCache = new Map<string, ValueSlot<string>>();
+const SMALL_CACHE_MAX_ENTRIES = 1024;
+
+function smallCacheGet<T>(
+  cache: Map<string, ValueSlot<T>>,
+  key: string,
+  tok: StatToken | null,
+): { hit: true; value: T } | { hit: false } {
+  if (!tok) return { hit: false };
+  const slot = cache.get(key);
+  if (slot && slot.mtimeMs === tok.mtimeMs && slot.size === tok.size) {
+    cache.delete(key); // LRU touch
+    cache.set(key, slot);
+    return { hit: true, value: slot.value };
+  }
+  return { hit: false };
+}
+
+function smallCacheSet<T>(
+  cache: Map<string, ValueSlot<T>>,
+  key: string,
+  tok: StatToken | null,
+  value: T,
+): void {
+  if (!tok) return;
+  cache.delete(key);
+  cache.set(key, { mtimeMs: tok.mtimeMs, size: tok.size, value });
+  while (cache.size > SMALL_CACHE_MAX_ENTRIES) {
+    const oldest = cache.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
+}
+
+/** Drop every cached parse/count/head. For tests (isolation) + hard invalidation. */
+export function clearTranscriptCaches(): void {
+  jsonlCache.clear();
+  jsonlCacheBytes = 0;
+  countCache.clear();
+  headCache.clear();
+}
+
+/**
+ * Read + tolerantly parse a whole JSONL file; [] when unreadable/absent.
+ * Cached by (path, mtimeMs, size): an unchanged file is parsed once, then served
+ * from memory. The returned array is SHARED — callers treat it read-only (they
+ * build fresh structures from it; none mutate a Line or the array itself).
+ */
 function readJsonl(filePath: string): Line[] {
+  const tok = statToken(filePath);
+  if (tok) {
+    const slot = jsonlCache.get(filePath);
+    if (slot && slot.mtimeMs === tok.mtimeMs && slot.size === tok.size) {
+      jsonlCache.delete(filePath); // LRU touch
+      jsonlCache.set(filePath, slot);
+      return slot.lines;
+    }
+  }
+
   let content: string;
   try {
     content = readFileSync(filePath, "utf8");
   } catch {
     return [];
   }
-  return Array.from(parseLines(content));
+  const lines = Array.from(parseLines(content));
+
+  // Cache only when stat'able and the file fits the budget (a single over-budget
+  // file is read through uncached rather than evicting everything else).
+  if (tok && tok.size <= JSONL_CACHE_MAX_BYTES) {
+    const prev = jsonlCache.get(filePath);
+    if (prev) jsonlCacheBytes -= prev.size;
+    jsonlCache.delete(filePath);
+    jsonlCache.set(filePath, { mtimeMs: tok.mtimeMs, size: tok.size, lines });
+    jsonlCacheBytes += tok.size;
+    // Evict oldest (front of the Map) until under budget — never the entry just
+    // inserted at the back (a single file is guaranteed <= budget here).
+    while (jsonlCacheBytes > JSONL_CACHE_MAX_BYTES) {
+      const oldest = jsonlCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      const e = jsonlCache.get(oldest);
+      jsonlCache.delete(oldest);
+      if (e) jsonlCacheBytes -= e.size;
+    }
+  }
+  return lines;
 }
 
 function str(v: unknown): string | null {
@@ -274,7 +394,7 @@ export function resolveProjectSessionsDir(
 // ── Bounded head read + raw message counting (large-file safety) ─────────────
 
 /** Read up to `maxBytes` from the start of a file as utf8 ("" on error). */
-function readHead(filePath: string, maxBytes: number): string {
+function readHeadUncached(filePath: string, maxBytes: number): string {
   let fd: number;
   try {
     fd = openSync(filePath, "r");
@@ -292,6 +412,17 @@ function readHead(filePath: string, maxBytes: number): string {
   }
 }
 
+/** Cached readHead — keyed by (path, mtimeMs, size, maxBytes). */
+function readHead(filePath: string, maxBytes: number): string {
+  const key = `${filePath}\0${maxBytes}`;
+  const tok = statToken(filePath);
+  const cached = smallCacheGet(headCache, key, tok);
+  if (cached.hit) return cached.value;
+  const value = readHeadUncached(filePath, maxBytes);
+  smallCacheSet(headCache, key, tok, value);
+  return value;
+}
+
 /**
  * Count `"type":"user"` / `"type":"assistant"` occurrences by scanning raw
  * bytes in chunks — a 70MB transcript is counted without parsing (or holding)
@@ -300,7 +431,7 @@ function readHead(filePath: string, maxBytes: number): string {
  * (\"), so the bare-quote needle can't match nested content. Verified equal
  * to a full parse on live multi-MB transcripts.
  */
-export function countMessagesRaw(filePath: string): number {
+function countMessagesRawUncached(filePath: string): number {
   const needles = [
     Buffer.from('"type":"user"'),
     Buffer.from('"type":"assistant"'),
@@ -322,13 +453,16 @@ export function countMessagesRaw(filePath: string): number {
       const n = readSync(fd, chunk, 0, COUNT_CHUNK_BYTES, pos);
       if (n <= 0) break;
       pos += n;
+      // `carry` (the tail of the previous hay) was fully scanned last round.
+      // A match lying WHOLLY inside it was already counted — count only matches
+      // that end past it. This is why carryLen = max-needle-1 (spanning a
+      // boundary) doesn't double-count a SHORTER needle that fits inside carry.
+      const carryOffset = carry.length;
       const hay = Buffer.concat([carry, chunk.subarray(0, n)]);
       for (const needle of needles) {
         let i = hay.indexOf(needle);
         while (i !== -1) {
-          // A match fully inside the carry region was counted last round;
-          // carry is shorter than any needle, so every match here is new.
-          count++;
+          if (i + needle.length > carryOffset) count++;
           i = hay.indexOf(needle, i + needle.length);
         }
       }
@@ -340,6 +474,16 @@ export function countMessagesRaw(filePath: string): number {
     closeSync(fd);
   }
   return count;
+}
+
+/** Cached message count — keyed by (path, mtimeMs, size). */
+export function countMessagesRaw(filePath: string): number {
+  const tok = statToken(filePath);
+  const cached = smallCacheGet(countCache, filePath, tok);
+  if (cached.hit) return cached.value;
+  const value = countMessagesRawUncached(filePath);
+  smallCacheSet(countCache, filePath, tok, value);
+  return value;
 }
 
 // ── First-prompt extraction ───────────────────────────────────────────────────
@@ -557,8 +701,6 @@ interface TranscriptScan {
   /** tool_use ids with a SYNC completion (toolUseResult.status "completed",
    *  or a tool_result with no status field — older format). */
   completedToolUseIds: Set<string>;
-  /** tool_use ids whose only result is the async-launch ack. */
-  asyncLaunchedToolUseIds: Set<string>;
   /** agent/task ids named in a <task-notification> with status completed. */
   notifiedDoneIds: Set<string>;
   messageCount: number;
@@ -582,7 +724,6 @@ function scanTranscript(
   const scan: TranscriptScan = {
     spawnToolUseIds: new Set(),
     completedToolUseIds: new Set(),
-    asyncLaunchedToolUseIds: new Set(),
     notifiedDoneIds: new Set(),
     messageCount: 0,
     firstTimestamp: null,
@@ -643,15 +784,14 @@ function scanTranscript(
         const id = str(b.tool_use_id);
         if (!id) continue;
         // The line-level toolUseResult.status distinguishes a real completion
-        // ("completed") from a background-launch ack ("async_launched").
+        // ("completed") from a background-launch ack ("async_launched"): the ack
+        // is NOT a completion, so only a real result marks the spawn done.
         const tur = line.toolUseResult;
         const status =
           tur !== null && typeof tur === "object" && !Array.isArray(tur)
             ? str((tur as Line).status)
             : null;
-        if (status === "async_launched") {
-          scan.asyncLaunchedToolUseIds.add(id);
-        } else {
+        if (status !== "async_launched") {
           scan.completedToolUseIds.add(id);
         }
       }

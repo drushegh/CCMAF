@@ -275,7 +275,6 @@ export function buildRowModel(
   // assignments don't defeat TS flow narrowing.
   type ToolGroupRow = Extract<ConvoRow, { kind: "toolGroup" }>;
   const cur: { open: ToolGroupRow | null } = { open: null };
-  let groupSeq = 0;
 
   const closeGroup = (): void => {
     cur.open = null;
@@ -283,7 +282,11 @@ export function buildRowModel(
 
   const ensureGroup = (turn: ConversationTurn): ToolGroupRow => {
     if (!cur.open) {
-      const key = `g${groupSeq++}:${turn.uuid}`;
+      // Keyed by the anchor turn's uuid ONLY (unique per group — a turn can
+      // open at most one group). A sequence prefix would renumber every
+      // group on "load earlier", snapping expanded groups shut and
+      // orphaning the j/k cursor.
+      const key = `g:${turn.uuid}`;
       cur.open = {
         kind: "toolGroup",
         key,

@@ -41,6 +41,7 @@ vi.mock("../src/server/project-root.js", () => ({
 }));
 
 const {
+  clearTranscriptCaches,
   countMessagesRaw,
   listSessions,
   pathToSlug,
@@ -955,5 +956,180 @@ describe("sessions routes", () => {
       url: "/api/sessions/99999999-9999-4999-8999-999999999999/stream",
     });
     expect(streamUnknown.statusCode).toBe(404);
+  });
+});
+
+// ── Per-file stat-keyed cache (path, mtimeMs, size) ───────────────────────────
+// The cache must never serve a STALE transcript (a changed mtime/size recomputes)
+// yet must genuinely avoid re-reading an UNCHANGED one. mtimes are set explicitly
+// with utimesSync so invalidation is deterministic (not dependent on FS clocks).
+
+describe("transcript stat-keyed cache", () => {
+  const line = (type: string, uuid: string): string =>
+    JSON.stringify({
+      type,
+      message: { role: type, content: `msg ${uuid}` },
+      uuid,
+      timestamp: "2026-02-01T00:00:00.000Z",
+    });
+
+  it("countMessagesRaw recomputes when the file grows (mtime+size change)", () => {
+    clearTranscriptCaches();
+    const dir = join(tmpBase, "cache-grow");
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, "grow.jsonl");
+    writeFileSync(
+      f,
+      `${[line("user", "a"), line("assistant", "b")].join("\n")}\n`,
+      "utf8",
+    );
+    const t0 = new Date(Date.now() - 120_000);
+    utimesSync(f, t0, t0);
+    expect(countMessagesRaw(f)).toBe(2); // miss → compute + cache
+
+    writeFileSync(
+      f,
+      `${[line("user", "a"), line("assistant", "b"), line("user", "c")].join("\n")}\n`,
+      "utf8",
+    );
+    const t1 = new Date();
+    utimesSync(f, t1, t1);
+    expect(countMessagesRaw(f)).toBe(3); // must NOT serve the stale 2
+  });
+
+  it("recomputes on an mtime change even at identical byte size", () => {
+    clearTranscriptCaches();
+    const dir = join(tmpBase, "cache-mtime");
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, "same-size.jsonl");
+    writeFileSync(
+      f,
+      `${[line("user", "a"), line("user", "b")].join("\n")}\n`,
+      "utf8",
+    );
+    const t0 = new Date(Date.now() - 120_000);
+    utimesSync(f, t0, t0);
+    expect(countMessagesRaw(f)).toBe(2);
+
+    // Rewrite the SAME byte length ("user" → "usAr", both 4 chars, in type+role)
+    // so one line stops being a counted type — only mtime distinguishes them.
+    writeFileSync(
+      f,
+      `${[line("usAr", "a"), line("user", "b")].join("\n")}\n`,
+      "utf8",
+    );
+    const t1 = new Date();
+    utimesSync(f, t1, t1);
+    expect(countMessagesRaw(f)).toBe(1); // proves mtime is part of the key
+  });
+
+  it("serves the cached value for an in-place edit with unchanged (mtime,size)", () => {
+    clearTranscriptCaches();
+    const dir = join(tmpBase, "cache-hit");
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, "inplace.jsonl");
+    writeFileSync(
+      f,
+      `${[line("user", "r1"), line("user", "r2")].join("\n")}\n`,
+      "utf8",
+    );
+    const t = new Date("2026-03-03T03:03:03.000Z");
+    utimesSync(f, t, t);
+    expect(countMessagesRaw(f)).toBe(2); // populate the cache
+
+    // Different content + count, SAME byte size, SAME mtime → key unchanged, so
+    // the cached value is returned (proves the read is genuinely cached — a
+    // re-read would yield 1).
+    writeFileSync(
+      f,
+      `${[line("usAr", "r1"), line("user", "r2")].join("\n")}\n`,
+      "utf8",
+    );
+    utimesSync(f, t, t);
+    expect(countMessagesRaw(f)).toBe(2);
+  });
+
+  it("readAgentConversation reflects appended turns (readJsonl cache invalidates)", () => {
+    clearTranscriptCaches();
+    const root = join(tmpBase, "cache-convo-project");
+    const pdir = join(tmpBase, "cache-convo-claude");
+    const sdir = join(pdir, pathToSlug(root));
+    mkdirSync(sdir, { recursive: true });
+    mkdirSync(root, { recursive: true });
+    const sid = "44444444-4444-4444-8444-444444444444";
+    const f = join(sdir, `${sid}.jsonl`);
+    writeFileSync(
+      f,
+      `${[line("user", "c1"), line("assistant", "c2")].join("\n")}\n`,
+      "utf8",
+    );
+    const t0 = new Date(Date.now() - 120_000);
+    utimesSync(f, t0, t0);
+    expect(
+      readAgentConversation(root, sid, "root", { projectsDir: pdir })!.total,
+    ).toBe(2);
+
+    writeFileSync(
+      f,
+      `${[line("user", "c1"), line("assistant", "c2"), line("user", "c3")].join("\n")}\n`,
+      "utf8",
+    );
+    const t1 = new Date();
+    utimesSync(f, t1, t1);
+    expect(
+      readAgentConversation(root, sid, "root", { projectsDir: pdir })!.total,
+    ).toBe(3);
+  });
+});
+
+// ── countMessagesRaw — 1MB chunk-boundary correctness ─────────────────────────
+
+describe("countMessagesRaw chunk boundaries", () => {
+  it("does not double-count a needle that lands inside the carry region", () => {
+    clearTranscriptCaches();
+    const dir = join(tmpBase, "count-boundary");
+    mkdirSync(dir, { recursive: true });
+    const f = join(dir, "boundary.jsonl");
+
+    const CHUNK = 1024 * 1024;
+    const mkLine = (obj: Record<string, unknown>): string =>
+      `${JSON.stringify(obj)}\n`;
+    const userLine = mkLine({
+      type: "user",
+      message: { role: "user", content: "hi" },
+      uuid: "u",
+    });
+    const asstLine = mkLine({
+      type: "assistant",
+      message: { role: "assistant", content: "ok" },
+      uuid: "a",
+    });
+
+    // Start the user line at CHUNK-18 so its `"type":"user"` token (line offset
+    // 1..14) sits wholly inside the last 17 bytes of chunk 1 → re-enters via the
+    // carry on the next chunk. The OLD code counted it TWICE (returned 3); the
+    // fixed "count only matches ending past the carry" returns the true 2.
+    const userStart = CHUNK - 18;
+    const fillerOverhead = mkLine({ type: "filler", pad: "" }).length;
+    const pad = "A".repeat(userStart - fillerOverhead);
+    const fillerLine = mkLine({ type: "filler", pad });
+    expect(fillerLine.length).toBe(userStart); // exact byte placement
+
+    const content = fillerLine + userLine + asstLine;
+    writeFileSync(f, content, "utf8");
+
+    const truth = content
+      .split("\n")
+      .filter((l) => l.trim())
+      .filter((l) => {
+        try {
+          const o = JSON.parse(l) as { type?: string };
+          return o.type === "user" || o.type === "assistant";
+        } catch {
+          return false;
+        }
+      }).length;
+    expect(truth).toBe(2);
+    expect(countMessagesRaw(f)).toBe(2);
   });
 });

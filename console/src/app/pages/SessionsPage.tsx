@@ -61,6 +61,10 @@ import "../../styles/sessions.css";
 
 /** SSE change → refetch debounce (transcripts append in bursts). */
 const SSE_DEBOUNCE_MS = 1500;
+/** Session-list liveness re-poll while any session is live (decay + counts). */
+const LIVE_LIST_REFRESH_MS = 60_000;
+/** Min gap between SSE-driven session-list reloads (full-scan endpoint). */
+const LIST_RELOAD_MIN_MS = 30_000;
 /** Auto "load earlier" attempts when chasing a ?turn deep link. */
 const DEEP_LINK_MAX_LOADS = 3;
 /** How long a jump highlight stays on a row/card. */
@@ -221,14 +225,29 @@ export function SessionsPage() {
         flashRow(rowKey);
       });
     } else if (conv.hasMore && dl.loads < DEEP_LINK_MAX_LOADS) {
-      dl.loads++;
-      void conv.loadEarlier();
+      // Spend the chase budget ONLY on loads that actually happened: a
+      // busy/no-op call (e.g. an SSE tick re-firing this effect while a
+      // page is already in flight) must not burn it.
+      void conv.loadEarlier().then((loaded) => {
+        if (loaded && deepLinkRef.current === dl) dl.loads++;
+      });
     } else {
       dl.done = true;
       setDeepLinkMiss(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnParam, conv.phase, conv.hasMore, model]);
+
+  /** Miss-note action: re-arm the chase with a fresh load budget. */
+  const resumeChase = useCallback(() => {
+    if (!turnParam) return;
+    deepLinkRef.current = { uuid: turnParam, loads: 0, done: false };
+    setDeepLinkMiss(false);
+    // Kick one load; the deep-link effect continues the chase as the
+    // window grows (or re-arms the note when the budget runs out again).
+    void conv.loadEarlier();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnParam, conv.loadEarlier]);
 
   /* ── Highlight helpers (fade after a beat) ── */
   const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -261,10 +280,12 @@ export function SessionsPage() {
     [],
   );
 
-  /* ── SSE liveness: tail refetch + tree refresh ── */
+  /* ── SSE liveness: tail refetch + tree refresh + session-list refresh ── */
   const sseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const treeReload = tree.reload;
   const refreshTail = conv.refreshTail;
+  const listReload = sessions.reload;
+  const lastListReloadRef = useRef(0);
   useEffect(() => {
     if (!sessionId) return;
     const unsub = subscribeToSession(sessionId, () => {
@@ -273,6 +294,14 @@ export function SessionsPage() {
         sseTimer.current = null;
         treeReload();
         void refreshTail(followRef.current);
+        // Session-list liveness rides the same tick (a just-went-live
+        // session must reach "Live now" without a full page reload), but
+        // THROTTLED: listSessions byte-scans every transcript on the
+        // un-cached backend — 1.5s cadence would hurt a live view.
+        if (Date.now() - lastListReloadRef.current > LIST_RELOAD_MIN_MS) {
+          lastListReloadRef.current = Date.now();
+          listReload();
+        }
       }, SSE_DEBOUNCE_MS);
     });
     return () => {
@@ -282,7 +311,20 @@ export function SessionsPage() {
         sseTimer.current = null;
       }
     };
-  }, [sessionId, treeReload, refreshTail]);
+  }, [sessionId, treeReload, refreshTail, listReload]);
+
+  /* ── Liveness decay: while anything looks live, re-poll the list ~60s so a
+     quiet session drops out of "Live now" (isLiveSession is clock-relative —
+     with no re-fetch/re-render the badge would stay green forever). ── */
+  const anyLive = !!list?.some((s) => isLiveSession(s));
+  useEffect(() => {
+    if (!anyLive) return;
+    const t = setInterval(() => {
+      lastListReloadRef.current = Date.now();
+      listReload();
+    }, LIVE_LIST_REFRESH_MS);
+    return () => clearInterval(t);
+  }, [anyLive, listReload]);
 
   /* ── Live-agent subtitles (latest tool call, one line) ── */
   const subtitles = useLiveSubtitles(sessionId, treeData);
@@ -653,8 +695,20 @@ export function SessionsPage() {
         <div className="sess-center">
           {deepLinkMiss && (
             <div className="sess-deeplink-note" role="status">
-              That turn isn't in the loaded range — use “Load earlier” to reach
-              it.
+              {conv.hasMore ? (
+                <>
+                  That turn isn't in the loaded range yet.
+                  <button
+                    type="button"
+                    className="sess-expand-btn"
+                    onClick={resumeChase}
+                  >
+                    Keep loading earlier turns
+                  </button>
+                </>
+              ) : (
+                <>That turn isn't in this agent's transcript.</>
+              )}
             </div>
           )}
           {conv.phase === "error" ? (

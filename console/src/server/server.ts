@@ -39,6 +39,7 @@ import {
   deregisterConsole,
   entryMtimeMs,
   isHeartbeatStale,
+  sameRoot,
 } from "./hub/registry.js";
 import type { HealthResponse } from "./types.js";
 
@@ -114,17 +115,30 @@ async function findFreePort(start: number): Promise<number> {
 }
 
 /**
- * Probe a port to see if our console is already running there.
- * Returns the URL if our console is up, null otherwise.
+ * Probe a port to see if OUR console (this same project) is already running there.
+ * Returns the URL only if the health payload is a ccmaf-console AND serves the
+ * same projectRoot — a different project's console (or another app) that happens
+ * to hold the pinned port must NOT be adopted (idempotent-start would otherwise
+ * return a URL pointing at the wrong project). Returns null otherwise.
  */
-async function probeExistingConsole(port: number): Promise<string | null> {
+export async function probeExistingConsole(
+  port: number,
+  expectedRoot: string,
+): Promise<string | null> {
   try {
     const resp = await fetch(`http://127.0.0.1:${port}/api/health`, {
       signal: AbortSignal.timeout(1500),
     });
     if (resp.ok) {
-      const body = (await resp.json()) as { app?: string };
-      if (body.app === APP_ID) {
+      const body = (await resp.json()) as {
+        app?: string;
+        projectRoot?: string;
+      };
+      if (
+        body.app === APP_ID &&
+        typeof body.projectRoot === "string" &&
+        sameRoot(body.projectRoot, expectedRoot)
+      ) {
         return `http://127.0.0.1:${port}`;
       }
     }
@@ -497,8 +511,8 @@ export async function startServer(): Promise<{ url: string; isNew: boolean }> {
   };
 
   if (await isPortInUse(preferredPort)) {
-    // Our console already there? Reuse it (idempotent launch).
-    const existingUrl = await probeExistingConsole(preferredPort);
+    // Our console already there (same project)? Reuse it (idempotent launch).
+    const existingUrl = await probeExistingConsole(preferredPort, projectRoot);
     if (existingUrl) {
       console.log(`[console] Already running at ${existingUrl} — no-op.`);
       return { url: existingUrl, isNew: false };

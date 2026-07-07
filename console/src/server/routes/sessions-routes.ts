@@ -43,7 +43,7 @@ import type {
   FastifyReply,
   FastifyRequest,
 } from "fastify";
-import { watch, type FSWatcher } from "node:fs";
+import { existsSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 
 import { getProjectRoot } from "../project-root.js";
@@ -205,9 +205,7 @@ export const sessionsRoutes: FastifyPluginAsync = async (
       };
 
       // Watch the sessions dir (catches the main <id>.jsonl) filtered to this
-      // session, plus the session's own dir RECURSIVELY (catches subagents/*
-      // even when the dir appears after the stream opened — the session dir
-      // itself is created with the first snapshot/subagent write).
+      // session, plus the session's own dir RECURSIVELY (catches subagents/*).
       const handles: FSWatcher[] = [];
       const tryWatch = (
         dir: string,
@@ -231,8 +229,25 @@ export const sessionsRoutes: FastifyPluginAsync = async (
           // dir may not exist (session without subagents) — skip
         }
       };
-      tryWatch(sessionsDir, false, (f) => f.startsWith(sessionId));
-      tryWatch(join(sessionsDir, sessionId), true);
+
+      // The session's own dir is created LAZILY (first subagents/snapshot write),
+      // possibly AFTER this stream opened. `watch()` throws on a missing dir, so
+      // attach idempotently: now if it exists, otherwise when the parent-dir
+      // watcher first sees an event named for this session (the dir appearing).
+      let sessionDirWatched = false;
+      const watchSessionDir = (): void => {
+        if (sessionDirWatched) return;
+        if (!existsSync(join(sessionsDir, sessionId))) return;
+        sessionDirWatched = true;
+        tryWatch(join(sessionsDir, sessionId), true);
+      };
+
+      tryWatch(sessionsDir, false, (f) => {
+        if (!f.startsWith(sessionId)) return false;
+        watchSessionDir(); // the session dir may have just appeared
+        return true;
+      });
+      watchSessionDir();
 
       const heartbeat = setInterval(() => {
         try {

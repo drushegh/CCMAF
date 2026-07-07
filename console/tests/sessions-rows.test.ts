@@ -197,6 +197,34 @@ describe("buildRowModel — tool-run compression", () => {
     expect(m.ledger).toHaveLength(30);
   });
 
+  it("keeps toolGroup keys STABLE across a load-earlier prepend", () => {
+    // The same window built alone vs. with an earlier page prepended must
+    // key its groups identically (g:<anchorUuid> — no sequence prefix),
+    // otherwise "load earlier" snaps expanded groups shut and orphans the
+    // j/k cursor.
+    const windowTurns = miniConversation();
+    const before = buildRowModel(windowTurns, { hasEarlier: true });
+    const groupKeyBefore = before.rows.find((r) => r.kind === "toolGroup")!.key;
+
+    const earlier = [
+      turn("assistant", [toolUse("e1", "Grep", "old search")], "e-a"),
+      turn("user", [toolResult("e1")], "e-b"),
+      turn("assistant", [text("Earlier verdict.")], "e-c"),
+    ];
+    const after = buildRowModel([...earlier, ...windowTurns]);
+    const afterKeys = after.rows
+      .filter((r) => r.kind === "toolGroup")
+      .map((r) => r.key);
+
+    // Two groups now (the earlier run + the original), original key intact.
+    expect(afterKeys).toHaveLength(2);
+    expect(afterKeys).toContain(groupKeyBefore);
+    expect(after.rowKeyByToolUseId.get("t2")).toBe(groupKeyBefore);
+    // Keys are anchor-derived and unique.
+    expect(new Set(afterKeys).size).toBe(afterKeys.length);
+    expect(groupKeyBefore).toBe("g:u3");
+  });
+
   it("builds the sync maps (turn→row, toolUse→group)", () => {
     const m = buildRowModel(miniConversation());
     const group = m.rows.find((r) => r.kind === "toolGroup")!;

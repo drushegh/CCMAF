@@ -7,6 +7,10 @@
 //   4. `ccmaf-console start --root <fixture>` → capture the printed URL
 //   5. GET /api/health  → app === "ccmaf-console"
 //      GET /api/tasks   → exactly 2 tasks parsed
+//      GET /            → 200 HTML with the x-console-token meta AND an
+//                        /assets/*.js reference; that asset → 200, JS mime.
+//                        (Proves the SPA actually loads — a broken/empty dist/
+//                        serves API-only and would white-screen every npx user.)
 //   6. `ccmaf-console stop --root <fixture>` → registry entry removed
 //
 // Everything runs under an isolated CCMAF_CONSOLE_STATE_DIR so it never touches
@@ -95,6 +99,29 @@ async function main() {
   const count = cols.reduce((n, c) => n + (Array.isArray(c.items) ? c.items.length : 0), 0);
   if (count !== 2) die(`/api/tasks parsed ${count} tasks (expected 2)`);
   log(`tasks OK — parsed ${count} across ${cols.length} columns`);
+
+  // 5b) SPA loads: GET / must be real HTML (token meta + a hashed JS bundle),
+  // and that bundle must itself be a servable JS asset. /api/health + /api/tasks
+  // alone are served even in API-only mode, so a broken/empty dist/ would PASS
+  // this gate without them — this is what catches it.
+  const rootResp = await fetch(`${url}/`);
+  if (rootResp.status !== 200) die(`GET / status ${rootResp.status} (expected 200)`);
+  const rootCt = rootResp.headers.get("content-type") || "";
+  if (!rootCt.includes("text/html")) die(`GET / content-type "${rootCt}" (expected text/html)`);
+  const html = await rootResp.text();
+  if (!/<meta[^>]+name=["']x-console-token["']/.test(html)) {
+    die("GET / HTML has no x-console-token meta tag — SPA can't authenticate writes");
+  }
+  const assetMatch = html.match(/\/assets\/[^"']+\.js/);
+  if (!assetMatch) die("GET / HTML references no /assets/*.js bundle (dist/ built?)");
+  const assetPath = assetMatch[0];
+  const assetResp = await fetch(`${url}${assetPath}`);
+  if (assetResp.status !== 200) die(`GET ${assetPath} status ${assetResp.status} (expected 200)`);
+  const assetCt = assetResp.headers.get("content-type") || "";
+  if (!/javascript|ecmascript/i.test(assetCt)) {
+    die(`GET ${assetPath} content-type "${assetCt}" (expected a JS mime — dist/ is intact?)`);
+  }
+  log(`SPA OK — / serves HTML with token meta + ${assetPath} (${assetCt})`);
 
   // 6) stop → registry entry gone.
   log("ccmaf-console stop …");

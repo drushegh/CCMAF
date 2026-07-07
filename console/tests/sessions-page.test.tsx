@@ -11,11 +11,13 @@ import {
   waitFor,
   fireEvent,
   within,
+  act,
 } from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SessionsPage } from "../src/app/pages/SessionsPage";
 import { ToolRail } from "../src/app/sessions/ToolRail";
+import { SearchOverlay } from "../src/app/sessions/SearchOverlay";
 import { buildRowModel } from "../src/app/sessions/rows";
 import type { ConversationTurn } from "../src/app/api/sessions";
 
@@ -218,7 +220,44 @@ const AGENT_CONVO = {
   oldestUuid: "a1",
 };
 
-function stubSessionsFetch() {
+/**
+ * A windowed (paginated) agent whose whole history is `totalTurns` assistant
+ * text turns b1..bN, served `windowSize` at a time — the tail without
+ * `before`, the page ending just before `before=<uuid>` otherwise. Exercises
+ * the ?turn deep-link chase against out-of-window targets.
+ */
+function makePagedAgentStub(totalTurns: number, windowSize: number) {
+  const all = Array.from({ length: totalTurns }, (_, i) => ({
+    uuid: `b${i + 1}`,
+    role: "assistant" as const,
+    timestamp: new Date(NOW - (totalTurns - i) * 60_000).toISOString(),
+    model: "claude-opus-4-8",
+    blocks: [{ kind: "text", text: `agent turn b${i + 1}`, truncated: false }],
+  }));
+  return (url: string) => {
+    const before = new URL(url, "http://local").searchParams.get("before");
+    let end = all.length;
+    if (before) {
+      const idx = all.findIndex((t) => t.uuid === before);
+      end = idx === -1 ? all.length : idx;
+    }
+    const start = Math.max(0, end - windowSize);
+    const turns = all.slice(start, end);
+    return {
+      sessionId: SESSION_ID,
+      agentId: "agentB",
+      agentType: "tester",
+      description: "Paginated agent",
+      model: "claude-opus-4-8",
+      turns,
+      total: all.length,
+      hasMore: start > 0,
+      oldestUuid: turns[0]?.uuid ?? null,
+    };
+  };
+}
+
+function stubSessionsFetch(agentB?: ReturnType<typeof makePagedAgentStub>) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -231,6 +270,7 @@ function stubSessionsFetch() {
       if (url.includes("/tree")) return json(TREE);
       if (url.includes("/agents/root")) return json(ROOT_CONVO);
       if (url.includes("/agents/agentA")) return json(AGENT_CONVO);
+      if (agentB && url.includes("/agents/agentB")) return json(agentB(url));
       if (url.includes("/search")) {
         return json({
           q: "widget",
@@ -566,6 +606,62 @@ describe("SessionsPage — 3-pane layout", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("deep-link chase LOADS an out-of-window turn by paging back", async () => {
+    // 30 turns, 10-turn windows: the tail is b21..b30, the target b15 needs
+    // one real load-earlier page. Regression guard for the setState-updater
+    // side channel that silently no-opped the chase.
+    stubSessionsFetch(makePagedAgentStub(30, 10));
+    renderAt(`/sessions/${SESSION_ID}/agentB?turn=b15`);
+    const row = (await screen.findByText("agent turn b15")).closest(
+      ".sess-row",
+    );
+    await waitFor(() => expect(row?.className).toContain("is-marked"));
+    // It really paged: a before=<tail-oldest> fetch went out.
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => String(c[0]),
+    );
+    expect(
+      calls.some(
+        (u) => u.includes("agents/agentB") && u.includes("before=b21"),
+      ),
+    ).toBe(true);
+  });
+
+  it("chase budget exhaustion offers 'Keep loading' and resumes to the target", async () => {
+    // 60 turns, 10-turn windows: b5 sits 5 pages back — past the 3-load
+    // budget. The miss note must be ACTIONABLE and the resumed chase must
+    // reach the turn.
+    stubSessionsFetch(makePagedAgentStub(60, 10));
+    renderAt(`/sessions/${SESSION_ID}/agentB?turn=b5`);
+    const btn = await screen.findByRole("button", {
+      name: "Keep loading earlier turns",
+    });
+    expect(screen.queryByText("agent turn b5")).not.toBeInTheDocument();
+    fireEvent.click(btn);
+    const row = (await screen.findByText("agent turn b5")).closest(".sess-row");
+    await waitFor(() => expect(row?.className).toContain("is-marked"));
+  });
+
+  it("re-polls the session list on a ~60s timer while a session is live", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      stubSessionsFetch();
+      renderAt(`/sessions/${SESSION_ID}/root`);
+      await screen.findByText("Live now");
+      const listCalls = () =>
+        (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c) => String(c[0]) === "/api/sessions",
+        ).length;
+      const before = listCalls();
+      await act(async () => {
+        vi.advanceTimersByTime(61_000);
+      });
+      await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("tolerates the legacy (pre-pagination) conversation shape", async () => {
     const legacy = {
       sessionId: SESSION_ID,
@@ -596,5 +692,82 @@ describe("SessionsPage — 3-pane layout", () => {
     // No pagination fields → everything loaded, no load-earlier row.
     expect(screen.queryByText(/Load earlier/)).not.toBeInTheDocument();
     expect(screen.getByText(/8 turns/)).toBeInTheDocument();
+  });
+});
+
+/* ── SearchOverlay (rendered directly) ── */
+
+describe("SearchOverlay", () => {
+  function overlaySearchStub(matchCount: number) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/search")) {
+          return new Response(
+            JSON.stringify({
+              q: "x",
+              matches: Array.from({ length: matchCount }, (_, i) => ({
+                agentId: "root",
+                agentLabel: "session",
+                turnUuid: `m${i}`,
+                role: "user",
+                blockType: "text",
+                snippet: `match ${i}`,
+              })),
+              capped: false,
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response("nf", { status: 404 });
+      }),
+    );
+  }
+
+  const baseProps = {
+    sessionId: SESSION_ID,
+    agentId: "root",
+    agentLabel: "session",
+    onPick: () => {},
+    onClose: () => {},
+  };
+
+  it("does NOT re-run the server search when loadedTurns changes (SSE tick)", async () => {
+    overlaySearchStub(3);
+    const turns = ROOT_CONVO.turns as ConversationTurn[];
+    const { rerender } = render(
+      <SearchOverlay {...baseProps} loadedTurns={turns} />,
+    );
+    fireEvent.change(screen.getByLabelText("Search query"), {
+      target: { value: "widget" },
+    });
+    await screen.findByText("match 0");
+    const searches = () =>
+      (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter((c) =>
+        String(c[0]).includes("/search"),
+      ).length;
+    const n = searches();
+    // A live tail refresh rebuilds the turns array — new reference, same query.
+    rerender(<SearchOverlay {...baseProps} loadedTurns={[...turns]} />);
+    await new Promise((r) => setTimeout(r, 400)); // > the 250ms debounce
+    expect(searches()).toBe(n);
+  });
+
+  it("ArrowDown clamps the active row to the rendered slice (Enter never picks an invisible match)", async () => {
+    overlaySearchStub(60); // server returns more than the 50 rendered
+    const onPick = vi.fn();
+    render(<SearchOverlay {...baseProps} loadedTurns={[]} onPick={onPick} />);
+    const input = screen.getByLabelText("Search query");
+    fireEvent.change(input, { target: { value: "many" } });
+    await screen.findByText("match 0");
+    for (let i = 0; i < 58; i++) {
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+    }
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onPick).toHaveBeenCalledTimes(1);
+    expect(
+      (onPick.mock.calls[0] as [{ turnUuid: string }])[0].turnUuid,
+    ).toBe("m49");
   });
 });
