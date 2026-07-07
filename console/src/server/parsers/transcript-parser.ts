@@ -637,6 +637,23 @@ function lastCustomTitle(
   return name;
 }
 
+/**
+ * Resolve a session's manual rename (title-ladder rung 1, §4.3 / BUG-018) from
+ * an already-observed custom-title: persist it to the machine-local sidecar,
+ * and when the scan window held none, fall back to the sidecar. Null when the
+ * session was never renamed. Shared by listSessions (head+tail window → the
+ * session pill) and readSessionTree (full-transcript scan → the tree's root
+ * row) so BOTH resolve the rename identically — the pill and the root/"session"
+ * row can no longer disagree (BUG-020).
+ */
+function resolveRename(
+  sessionId: string,
+  observed: string | null,
+): string | null {
+  if (observed) rememberSessionName(sessionId, observed);
+  return observed ?? readSessionNames()[sessionId]?.name ?? null;
+}
+
 // ── First-prompt extraction ───────────────────────────────────────────────────
 
 /** First text of a user line's content (string or first text block). */
@@ -806,8 +823,7 @@ export function listSessions(
       );
       if (tailName) renameTitle = tailName;
     }
-    if (renameTitle) rememberSessionName(id, renameTitle);
-    const rename = renameTitle ?? readSessionNames()[id]?.name ?? null;
+    const rename = resolveRename(id, renameTitle);
 
     // Agent files: count + fold their mtimes into lastActivity (the main
     // transcript can sit idle while a background agent works).
@@ -1051,7 +1067,8 @@ export function readSessionTree(
   }
 
   // One pass over the main transcript + one per agent transcript.
-  const mainScan = scanTranscript(readJsonl(mainPath), false);
+  const mainLines = readJsonl(mainPath);
+  const mainScan = scanTranscript(mainLines, false);
   const agentFiles = listAgentFiles(sessionsDir, sessionId);
   const agentData = agentFiles.map((f) => {
     let mtimeMs = 0;
@@ -1093,17 +1110,28 @@ export function readSessionTree(
     model: a.scan.lastModel,
   }));
 
+  // Rename-aware root label (BUG-020): prefer the session's manual rename — the
+  // SAME ladder rung listSessions/the session pill ride — else the capped first
+  // prompt. The full-transcript scan here is a superset of listSessions'
+  // head+tail window (readSessionTree already reads every line), so a rename
+  // anywhere in the file is honoured; resolveRename adds the sidecar fallback.
+  const rename = resolveRename(
+    sessionId,
+    lastCustomTitle(mainLines, sessionId),
+  );
+  const cappedFirstPrompt = mainScan.firstUserPrompt
+    ? mainScan.firstUserPrompt.length > FIRST_PROMPT_CAP
+      ? `${mainScan.firstUserPrompt.slice(0, FIRST_PROMPT_CAP)}…`
+      : mainScan.firstUserPrompt
+    : null;
+
   // Root is "running" while anything in the session is still writing.
   const newestMs = Math.max(mainMtimeMs, ...agentData.map((a) => a.mtimeMs));
   const root: AgentNode = {
     id: "root",
     parentId: null,
     agentType: "session",
-    description: mainScan.firstUserPrompt
-      ? mainScan.firstUserPrompt.length > FIRST_PROMPT_CAP
-        ? `${mainScan.firstUserPrompt.slice(0, FIRST_PROMPT_CAP)}…`
-        : mainScan.firstUserPrompt
-      : null,
+    description: rename ?? cappedFirstPrompt,
     toolUseId: null,
     spawnDepth: 0,
     status: now - newestMs <= thresholdMs ? "running" : "done",

@@ -26,7 +26,7 @@ const stateDir = join(tmpBase, "console-state");
 const savedStateDir = process.env.CCMAF_CONSOLE_STATE_DIR;
 process.env.CCMAF_CONSOLE_STATE_DIR = stateDir;
 
-const { clearTranscriptCaches, listSessions, pathToSlug } =
+const { clearTranscriptCaches, listSessions, readSessionTree, pathToSlug } =
   await import("../src/server/parsers/transcript-parser.js");
 
 const S_RENAME = "aaaaaaaa-0000-4000-8000-000000000001";
@@ -169,6 +169,22 @@ describe("title-source ladder (§4.3)", () => {
   it("rung 3/4: firstPrompt → 'prompt'; nothing at all → 'id'", () => {
     expect(byId(S_PROMPT).titleSource).toBe("prompt");
     expect(byId(S_BARE).titleSource).toBe("id");
+  });
+});
+
+describe("readSessionTree root row (BUG-020)", () => {
+  it("root description prefers the rename — matching the session pill, not the first prompt", () => {
+    const tree = readSessionTree(projectRoot, S_RENAME, opts());
+    expect(tree).not.toBeNull();
+    // The pill shows "Fable Rebuild"; the root/"session" row must agree —
+    // NOT the stale first prompt "Build the console v2 pass".
+    expect(tree!.root.description).toBe("Fable Rebuild");
+  });
+
+  it("root description falls back to the first prompt for an un-renamed session", () => {
+    const tree = readSessionTree(projectRoot, S_PROMPT, opts());
+    expect(tree).not.toBeNull();
+    expect(tree!.root.description).toBe("Quick question");
   });
 });
 

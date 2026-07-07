@@ -236,10 +236,15 @@ function collectVerify(root: string, facts: BoardFacts): AttentionItem[] {
 function collectDoctor(root: string): AttentionItem[] {
   const flag = readFlag(join(root, ".claude", ".framework-doctor-findings.md"));
   if (!flag) return [];
-  // Best-effort severity count: doctor writes CRITICAL|WARNING|INFO|NAG lines.
+  // Count only actual CRITICAL FINDING list-items (BUG-019). Doctor writes each
+  // finding as `- **CRITICAL** — [area] …` (see framework/doctor/doctor.sh); a
+  // bare `\bCRITICAL\b` scan also hit the `**Findings:** N CRITICAL, …` summary
+  // line and the "What to do" prose ("CRITICAL findings should be resolved…"),
+  // inflating a 0-CRITICAL file to "2 CRITICAL findings". Anchor on the list
+  // item so only real findings count.
   const criticals = flag.raw
     .split(/\r?\n/)
-    .filter((l) => /\bCRITICAL\b/.test(l)).length;
+    .filter((l) => /^\s*-\s+\*\*CRITICAL\*\*/.test(l)).length;
   return [
     {
       kind: "doctor",

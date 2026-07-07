@@ -78,10 +78,32 @@ const REVIEW_FINDINGS_FIXTURE = `
 - [WARNING] Minor naming drift
 `;
 
+// Real doctor list-item format: `- **SEVERITY** — [area] …` (doctor.sh).
 const DOCTOR_FLAG_FIXTURE = `# Framework Doctor Findings
 
-- CRITICAL | hooks | settings.json references a missing hook script.
-- WARNING | cross-refs | CLAUDE.md links to a missing file.
+- **CRITICAL** — [hooks] settings.json references a missing hook script.
+- **WARNING** — [cross-refs] CLAUDE.md links to a missing file.
+`;
+
+// BUG-019 regression: a 0-CRITICAL / 1-WARNING file whose SUMMARY line and
+// "What to do" prose both contain the word CRITICAL. The count must stay 0 —
+// only `- **CRITICAL**` FINDING list-items count, never the prose.
+const DOCTOR_WARNING_ONLY_FIXTURE = `# Framework Doctor — Issues Detected
+
+**Scan time:** 2026-07-07T11:48:11Z
+**Findings:** 0 CRITICAL, 1 WARNING, 0 INFO, 0 NAG
+
+## Findings
+
+- **WARNING** — [tasks] TASKS.md contains duplicate heading entries for \`TASK-071\`.
+
+## What to do
+
+CRITICAL findings should be resolved before continuing — they
+indicate broken framework state that will cause silent failures.
+
+WARNING findings should be triaged; some may be intentional
+(e.g., a hook kept around but not wired yet).
 `;
 
 const UPDATE_FLAG_FIXTURE = `# Framework Update Available
@@ -113,6 +135,7 @@ function verifySeed(task: string, verdicts: string[]): string {
 
 let tmpRoot = "";
 let emptyRoot = "";
+let warnRoot = "";
 
 vi.mock("../src/server/project-root.js", () => {
   return {
@@ -168,11 +191,21 @@ beforeAll(() => {
   // A second, empty project root (bare .claude/) → empty feed.
   emptyRoot = join(tmpdir(), `ccmaf-attention-empty-${Date.now()}`);
   mkdirSync(join(emptyRoot, ".claude"), { recursive: true });
+
+  // A third root with ONLY a WARNING-only doctor file (BUG-019 regression).
+  warnRoot = join(tmpdir(), `ccmaf-attention-warn-${Date.now()}`);
+  mkdirSync(join(warnRoot, ".claude"), { recursive: true });
+  writeFileSync(
+    join(warnRoot, ".claude", ".framework-doctor-findings.md"),
+    DOCTOR_WARNING_ONLY_FIXTURE,
+    "utf8",
+  );
 });
 
 afterAll(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   rmSync(emptyRoot, { recursive: true, force: true });
+  rmSync(warnRoot, { recursive: true, force: true });
 });
 
 // ── computeAttention (pure) ───────────────────────────────────────────────────
@@ -272,10 +305,21 @@ describe("computeAttention — flags, decisions, review", () => {
     const d = computeAttention(tmpRoot).find((i) => i.kind === "doctor");
     expect(d).toBeDefined();
     expect(d!.rank).toBe(1);
-    expect(d!.count).toBe(1); // one CRITICAL line in the fixture
+    expect(d!.count).toBe(1); // one `- **CRITICAL**` finding in the fixture
     expect(d!.title).toBe("1 CRITICAL doctor finding");
     expect(d!.detail).toBe("Framework Doctor Findings"); // first line, # stripped
     expect(d!.link).toBe("/status");
+  });
+
+  it("BUG-019: a 0-CRITICAL doctor file is not miscounted from prose", () => {
+    // The fixture has 0 CRITICAL findings / 1 WARNING, but the word CRITICAL
+    // appears in the "**Findings:** 0 CRITICAL, …" summary and the "What to do"
+    // prose. Only `- **CRITICAL**` list-items count → no critical is claimed.
+    const d = computeAttention(warnRoot).find((i) => i.kind === "doctor");
+    expect(d).toBeDefined();
+    expect(d!.rank).toBe(1);
+    expect(d!.count).toBeUndefined(); // NOT 2 (the pre-fix bug), NOT any number
+    expect(d!.title).toBe("Doctor findings need triage"); // generic, no count
   });
 
   it("flags decisions by Proposed status AND by ⚑ in the title — not settled ones", () => {
