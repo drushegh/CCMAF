@@ -24,6 +24,12 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 ARCH="$ROOT/.claude/.compaction-archive"
 mkdir -p "$ARCH" 2>/dev/null || exit 0
 
+# Prune stale summary archives (>14 days). One file lands per compaction and
+# the dir is gitignored + Read-denied, so nothing else trims it; the recent
+# ones are the only auditable record worth keeping online. Same cheap,
+# best-effort idiom as session-start-marker.sh.
+find "$ARCH" -maxdepth 1 -name '*.md' -type f -mtime +14 -delete 2>/dev/null || true
+
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)
 TSF=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)          # colon-free filename (NTFS)
 TRIGGER=$(printf '%s' "$INPUT" | jq -r '.trigger // empty' 2>/dev/null || true); TRIGGER="${TRIGGER%$'\r'}"

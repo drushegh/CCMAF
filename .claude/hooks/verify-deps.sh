@@ -154,13 +154,48 @@ get_added_lines() {
 # --- Per-ecosystem dependency extraction -----------------------------
 # Each emits one "name|version" per line for newly-added deps.
 extract_npm() {
-  # package.json — extract added "name": "version" pairs from dependencies-style sections.
-  # Naive but effective: any added line of shape `"<name>": "<version>"` within the file.
-  get_added_lines \
+  # package.json — extract added "name": "version" pairs, then keep ONLY the
+  # ones that actually live in a dependency section of the working file.
+  #
+  # The diff grep alone cannot tell a dependency line from a "scripts" /
+  # "engines" / config entry — all share the `"k": "v"` shape — so it used to
+  # fire bogus registry lookups for script names ("build", "lint", …). Scope
+  # to the real dependency sections with jq: intersect the diff's candidate
+  # names against the keys under dependencies / devDependencies /
+  # peerDependencies / optionalDependencies. If jq is unavailable or the file
+  # does not parse (a mid-edit / invalid JSON), fall back to the old
+  # exclusion-list filter so detection still degrades gracefully.
+  local candidates depnames="" manifest
+  candidates=$(get_added_lines \
     | grep -oE '"[a-zA-Z0-9_./@-]+"[[:space:]]*:[[:space:]]*"[^"]+"' \
-    | sed -E 's/"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)"/\1|\2/' \
-    | grep -vE '^(name|version|description|main|module|types|license|author|repository|homepage|scripts|engines|keywords|funding|bugs|contributors|volta|resolutions|overrides|peerDependenciesMeta|files|bin|browser|exports|publishConfig|workspaces|packageManager|type|private|sideEffects)\|' \
-    | sort -u
+    | sed -E 's/"([^"]+)"[[:space:]]*:[[:space:]]*"([^"]+)"/\1|\2/') || true
+  [ -z "$candidates" ] && return 0
+  # Resolve the manifest to a path that actually exists on disk for jq:
+  # $PROJECT_ROOT/$rel_path in the normal case, but if the repo-relative
+  # strip did not apply (a POSIX-vs-Windows path-form mismatch left rel_path
+  # absolute — the DA-H1 class), fall back to the already-normalised absolute
+  # $file. If neither resolves, depnames stays empty → exclusion-list fallback.
+  manifest="$PROJECT_ROOT/$rel_path"
+  [ -f "$manifest" ] || manifest="$file"
+  if command -v jq >/dev/null 2>&1 && [ -f "$manifest" ]; then
+    # tr -d '\r': git-bash jq emits CRLF on -r, so each key would carry a
+    # trailing \r while the candidate names (get_added_lines already strips
+    # \r) do not — the intersection would then silently drop every dep.
+    depnames=$(jq -r '
+        (.dependencies // {}) + (.devDependencies // {})
+        + (.peerDependencies // {}) + (.optionalDependencies // {})
+        | keys[]' "$manifest" 2>/dev/null | tr -d '\r' | sort -u) || true
+  fi
+  if [ -n "$depnames" ]; then
+    printf '%s\n' "$candidates" | awk -F'|' -v names="$depnames" '
+      BEGIN { n = split(names, a, "\n"); for (i = 1; i <= n; i++) keep[a[i]] = 1 }
+      $1 != "" && ($1 in keep) { print }
+    ' | sort -u
+  else
+    printf '%s\n' "$candidates" \
+      | grep -vE '^(name|version|description|main|module|types|license|author|repository|homepage|scripts|engines|keywords|funding|bugs|contributors|volta|resolutions|overrides|peerDependenciesMeta|files|bin|browser|exports|publishConfig|workspaces|packageManager|type|private|sideEffects)\|' \
+      | sort -u || true
+  fi
 }
 
 extract_pypi() {
@@ -235,6 +270,18 @@ extract_nuget() {
 HAS_CURL=$(command -v curl >/dev/null 2>&1 && echo 1 || echo 0)
 VERIFY_ENABLED="${CLAUDE_DEP_VERIFY:-1}"
 
+# Cap the number of live registry checks per hook run. Each check is a serial
+# curl with a 5s ceiling, so a manifest edit adding 30 deps could otherwise
+# stall this PostToolUse hook for minutes. Deps past the cap are flagged
+# MANUAL rather than checked. The cap only engages when network checks are
+# actually possible; offline, every dep already degrades to UNVERIFIED with no
+# network time spent, so capping there would only add noise.
+DEP_CHECK_CAP="${CLAUDE_DEP_VERIFY_MAX:-20}"
+case "$DEP_CHECK_CAP" in ''|*[!0-9]*) DEP_CHECK_CAP=20 ;; esac
+NET_CHECKS_POSSIBLE=0
+{ [ "$HAS_CURL" = "1" ] && [ "$VERIFY_ENABLED" != "0" ]; } && NET_CHECKS_POSSIBLE=1
+checks_done=0
+
 check_npm() {
   local pkg="$1"
   [ "$HAS_CURL" = "0" ] && return 2
@@ -268,6 +315,11 @@ case "$ecosystem" in
   npm)
     while IFS='|' read -r name version; do
       [ -z "$name" ] && continue
+      if [ "$NET_CHECKS_POSSIBLE" = "1" ] && [ "$checks_done" -ge "$DEP_CHECK_CAP" ]; then
+        add_finding "- **MANUAL** (npm) \`$name@$version\` — registry check capped at ${DEP_CHECK_CAP}/run (many new deps this edit); verify it exists manually before commit."
+        continue
+      fi
+      checks_done=$((checks_done + 1))
       if check_npm "$name"; then
         :  # exists
       elif [ $? -eq 1 ]; then
@@ -280,6 +332,11 @@ case "$ecosystem" in
   pypi)
     while IFS='|' read -r name version; do
       [ -z "$name" ] && continue
+      if [ "$NET_CHECKS_POSSIBLE" = "1" ] && [ "$checks_done" -ge "$DEP_CHECK_CAP" ]; then
+        add_finding "- **MANUAL** (PyPI) \`$name==$version\` — registry check capped at ${DEP_CHECK_CAP}/run (many new deps this edit); verify it exists manually before commit."
+        continue
+      fi
+      checks_done=$((checks_done + 1))
       if check_pypi "$name"; then
         :
       elif [ $? -eq 1 ]; then

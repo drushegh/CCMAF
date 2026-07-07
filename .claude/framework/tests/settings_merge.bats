@@ -133,6 +133,43 @@ _cmd_total() { jq '[.hooks // {} | .[][]? | (.hooks // [])[] | .command] | lengt
   [ "$status" -eq 0 ]
 }
 
+@test "merge: retired framework command still registered → STALE warning (pinned canonical, Phase-B)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  # PINNED (previous) canonical shipped a hook the CURRENT canonical no longer
+  # does (retired outright, or its command string changed).
+  PINNED="$REPO/pinned-settings.json"
+  jq '.hooks.PreToolUse[0].hooks += [{"type":"command","command":"bash .claude/hooks/retired.sh"}]' "$CANON" > "$PINNED"
+  # Consumer = current canonical + still carries that retired registration.
+  jq '.hooks.PreToolUse[0].hooks += [{"type":"command","command":"bash .claude/hooks/retired.sh"}]' "$CANON" > "$CONSUMER"
+  run bash "$MERGE" "$CONSUMER" "$CANON" "$PINNED"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"STALE"* ]]
+  [[ "$output" == *"retired.sh"* ]]
+}
+
+@test "merge: no STALE warning when pinned == current canonical (control)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  # Pinned identical to current canonical → nothing retired. Consumer even
+  # carries an extra CONSUMER-OWNED hook (never in either canonical) — that must
+  # NOT be reported as stale (it was never a framework registration).
+  PINNED="$REPO/pinned-settings.json"
+  cp "$CANON" "$PINNED"
+  jq '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":"bash my-own-hook.sh"}]' "$CANON" > "$CONSUMER"
+  run bash "$MERGE" "$CONSUMER" "$CANON" "$PINNED"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"STALE"* ]]
+}
+
+@test "merge: no pinned-canonical arg → additive-only, no STALE check (back-compat)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  # Consumer carries a registration absent from current canonical, but with NO
+  # 3rd arg the script can't know it was framework's — must stay silent on it.
+  jq '.hooks.PreToolUse[0].hooks += [{"type":"command","command":"bash .claude/hooks/retired.sh"}]' "$CANON" > "$CONSUMER"
+  run bash "$MERGE" "$CONSUMER" "$CANON"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"STALE"* ]]
+}
+
 @test "merge: matcher-aware dedup — an upstream matcher change for an existing hook propagates (audit minor c)" {
   command -v jq >/dev/null 2>&1 || skip "jq not available"
   # Consumer already has block-dangerous.sh registered, but under NO

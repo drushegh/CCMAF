@@ -74,7 +74,7 @@ FRAMEWORK_PINNED_SHA=$latest_sha
 FRAMEWORK_LAST_CHECKED=$now_iso
 FRAMEWORK_CHECK_INTERVAL_HOURS=$interval
 # FRAMEWORK_SOURCE_SUBDIR — subdir within upstream that holds the canonical
-# framework (e.g. 02_solution). Empty = repo root. Set via --subdir.
+# framework (e.g. framework/). Empty = repo root. Set via --subdir.
 FRAMEWORK_SOURCE_SUBDIR=$subdir
 EOF
 

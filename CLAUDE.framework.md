@@ -101,20 +101,20 @@ are loaded into the session context on cold start.
     10.5 **Project Console (opt-in)** — If the project is opted in to the Console
     (presence of `.claude/.console-version`, or the legacy boolean `.claude/.console-enabled`),
     bring its Console up and surface the URL: run `node tools/console.mjs start` (via your Bash
-    tool so it's Git Bash, not WSL). The Console is BUNDLED in this repo at `console/`; the driver
-    builds it in place on first run (`npm install && npm run build && npm run build:server` — slow,
-    one-time) and then drives the Console's own launcher, which spawns the server DETACHED and
-    prints `http://127.0.0.1:<port>` — report that URL to the user. It also starts the machine-global
-    tray Hub if none is running (so the console is visible there) — tell the user whether you
-    started a new Hub (first console on this machine) or this console joined an existing one. The
-    command returns once the server is up (no need to background it). `start` is idempotent (already running → reprints the
-    URL) and respects a prior manual tray "End" (`autoStart:false` → it skips the respin). It also
-    sets `CONSOLE_REAP_GRACE_MIN` so the tray Hub reaps this project's entry if the session dies
-    ungracefully — the `console-heartbeat` hook keeps the entry fresh while you work (see
+    tool so it's Git Bash, not WSL). The Console is an installable npm package (`ccmaf-console`);
+    the driver resolves it — a `CONSOLE_DIR` dev checkout → a global `ccmaf-console` on PATH →
+    `npx ccmaf-console@<spec>` — and drives its launcher, which
+    spawns the server DETACHED and prints `http://127.0.0.1:<port>` — report that URL to the
+    user. It also starts the machine-global tray Hub if none is running (so the console is
+    visible there). The command returns once the server is up (no need to background it).
+    `start` is idempotent (already running → reprints the URL) and respects a prior manual tray
+    "End" (`autoStart:false` → it skips the respin). It also sets `CONSOLE_REAP_GRACE_MIN` so
+    the tray Hub reaps this project's entry if the session dies ungracefully — the
+    `console-heartbeat` hook keeps the entry fresh while you work (see
     `contract:console-lifecycle`). `/wrapup` runs `console stop` at session end; after a Console
-    update, use `node tools/console.mjs restart` (not `start`) so the rebuilt server is picked up.
-    Not opted in → skip silently. To opt a project in: `echo main > .claude/.console-version` (any
-    content marks opt-in) and commit it.
+    update, use `node tools/console.mjs restart` (not `start`) so the rebuilt server is picked
+    up. Not opted in → skip silently. To opt a project in: `echo latest > .claude/.console-version`
+    (content = an npm version spec; presence marks opt-in) and commit it.
 11. Pick the highest-priority unblocked task from `.claude/TASKS.md`
 12. Check `.claude/GOTCHAS.md` → entries relevant to the task area
 13. Pre-task check: estimate context cost against the current window, ask user if projected >= 90%
@@ -159,7 +159,7 @@ are loaded into the session context on cold start.
 - Developers may tighten/clarify contracts inline; widening → escalate to Architect
 - `.claude/TASKS.md` has two lanes: **Feature** (Todo → In Progress → Ready for Review → Ready for Test → **Verify** → Done) and **Bug-fix** (Reported → Fixing → Verify → Done). `Verify` is the human-acceptance stage after Ready for Test.
 - Log bugs with [BUG-XXX] IDs, severity (P0-P3), and source reference
-- **Board entries are machine-read.** Task/bug entries are BRACKETED level-4 headings — `#### [TASK-N] Title` / `#### [BUG-N] Title`. The bracketed ID is canonical: downstream board tooling reads AND writes it, and a bare (`#### TASK-N`) or level-3 (`### [TASK-N]`) entry is silently dropped. Preserve heading levels, the bracketed IDs, the `**Field:**` markers, and the `·` (U+00B7) separators in DECISIONS/GOTCHAS exactly — the `state-structure` doctor check (`.claude/framework/doctor/`) enforces this.
+- **Board entries are machine-read.** Task/bug entries are BRACKETED level-4 headings — `#### [TASK-N] Title` / `#### [BUG-N] Title`. The bracketed ID is canonical: downstream board tooling reads AND writes it. A bare `#### TASK-N` (no brackets) still PARSES — readers are widened per `contract:state-file-grammar` — but the `state-structure` doctor check flags it, so don't rely on it; a level-3 `### [TASK-N]` heading, by contrast, is read as a status section rather than an entry and is missed entirely. Preserve heading levels, the bracketed IDs, the `**Field:**` markers, and the `·` (U+00B7) separators in DECISIONS/GOTCHAS exactly — the `state-structure` doctor check (`.claude/framework/doctor/`) enforces this.
 
 ## Verify Handback (NON-NEGOTIABLE)
 
@@ -226,12 +226,12 @@ Full contract + the forward and retroactive step-by-step:
 Hooks honour two environment variables (resolved by `.claude/hooks/lib/hook-common.sh`):
 
 - `CLAUDE_HOOK_PROFILE=minimal|standard|strict` (default `standard`).
-  - **minimal** — only the destructive-command guard (`block-dangerous`) runs. Everything else is silenced. For low-context/local-model setups or quick throwaway work.
+  - **minimal** — only the safety-tier hooks run: the destructive-command guard (`block-dangerous`) and its health monitor (`guard-interpreter-check`). Everything else is silenced. For low-context/local-model setups or quick throwaway work.
   - **standard** — all shipped hooks run. This is the default; behaviour is unchanged from before the profile system existed.
   - **strict** — standard plus any hooks declared at the `strict` tier (reserved for future opt-in extra-strict checks).
 - `CLAUDE_DISABLED_HOOKS="format,lint"` — comma/space-separated list of stable hook IDs to turn off regardless of profile. An explicit disable always wins, even for safety-tier hooks.
 
-Stable hook IDs: `block-dangerous` (safety), `enforce-state`, `filter-test-output`, `drift-guard`, `format`, `lint`, `verify-deps`, `suggest-compact`, `cost-tracker`, `reanchor`, `precompact-snapshot`, `postcompact-archive`, `checkpoint-watermark`, `console-heartbeat` (`reanchor`/`precompact-snapshot`/`postcompact-archive`/`checkpoint-watermark` are the TASK-052 session-lifecycle hooks; see "Session Lifecycle" below and `contract:session-lifecycle`. `console-heartbeat` is the TASK-066 Console-integration hook — fires on UserPromptSubmit + PostToolUse to refresh this project's Console registry-entry mtime so the tray Hub never reaps a live session; instant no-op unless the project is opted in to the Console via `.console-version`/`.console-enabled`).
+Stable hook IDs: `block-dangerous` (safety), `enforce-state`, `filter-test-output`, `drift-guard`, `format`, `lint`, `verify-deps`, `suggest-compact`, `cost-tracker`, `reanchor`, `precompact-snapshot`, `postcompact-archive`, `checkpoint-watermark`, `console-heartbeat`, `guard-interpreter-check`, `session-start-marker` (`reanchor`/`precompact-snapshot`/`postcompact-archive`/`checkpoint-watermark` are the TASK-052 session-lifecycle hooks; see "Session Lifecycle" below and `contract:session-lifecycle`. `console-heartbeat` is the TASK-066 Console-integration hook — fires on UserPromptSubmit + PostToolUse to refresh this project's Console registry-entry mtime so the tray Hub never reaps a live session; instant no-op unless the project is opted in to the Console via `.console-version`/`.console-enabled`. `guard-interpreter-check` is a SessionStart guard-monitor that reports if `block-dangerous` has lost its Python interpreter; `session-start-marker` records HEAD at session start for re-anchor/diff).
 
 Legacy per-hook opt-outs still work and compose with the above: `CLAUDE_DEP_VERIFY=0` (skip dependency registry checks), `CLAUDE_DOTNET_FORMAT=1` / `CLAUDE_DOTNET_LINT=1` (opt into slow .NET tooling), `CLAUDE_SUGGEST_COMPACT_TURNS=N` (compaction-nudge cadence). Session-lifecycle knobs: `CLAUDE_CONTEXT_WINDOW_TOKENS=N` (window size for the watermark % estimate; default 200000 — **set 1000000 on a [1m]-context session** or the checkpoint nudge fires immediately), `CLAUDE_CHECKPOINT_WATERMARK_PCT=N` (nudge threshold %, default 75).
 

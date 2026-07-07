@@ -29,6 +29,12 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 SNAP="$ROOT/.claude/.precompact-snapshot"
 mkdir -p "$SNAP" 2>/dev/null || exit 0
 
+# Prune stale per-compaction status snapshots (>14 days). These accumulate one
+# file per compaction and are gitignored + Read-denied, so nothing else ever
+# trims them; only the most recent matters to a post-compaction reconcile.
+# Same cheap, best-effort idiom as session-start-marker.sh.
+find "$SNAP" -maxdepth 1 -name 'status-*.txt' -type f -mtime +14 -delete 2>/dev/null || true
+
 TS=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)       # ISO, for file contents
 TSF=$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null)          # colon-free, for FILENAMES
                                                     # (NTFS forbids ':' in names)

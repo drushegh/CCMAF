@@ -64,17 +64,16 @@ skills sync is not set up here. Skills give the agent senior-level,
 domain-specific engineering standards (loaded only when relevant).
 
 - **Detected stack suggests:** $names
-- **Cross-cutting (always worth considering):** secure-development, accessibility-development
+- **Cross-cutting (always worth considering):** secure-development, accessibility-development, read-the-damn-docs
 
 ## To set up
 
-The skills catalogue ships BUNDLED in this repo at \`skills/\`. Create
-\`.claude/.skills-version\` listing the ones you want:
+Create \`.claude/.skills-version\` listing the ones you want:
 
     SKILLS_SELECTED="$names"
 
-then run: \`bash .claude/framework/update/skills-sync.sh\` — it copies the selected
-skills from the bundled \`skills/\` into \`.claude/skills/\`.
+then run: \`bash .claude/framework/update/skills-sync.sh\` — it fetches the selected
+skills from the public CCMAF catalogue into \`.claude/skills/\`.
 
 ## Not now
 
@@ -103,8 +102,20 @@ fi
 # shellcheck disable=SC1090
 source <(tr -d '\r' < "$VERSION_FILE")
 
-if [ -z "${SKILLS_UPSTREAM_URL:-}" ] || [ -z "${SKILLS_UPSTREAM_BRANCH:-}" ]; then
-  echo "skills-check: .skills-version missing SKILLS_UPSTREAM_URL/BRANCH — skipping." >&2
+# No SKILLS_UPSTREAM_URL is a FIRST-CLASS valid state, not a malformed file: the
+# project syncs either from a vendored in-repo skills/ (skills-sync bundle mode)
+# or, if none, from the public CCMAF catalogue (skills-sync default mode). Neither
+# pins a tracked remote here, so there is nothing to poll — skills-check stays
+# SILENT rather than nagging. Set an explicit SKILLS_UPSTREAM_URL to opt into
+# update checks.
+if [ -z "${SKILLS_UPSTREAM_URL:-}" ]; then
+  # Clear any flag left over from a prior clone-mode config (this early exit
+  # returns before the normal clear-on-up-to-date path below).
+  rm -f "$FLAG_FILE"
+  exit 0
+fi
+if [ -z "${SKILLS_UPSTREAM_BRANCH:-}" ]; then
+  echo "skills-check: SKILLS_UPSTREAM_URL is set but SKILLS_UPSTREAM_BRANCH is missing — skipping." >&2
   exit 2
 fi
 SKILLS_PINNED_SHA="${SKILLS_PINNED_SHA:-}"
@@ -114,7 +125,12 @@ SKILLS_LAST_CHECKED="${SKILLS_LAST_CHECKED:-1970-01-01T00:00:00Z}"
 
 # Throttle: skip if checked recently.
 now_epoch=$(date -u +%s)
-last_epoch=$(date -u -d "$SKILLS_LAST_CHECKED" +%s 2>/dev/null || echo 0)
+# GNU `date -d` and BSD/macOS `date -j -f` parse an ISO ts differently — try
+# both so the throttle works off-GNU (else it never throttles → ls-remote every
+# cold start).
+last_epoch=$(date -u -d "$SKILLS_LAST_CHECKED" +%s 2>/dev/null \
+  || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$SKILLS_LAST_CHECKED" +%s 2>/dev/null \
+  || echo 0)
 interval_seconds=$((SKILLS_CHECK_INTERVAL_HOURS * 3600))
 if [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
   exit 0
@@ -131,9 +147,12 @@ if [ -z "$latest_sha" ]; then
   exit 3
 fi
 
-# Bump last-checked regardless of the comparison outcome below.
+# Bump last-checked regardless of the comparison outcome below. Atomic write:
+# mktemp alongside the destination so the final `mv` is a same-filesystem rename
+# (portable template form — GNU/BSD both accept a full-path X-suffixed template;
+# `mktemp -p` is GNU-only).
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp_version="$(mktemp)"
+tmp_version="$(mktemp "$(dirname "$VERSION_FILE")/.skills-version.XXXXXX")"
 awk -v now="$now_iso" '
   BEGIN { set = 0 }
   /^SKILLS_LAST_CHECKED=/ { print "SKILLS_LAST_CHECKED=" now; set = 1; next }

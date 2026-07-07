@@ -72,7 +72,14 @@ def _norm(token: str) -> str:
 
 _ROOTS = (
     re.compile(r"/+\*?$"),            # filesystem root: a lone slash, opt. glob
-    re.compile(r"[A-Za-z]:/?\*?$"),   # a Windows drive root
+    re.compile(r"[A-Za-z]:/?\*?$"),   # a Windows drive root (C:\, F:/ …)
+    # Git Bash / WSL / Cygwin drive mounts — the drive roots' NATURAL spelling
+    # on this framework's primary platform (`/c`, `/mnt/c`, `/cygdrive/c`, and
+    # their `/c/`, `/c/*` glob forms). Single-letter first component only, so a
+    # real multi-char top-level dir (`/home`, `/etc`) is never matched; a bare
+    # `/c` can theoretically be a real Linux dir → accepted defense-in-depth
+    # over-block, per the module's fail-toward-blocking stance.
+    re.compile(r"/(mnt/|cygdrive/)?[A-Za-z]/?\*?$"),
 )
 _HOME = {"~", "~/", "$HOME", "${HOME}", "$HOME/", "${HOME}/"}
 # Whole block devices (raw disks / partitions), never individual files under them.
@@ -90,6 +97,16 @@ def _is_protected_target(token: str) -> bool:
     t = _norm(token)
     if t in _HOME:
         return True
+    # Home-directory glob wipe: `rm -rf ~/*`, `$HOME/*`, `${HOME}/*` destroy the
+    # home directory's entire contents exactly as `rm -rf ~` would. Strip one
+    # trailing `*` (and the `/` before it) and re-check the HOME set so the glob
+    # forms normalise to their base — the `~` entry already blocks the bare form.
+    if t.endswith("*"):
+        base = t[:-1]
+        if base.endswith("/"):
+            base = base[:-1]
+        if base in _HOME:
+            return True
     if any(r.match(t) for r in _ROOTS):
         return True
     return _is_block_device(t)
@@ -97,9 +114,13 @@ def _is_protected_target(token: str) -> bool:
 
 # --- Parsing: split into simple commands, quote-aware -----------------------
 _OPERATORS = {";", "&", "&&", "|", "||"}
-# Env-assignment prefixes and privilege/scheduling wrappers to see past, so
-# the real program in `cd /x && sudo rm ...` is still the one we judge.
-_WRAPPERS = {"sudo", "doas", "command", "env", "nice", "nohup", "time"}
+# Env-assignment prefixes and privilege/scheduling/exec wrappers to see past,
+# so the real program in `cd /x && sudo rm ...` (or `timeout 5 rm ...`,
+# `xargs rm ...`) is still the one we judge. Some of these take their own
+# leading arguments (a `timeout` duration, a `stdbuf`/`nice` option) before
+# the wrapped program — _program_and_args skips those too.
+_WRAPPERS = {"sudo", "doas", "command", "env", "nice", "nohup", "time",
+             "timeout", "stdbuf", "setsid", "xargs"}
 
 
 def _simple_commands(command: str):
@@ -138,11 +159,27 @@ def _simple_commands(command: str):
 
 def _program_and_args(tokens):
     i = 0
-    while i < len(tokens) and (
-        re.match(r"^[A-Za-z_]\w*=", tokens[i]) or tokens[i] in _WRAPPERS
-    ):
-        i += 1
-    if i >= len(tokens):
+    n = len(tokens)
+    while i < n:
+        tok = tokens[i]
+        if re.match(r"^[A-Za-z_]\w*=", tok):     # inline env assignment
+            i += 1
+            continue
+        if tok in _WRAPPERS:
+            i += 1
+            # Skip the wrapper's OWN leading arguments before the real
+            # program: option flags (`stdbuf -oL`, `nice -n 10`) and a bare
+            # duration/priority (`timeout 5`, `timeout 1.5s`). Without this,
+            # `timeout 5 rm -rf /` would name `5` as the program and never
+            # reach the rm rule.
+            while i < n and (
+                tokens[i].startswith("-")
+                or re.match(r"^\d+(\.\d+)?[smhd]?$", tokens[i])
+            ):
+                i += 1
+            continue
+        break
+    if i >= n:
         return None, []
     program = _norm(tokens[i]).rsplit("/", 1)[-1].lower()
     return program, tokens[i + 1:]
@@ -150,23 +187,27 @@ def _program_and_args(tokens):
 
 # --- Per-tool destructiveness rules ----------------------------------------
 def _rm_wipes_protected(args) -> bool:
-    """A recursive AND forced delete aimed at a protected location."""
-    recursive = force = False
+    """A recursive delete aimed at a protected location.
+
+    Force (`-f`) is deliberately NOT required: `rm -r /` already recurses
+    into and destroys a protected root, and the confirmation prompt that
+    `-f` would suppress is not a safety net we can rely on (a non-tty, a
+    piped `yes`, or `--interactive=never` removes it anyway). Requiring
+    both flags let `rm -r /` (recursive, no force) slip through.
+    """
+    recursive = False
     targets = []
     for tok in args:
         if tok == "--recursive":
             recursive = True
-        elif tok == "--force":
-            force = True
         elif tok.startswith("--"):
-            continue
+            continue                       # any other long option (incl. --force)
         elif tok.startswith("-") and len(tok) > 1:
-            flags = tok[1:].lower()
-            recursive = recursive or "r" in flags
-            force = force or "f" in flags
+            if "r" in tok[1:].lower():     # -r, -R, -rf, -fr …
+                recursive = True
         elif tok != "--":
             targets.append(tok)
-    return recursive and force and any(_is_protected_target(t) for t in targets)
+    return recursive and any(_is_protected_target(t) for t in targets)
 
 
 def _rmdir_wipes_protected(args) -> bool:
@@ -208,9 +249,11 @@ _TOOL_RULES = {
 
 # --- Whole-line shell shapes that are destructive regardless of program ----
 def _redirects_into_device(tokens) -> bool:
-    """`> <block-device>` — the shell truncates the raw disk."""
+    """`> <block-device>` / `>> <block-device>` — the shell writes onto the raw
+    disk. Append (`>>`) is as destructive here as truncate: either one hands
+    the shell a whole block device as its output file."""
     for a, b in zip(tokens, tokens[1:]):
-        if a in (">", ">|") and _is_block_device(b):
+        if a in (">", ">|", ">>") and _is_block_device(b):
             return True
     return False
 

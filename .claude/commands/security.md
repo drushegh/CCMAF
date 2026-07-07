@@ -83,7 +83,7 @@ Pick the tool that matches the stack. Each is opt-in by tool availability.
 | Stack | Preferred | Fallback |
 | ----- | --------- | -------- |
 | Python | `bandit -r <src>` | `ruff check --select=S <src>` (`S` is bandit-like ruleset) |
-| Node/TS | `npx semgrep --config=p/javascript --config=p/typescript .` | `npm audit --audit-level=moderate` (covers SCA too) |
+| Node/TS | `semgrep --config=p/javascript --config=p/typescript .` — ONLY if `command -v semgrep` (install: `pip install semgrep` or `brew install semgrep`). Do NOT `npx semgrep`: the npm package named `semgrep` is a v0.0.1 name-squat, not the tool — `npx` would fetch and run it (the exact slopsquat this command warns about). Missing → use the fallback. | `npm audit --audit-level=moderate` (covers SCA too) |
 | Go | `gosec ./...` | `go vet ./...` |
 | Rust | `cargo clippy -- -W clippy::all -W clippy::pedantic` (cherry-pick security lints) | `cargo audit` (covers SCA) |
 | .NET | `dotnet list package --vulnerable --include-transitive` + Roslyn analyzers | — |
@@ -127,8 +127,10 @@ verification of every newly-added package (slopsquatting defense).
 By stack:
 
 - **Node**: `npm audit --omit=dev --audit-level=moderate` — captures
-  HIGH/CRITICAL advisories. Also run `npx better-npm-audit audit` if
-  installed for SARIF output.
+  HIGH/CRITICAL advisories. If `better-npm-audit` is already installed
+  (`command -v better-npm-audit`), also run `better-npm-audit audit` for
+  SARIF output — do NOT `npx`-fetch it on demand (unpinned `npx <tool>`
+  auto-install is the slopsquat surface Part 4a flags as CRITICAL).
 - **Python**: `pip-audit` (if installed) or `safety scan` against
   `requirements.txt` / `pyproject.toml`. If neither installed, query
   PyPI for each new dep's existence (the `verify-deps.sh` hook covers
@@ -205,7 +207,9 @@ that may indicate verbatim copy. Skip if the project is fully internal
 and not redistributed.
 
 - **Licence aggregation**:
-  - Node: `npx license-checker --production --summary`
+  - Node: `license-checker --production --summary` — only if `command -v
+    license-checker` (install `npm i -g license-checker`); skip rather than
+    `npx`-fetching it on demand (unpinned auto-install — see Part 4a).
   - Python: `pip-licenses --format=markdown` if installed
   - Rust: `cargo about generate` if installed
   - Go: `go-licenses report ./...` if installed

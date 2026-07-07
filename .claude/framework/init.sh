@@ -56,7 +56,14 @@ case "$STACK" in
       fi
     elif [ -f "$PROJECT_DIR/requirements.txt" ] && [ ! -d "$PROJECT_DIR/.venv" ]; then
       echo "📦 Creating venv + installing requirements.txt..."
-      (cd "$PROJECT_DIR" && python -m venv .venv && .venv/bin/pip install -q -r requirements.txt) || echo "⚠️ pip install had issues"
+      # venv layout is OS-specific: POSIX puts the interpreter in .venv/bin,
+      # Windows in .venv/Scripts — .venv/bin/pip is dead on Windows Git Bash.
+      # Resolve the venv python (either layout) and drive pip via `-m pip`.
+      (
+        cd "$PROJECT_DIR" && python -m venv .venv \
+          && { VENV_PY=".venv/bin/python"; [ -x ".venv/Scripts/python.exe" ] && VENV_PY=".venv/Scripts/python"; \
+               "$VENV_PY" -m pip install -q -r requirements.txt; }
+      ) || echo "⚠️ pip install had issues"
     fi
     ;;
   go)

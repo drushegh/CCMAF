@@ -14,5 +14,12 @@
 *.txt   text eol=lf
 *.md     text eol=lf
 *.conf  text eol=lf
-*.mjs   text eol=lf
-*.js    text eol=lf
+
+# Extensionless version-pin files the update scripts `source` line-by-line.
+# Without an eol rule these check out CRLF under core.autocrlf=true (Windows
+# default), which corrupts the sourced values (e.g. `ls-remote "url\r"` fails
+# → check-updates wrongly reports "offline" forever). The per-line ${var%$'\r'}
+# strips stay as defense-in-depth for files this cannot reach.
+.framework-version text eol=lf
+.skills-version    text eol=lf
+.console-version   text eol=lf

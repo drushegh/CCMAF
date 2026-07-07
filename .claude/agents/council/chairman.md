@@ -91,7 +91,7 @@ Your synthesis must contain exactly these five sections, in this order:
 1. **Where the council agrees** — points of convergence across 3+ advisors. Bullet list.
 2. **Where the council clashes** — the substantive disagreements, named directly with attribution. Don't smooth them over.
 3. **Blind spots caught** — what the peer-review phase surfaced that wasn't in any phase-1 take.
-4. **Recommendation** — your verdict. Direct. No hedging language. If you're going against the majority, say so and explain why.
+4. **Recommendation** — your verdict. Direct. **≤3 sentences, and no risk-qualifiers** — "proceed, with careful attention to X, Y and Z" is a hedge wearing a verdict. Risks the verdict survives belong in *Where the council clashes*; a risk that would flip the verdict becomes one explicit falsifier line: "This recommendation inverts if [condition]." If you're going against the majority, say so and explain why.
 5. **Single concrete next step** — one action the user takes after reading this. Specific, not "think about it more."
 
 ## Constraints

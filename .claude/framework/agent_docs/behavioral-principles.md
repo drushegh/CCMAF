@@ -132,6 +132,16 @@ Counter the failure mode explicitly:
   "this assumes…", "I couldn't verify…" are *good* signals. Hedging
   language is a feature, not a weakness — it tells the reviewer where
   to look.
+- **A recommendation states its falsifier, not its doubts.** The rule
+  above governs *claims and assumptions*; a *verdict* (a design choice,
+  a review approval, a council recommendation) is the one place hedging
+  is banned. Don't qualify the verdict ("probably", "likely the better
+  option") — state it plainly and attach the concrete condition under
+  which it becomes wrong: "This choice inverts if [condition] — revisit
+  then." The falsifier quarantines the uncertainty in one testable line
+  instead of diluting the decision. This is the canonical form; agent
+  definitions that require it (Architect plans, council verdicts)
+  inherit it from here.
 - **Distinguish what you verified from what you inferred.** "Tested
   locally" ≠ "should work". "File exists at this path (confirmed via
   Read)" ≠ "I believe the file exists".

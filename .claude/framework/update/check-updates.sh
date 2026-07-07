@@ -22,6 +22,19 @@ VERSION_FILE="$PROJECT_ROOT/.claude/.framework-version"
 FLAG_FILE="$PROJECT_ROOT/.claude/.framework-update-available.md"
 MANIFEST_FILE="$SCRIPT_DIR/framework-manifest.txt"
 
+# Reject a manifest entry that escapes the project root before it reaches any
+# git pathspec (defence-in-depth; apply-update uses the same guard before rm/cp).
+# Unsafe = absolute (^/), Windows drive (^[A-Za-z]:), any `..` path segment, or
+# any backslash (a Windows-style `..\evil` / `a\..\evil` traversal — the
+# forward-slash `..` arms above don't catch it; same guard class as
+# skills-sync.sh's skill-name check).
+_is_unsafe_manifest_path() {  # <path> → 0 (true) if unsafe
+  case "$1" in
+    /*|[A-Za-z]:*|../*|*/../*|*/..|..|*\\*) return 0 ;;
+  esac
+  return 1
+}
+
 # NOTE (DA-C4): the flag file is NOT removed up front. An existing flag is
 # a pending, unactioned update notification — deleting it before the
 # throttle check below silently erased it for up to a full interval. It is
@@ -34,8 +47,14 @@ if [ ! -f "$VERSION_FILE" ]; then
   exit 2
 fi
 
+# CRLF-safe source (DA-M12): `.framework-version` is extensionless and, on a
+# Windows clone with core.autocrlf=true, checks out CRLF — sourcing it raw
+# leaves a trailing \r on every value (e.g. `ls-remote "url\r"` fails → false
+# "offline"). Strip \r via process substitution, matching the sibling skills-*
+# scripts. (.gitattributes also pins these files eol=lf as the first line of
+# defence; this stays as belt-and-suspenders for files that rule can't reach.)
 # shellcheck disable=SC1090
-source "$VERSION_FILE"
+source <(tr -d '\r' < "$VERSION_FILE")
 
 : "${FRAMEWORK_UPSTREAM_URL:?FRAMEWORK_UPSTREAM_URL missing in .framework-version}"
 : "${FRAMEWORK_UPSTREAM_BRANCH:?FRAMEWORK_UPSTREAM_BRANCH missing in .framework-version}"
@@ -50,7 +69,12 @@ FRAMEWORK_SOURCE_SUBDIR="${FRAMEWORK_SOURCE_SUBDIR%/}"
 
 # Throttle: skip if checked recently.
 now_epoch=$(date -u +%s)
-last_epoch=$(date -u -d "$FRAMEWORK_LAST_CHECKED" +%s 2>/dev/null || echo 0)
+# GNU `date -d` and BSD/macOS `date -j -f` parse an ISO ts differently — try
+# both so the throttle works off-GNU (else it never throttles → ls-remote every
+# cold start).
+last_epoch=$(date -u -d "$FRAMEWORK_LAST_CHECKED" +%s 2>/dev/null \
+  || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$FRAMEWORK_LAST_CHECKED" +%s 2>/dev/null \
+  || echo 0)
 interval_seconds=$((FRAMEWORK_CHECK_INTERVAL_HOURS * 3600))
 if [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
   exit 0
@@ -73,7 +97,7 @@ fi
 # for the same fix and rationale — a cross-filesystem mktemp+mv is not an
 # atomic rename and can leave .framework-version truncated on interruption.
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp_version="$(mktemp -p "$(dirname "$VERSION_FILE")")"
+tmp_version="$(mktemp "$(dirname "$VERSION_FILE")/.framework-version.XXXXXX")"
 awk -v now="$now_iso" '
   BEGIN { set = 0 }
   /^FRAMEWORK_LAST_CHECKED=/ { print "FRAMEWORK_LAST_CHECKED=" now; set = 1; next }
@@ -89,10 +113,13 @@ if [ "$latest_sha" = "$FRAMEWORK_PINNED_SHA" ]; then
 fi
 
 # Update available. Clone upstream to a temp dir for commit inspection.
+# depth-1 mirrors apply-update.sh: fast common case, then unshallow ON DEMAND
+# below only when the pinned SHA isn't reachable within the shallow slice (the
+# non-shallow clone here made the unshallow that follows dead code).
 tmp_clone="$(mktemp -d)"
 trap 'rm -rf "$tmp_clone"' EXIT
 
-if ! git clone --quiet --branch "$FRAMEWORK_UPSTREAM_BRANCH" "$FRAMEWORK_UPSTREAM_URL" "$tmp_clone" >/dev/null 2>&1; then
+if ! git clone --quiet --depth 1 --branch "$FRAMEWORK_UPSTREAM_BRANCH" "$FRAMEWORK_UPSTREAM_URL" "$tmp_clone" >/dev/null 2>&1; then
   echo "check-updates: clone failed — continuing without commit detail." >&2
   exit 3
 fi
@@ -118,6 +145,10 @@ manifest_paths=()
 while IFS= read -r line; do
   line="${line%$'\r'}"
   [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  if _is_unsafe_manifest_path "${line%/}"; then
+    echo "check-updates: WARNING — skipping unsafe local manifest entry: '$line'." >&2
+    continue
+  fi
   manifest_paths+=("${line%/}")
 done < "$MANIFEST_FILE"
 
@@ -126,6 +157,10 @@ if [ -f "$UPSTREAM_MANIFEST" ]; then
   while IFS= read -r line; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if _is_unsafe_manifest_path "${line%/}"; then
+      echo "check-updates: WARNING — skipping unsafe upstream manifest entry: '$line'." >&2
+      continue
+    fi
     manifest_paths+=("${line%/}")
   done < "$UPSTREAM_MANIFEST"
 else

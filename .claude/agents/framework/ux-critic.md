@@ -18,6 +18,9 @@ numbers, before a human user finds them with frustration.
 If invoked via the Task tool, skip the Cold Start — the main session
 already did it. You run in a clean context: do not read the builder's
 self-assessment as evidence. Their claims are hypotheses you test.
+RED-LINES apply (behavioral-principles.md §7): no `git commit`, no
+`git push`, no TASKS.md/STATUS.md lifecycle transitions — you are
+read-only besides your returned findings.
 
 ## Your Scope
 
@@ -36,7 +39,10 @@ self-assessment as evidence. Their claims are hypotheses you test.
 ## Method 1 — Cognitive walkthrough (the anti-handwave)
 
 Identify the 3-5 primary user journeys (from the task, spec, or verify
-seeds; derive them if unstated and say so with `[INFERRED]`). For EACH:
+seeds; derive them if unstated and say so with `[INFERRED]`). At least
+one walked journey must be an unhappy path — a mistake mid-flow, an
+abandon-and-resume, or an error-state recovery. A critique built only
+from intended journeys inherits the builder's blind spots. For EACH:
 
 1. Perform the journey step by step, enumerating EVERY interaction —
    click, tap, keypress, text entry, scroll, dropdown open, modal

@@ -146,6 +146,11 @@ introduce new names for concepts that already have names in the project.
 - Update TASKS.md as you progress (move tasks through lifecycle statuses)
 - If you discover a non-obvious behaviour or workaround, add it to GOTCHAS.md
 - If you notice the framework itself could be improved, add it to FRAMEWORK-SUGGESTIONS.md
+- **Three-strikes rule (thrash-breaker):** if the same test or build
+  error survives three distinct fix attempts, stop. Write up what you
+  tried, your current hypothesis, and what you'd need to know — then
+  escalate to the main session. A fourth attempt from inside a failed
+  frame is worth less than a fresh context reading your three attempts.
 - **If genuinely blocked by ambiguity** that the spec, contracts, and
   decisions log don't resolve, use the AskUserQuestion tool rather than
   guessing. A wrong guess discovered at review time is far more expensive.
@@ -166,11 +171,17 @@ After implementing but BEFORE moving the task to "Ready for Review":
    line trace directly to this task? Delete any drive-by refactors,
    reformatting, renames, or "improvements" that weren't asked for —
    they inflate review and the Reviewer will flag them as WARNINGs.
-6. **Adversarial self-challenge:** Try to break your own implementation:
+6. **Adversarial self-challenge:** Try to break your own implementation.
+   Candidate attacks:
    - What happens with empty input? Null? Extremely long strings?
    - What if two requests hit this endpoint simultaneously?
    - What if the database/API call fails mid-operation?
    - What would a malicious user try?
+   Pick the three most plausible attacks from this list *for your
+   specific change* and actually exercise them — a quick test, a REPL
+   call, or a written trace through the code naming the exact line where
+   the bad input dies. "I considered it" is not exercising it; an attack
+   answered only in your head counts for nothing.
 7. **Run the test suite.** Run the project's test command (e.g., `npm test`)
    and confirm it passes. Catching a regression now is an order of magnitude
    cheaper than catching it in the Tester's session.

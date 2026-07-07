@@ -4,10 +4,10 @@ Framework-owned (manifest-shipped; overwritten on update). Newest first.
 
 When the upstream framework adopts a fix or feature that originated in a
 consumer project's `.claude/GOTCHAS.md` or `.claude/FRAMEWORK-SUGGESTIONS.md`,
-the adoption is recorded here. The flow this closes: upstream sweeps
-consumer feedback files (e.g. via /fleet), builds the fix, ships it in an
-update — but the consumer's local entry that prompted it stays behind,
-stale, describing a problem the update already solved.
+the adoption is recorded here. The flow this closes: upstream reviews
+consumer feedback manually (or via `/reconcile` full-mode), builds the fix,
+ships it in an update — but the consumer's local entry that prompted it
+stays behind, stale, describing a problem the update already solved.
 
 **How consumers use this file:** `/housekeeping` reads it (see the
 "Adopted-feedback reconciliation" step). For each entry below, if your
@@ -19,7 +19,8 @@ your local entry is in your own words.
 
 **How upstream maintains it:** when a consumer-reported item lands, add a
 row in the same commit (or the close-out commit). Origin names the
-project when known, else "fleet sweep".
+project when known, else "upstream review" (manual pass or `/reconcile`
+full-mode).
 
 ---
 

@@ -130,18 +130,41 @@ if [ ! -f "$VERSION_FILE" ]; then
   exit 2
 fi
 
+# CRLF-safe source (DA-M12): `.framework-version` is extensionless and, on a
+# Windows clone with core.autocrlf=true, checks out CRLF — sourcing it raw
+# leaves a trailing \r on every value. Strip \r via process substitution,
+# matching check-updates.sh and the sibling skills-* scripts. (.gitattributes
+# also pins these files eol=lf; this is the belt-and-suspenders line.)
 # shellcheck disable=SC1090
-source "$VERSION_FILE"
+source <(tr -d '\r' < "$VERSION_FILE")
 : "${FRAMEWORK_UPSTREAM_URL:?FRAMEWORK_UPSTREAM_URL missing}"
 : "${FRAMEWORK_UPSTREAM_BRANCH:?FRAMEWORK_UPSTREAM_BRANCH missing}"
 : "${FRAMEWORK_PINNED_SHA:?FRAMEWORK_PINNED_SHA missing}"
 
 # FRAMEWORK_SOURCE_SUBDIR (default empty = repo root). When set (e.g.
-# 02_solution), the canonical framework lives under <clone>/<subdir>/ and every
+# framework/), the canonical framework lives under <clone>/<subdir>/ and every
 # manifest path is relative to it. Empty/absent => repo root, so existing
-# consumers are unaffected (backward-compatible). See contract:framework-update.
+# consumers are unaffected (backward-compatible). See
+# contract:update-source-resolution.
 FRAMEWORK_SOURCE_SUBDIR="${FRAMEWORK_SOURCE_SUBDIR:-}"
 FRAMEWORK_SOURCE_SUBDIR="${FRAMEWORK_SOURCE_SUBDIR%/}"
+
+# Reject a manifest entry that escapes the project root BEFORE Phase 1/2 use it
+# in rm -rf / cp -R. Unsafe = absolute (^/), Windows drive (^[A-Za-z]:), any
+# `..` path segment, or any backslash (a Windows-style `..\evil` / `a\..\evil`
+# traversal — the forward-slash `..` arms above don't catch it; same guard
+# class as skills-sync.sh's skill-name check). A malicious/corrupt upstream
+# (or a hand-broken local manifest) must never be able to write outside
+# PROJECT_ROOT. NOTE the backslash arm is the QUOTED form `*'\'*`: the unquoted
+# `*\\*` collapses to `*\*` (a trailing literal `*`) during shell word-parsing
+# and never matches a backslash — so only the quoted form actually rejects a
+# Windows-traversal entry (pinned by update_system.bats' backslash-traversal case).
+_is_unsafe_manifest_path() {  # <path> → 0 (true) if unsafe
+  case "$1" in
+    /*|[A-Za-z]:*|../*|*/../*|*/..|..|*'\'*) return 0 ;;
+  esac
+  return 1
+}
 
 # Parse local manifest, preserving whether each entry is a dir (trailing
 # slash → mirror the whole directory) or a file (no slash → overwrite
@@ -156,6 +179,11 @@ declare -A local_manifest_type=()
 while IFS= read -r line; do
   line="${line%$'\r'}"
   [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+  if _is_unsafe_manifest_path "${line%/}"; then
+    echo "apply-update: ERROR — local manifest entry escapes the project root: '$line'." >&2
+    echo "              Refusing before touching anything. Fix framework-manifest.txt." >&2
+    exit 2
+  fi
   if [[ "$line" == */ ]]; then
     p="${line%/}"
     local_manifest_type[$p]="dir"
@@ -202,20 +230,41 @@ final_paths=()
 phase2_started=0
 
 # _rollback_framework_paths — restore every final-set framework path to its
-# HEAD state: tracked content via checkout, then `git clean` on dir-mirror
-# entries only (they are 100% framework-owned per the manifest contract; a
-# partial mirror may contain files HEAD doesn't have that checkout won't
-# remove — but file entries and shared dirs hold project content, so clean
-# is never run on those). Shared by swap_fail (detected command failure)
-# and the INT/TERM handler; unit-covered by the update_system bats tier.
-# Requires: PROJECT_ROOT, final_paths, final_type. Always returns 0: this
-# script runs under `set -e`, and a trailing non-dir entry making the loop's
-# last status 1 would otherwise abort the INT/TERM handler MID-ROLLBACK
-# (caught by the unit test when the `[ dir ] && {...}` form dropped the
-# original code's terminal `|| true`).
+# HEAD state. Two cases PER PATH: a single multi-pathspec
+# `git checkout HEAD -- "${final_paths[@]}"` aborts WHOLESALE the moment ONE
+# pathspec is unknown to HEAD — which happens on the most common interesting
+# update: any release that ships a BRAND-NEW manifest path. It then restored
+# NOTHING (git exits 1, swallowed by `|| true`) while the caller printed
+# "rolled back", leaving a half-applied, mixed-version tree — the exact
+# half-applied-tree deadlock BUG-003 fixed, reintroduced through recovery. So
+# restore each path individually, branching on HEAD membership:
+#   - path exists at HEAD  → `git checkout HEAD -- <path>` restores its
+#     tracked content;
+#   - path is NEW at HEAD (this update introduced it) → it did not exist
+#     before, so REMOVING it (`rm -rf`) is what restores the HEAD state.
+# Then `git clean` on dir-mirror entries only (they are 100% framework-owned
+# per the manifest contract; a partial mirror may contain files HEAD doesn't
+# have that checkout won't remove — but file entries and shared dirs hold
+# project content, so clean is never run on those). Shared by swap_fail
+# (detected command failure) and the INT/TERM handler; unit-covered by the
+# update_system bats tier. Requires: PROJECT_ROOT, final_paths, final_type.
+# Always returns 0: this script runs under `set -e`, and a per-path restore
+# failing must never abort the INT/TERM handler MID-ROLLBACK.
 _rollback_framework_paths() {
-  git -C "$PROJECT_ROOT" checkout HEAD -- "${final_paths[@]}" 2>/dev/null || true
   local mp
+  for mp in "${final_paths[@]}"; do
+    # `HEAD:<path>` resolves to a blob (file) OR a tree (dir) when the path
+    # existed at HEAD; `cat-file -e` succeeds for either. The `ls-tree -d`
+    # arm is a belt-and-suspenders check for the dir case.
+    if git -C "$PROJECT_ROOT" cat-file -e "HEAD:$mp" 2>/dev/null \
+       || git -C "$PROJECT_ROOT" ls-tree -d HEAD -- "$mp" 2>/dev/null | grep -q .; then
+      git -C "$PROJECT_ROOT" checkout HEAD -- "$mp" 2>/dev/null || true
+    else
+      # Absent at HEAD → this update newly introduced it; removing IS
+      # restoring HEAD. `${PROJECT_ROOT:?}` guards against ever `rm -rf /`.
+      rm -rf -- "${PROJECT_ROOT:?}/$mp" 2>/dev/null || true
+    fi
+  done
   for mp in "${final_paths[@]}"; do
     if [ "${final_type[$mp]:-}" = "dir" ]; then
       git -C "$PROJECT_ROOT" clean -fdq -- "$mp" 2>/dev/null || true
@@ -292,6 +341,12 @@ if [ -f "$UPSTREAM_MANIFEST" ]; then
   while IFS= read -r line; do
     line="${line%$'\r'}"
     [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if _is_unsafe_manifest_path "${line%/}"; then
+      echo "apply-update: ERROR — upstream manifest entry escapes the project root: '$line'." >&2
+      echo "              Refusing before staging/swap. Inspect the upstream repo before" >&2
+      echo "              trusting this update." >&2
+      exit 2
+    fi
     if [[ "$line" == */ ]]; then
       p="${line%/}"
       upstream_manifest_type[$p]="dir"
@@ -614,7 +669,22 @@ fi
 _merge_helper="$PROJECT_ROOT/.claude/framework/update/merge-hook-registrations.sh"
 _canon_settings="$CLONE_SRC/.claude/settings.json"
 if [ -f "$_merge_helper" ] && [ -f "$_canon_settings" ] && [ -f "$PROJECT_ROOT/.claude/settings.json" ]; then
-  bash "$_merge_helper" "$PROJECT_ROOT/.claude/settings.json" "$_canon_settings" || true
+  # Also hand the merge helper the PINNED (previous) canonical settings so it can
+  # spot framework hook registrations the consumer still carries that this update
+  # RETIRED or whose command CHANGED — additive-merge alone would leave the old,
+  # now-stale registration in place → the hook double-fires. Best-effort: only
+  # when the pinned SHA is present in the clone (unshallowed above for the
+  # file-collision check); absent → helper falls back to additive-only.
+  _pinned_settings=""
+  if [ "${pinned_available:-0}" = 1 ]; then
+    _pinned_settings="$(mktemp "$PROJECT_ROOT/.claude/.pinned-settings.json.XXXXXX")"
+    if ! git -C "$tmp_clone" show "$FRAMEWORK_PINNED_SHA:${SRC_GIT_PREFIX}.claude/settings.json" > "$_pinned_settings" 2>/dev/null; then
+      rm -f "$_pinned_settings"
+      _pinned_settings=""
+    fi
+  fi
+  bash "$_merge_helper" "$PROJECT_ROOT/.claude/settings.json" "$_canon_settings" "$_pinned_settings" || true
+  [ -n "$_pinned_settings" ] && rm -f "$_pinned_settings"
 fi
 
 # Update .framework-version: new pinned SHA, refresh last-checked.
@@ -624,7 +694,7 @@ fi
 # mid-copy can truncate .framework-version. Same-directory mktemp keeps
 # the final `mv` a same-filesystem rename.
 now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp_version="$(mktemp -p "$(dirname "$VERSION_FILE")")"
+tmp_version="$(mktemp "$(dirname "$VERSION_FILE")/.framework-version.XXXXXX")"
 awk -v sha="$latest_sha" -v now="$now_iso" '
   BEGIN { sha_set = 0; ts_set = 0 }
   /^FRAMEWORK_PINNED_SHA=/ { print "FRAMEWORK_PINNED_SHA=" sha; sha_set = 1; next }

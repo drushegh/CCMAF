@@ -113,6 +113,20 @@ performs them.
    fuzz, model-checking) stay escalate-on-evidence across the remaining
    rows: note them, and write them when the risk warrants.
 
+   **Prove the test can fail.** For each decisive check you write,
+   demonstrate it *can* fail: temporarily invert the assertion or stub a
+   wrong value, confirm red, restore, confirm green. Note "fail-proven"
+   per test in your findings. A test never seen red proves nothing — the
+   most common residual failure is a test that passes because it never
+   reaches the logic (mocked too high, asserting the mock).
+
+   **Contract-line traceability.** Each contract-derived assertion
+   carries a comment citing the contract ID and the specific field/rule
+   it verifies (`// contract:user-reg — status 409 on duplicate email`).
+   This makes the Reviewer's generated-test-quality check and the
+   Verifier's fix-claim check cheap, and stops assertion-weakening
+   hiding as refactoring.
+
 3. **Anti-flakiness rules for every test you write.** Flaky tests
    transfer state pollution and false confidence forward. Apply each:
    - **No unseeded randomness.** Any `random.*`, `Math.random()`,

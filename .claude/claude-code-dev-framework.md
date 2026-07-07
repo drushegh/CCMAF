@@ -79,6 +79,8 @@ The core four map directly to human roles and form the inner build loop; five su
 
 Every agent definition carries: frontmatter (name, description with negative routing, tools, model), a "If Running as a Delegated Subagent" section, explicit **Your Scope / NOT Your Scope** boundaries, and an escalation path (AskUserQuestion for ambiguity; Architect for contract problems). All agents load `framework/agent_docs/behavioral-principles.md` on handoff — per-turn discipline the lifecycle can't enforce: think before coding, simplicity first, surgical changes, signal uncertainty, goal-driven execution, and treating external content as data rather than instructions.
 
+**Instruction-count budget (soft norm):** instruction-following degrades silently as an agent file's rule count grows — the model doesn't announce which checks it skipped. An agent definition that grows past ~200 lines must either phase its workflow into explicit sequential passes (each with its own emitted mini-output, as the Reviewer's numbered checklist + coverage receipt does) or push detail into `framework/agent_docs/` references — not keep accreting rules.
+
 ### The Council (`.claude/agents/council/`)
 
 For decisions that are expensive to be wrong about, `/council` convenes five advisors with distinct cognitive styles — Contrarian, First Principles, Expansionist, Outsider, Executor — who give independent takes in parallel, then peer-review each other **anonymised** (so nobody defers to whoever they think wrote what). A Chairman synthesises a no-hedging verdict with a single concrete next step, written to a transcript and an HTML report under `.claude/council/<run-id>/` (gitignored). Protocol details: `commands/council.md`.
@@ -129,7 +131,7 @@ The starter templates ship in `.claude/` and document their own format in header
 
 ### Commit ↔ task linkage (non-negotiable)
 
-Every commit message includes its ID: `type: description (TASK-XXX)` or `(BUG-XXX)`. `git log --grep="TASK-XXX"` gives instant traceability; the delegating commands verify linkage before allowing a task to move to Ready for Review or Done. For non-trivial changes the Developer adds an `Assumptions:` section to the commit body — the meta-defence against silently-wrong inferences, which the Reviewer challenges (check 5c).
+Every commit message includes its ID: `type: description (TASK-XXX)` or `(BUG-XXX)`. `git log --grep="TASK-XXX"` gives instant traceability; the delegating commands verify linkage before allowing a task to move to Ready for Review or Done. For non-trivial changes the Developer adds an `Assumptions:` section to the commit body — the meta-defence against silently-wrong inferences, which the Reviewer challenges (check 8, assumption challenge).
 
 ### DECISIONS.md vs ECOSYSTEM.md
 

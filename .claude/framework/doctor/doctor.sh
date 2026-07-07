@@ -286,11 +286,17 @@ check_task_duplicates() {
   local tasks="$PROJECT_ROOT/.claude/TASKS.md"
   [ ! -f "$tasks" ] && return
 
-  # Only match task IDs that appear in headings (#### [TASK-NNN] or
-  # ### [TASK-NNN] or - **TASK-NNN** — style). Avoid counting references
-  # inside prose.
+  # Only match task IDs that appear as ENTRY headings: a `#### [TASK-NNN]`
+  # bracketed heading, or a `- **TASK-NNN**` list-item entry (the bullet-board
+  # style). Both arms are LINE-ANCHORED (`^`) so a bold `**TASK-NNN**` mention
+  # sitting mid-PROSE (a description referencing another task) is NOT counted —
+  # the old unanchored `\*\*…\*\*` arm miscounted those, mis-flagging any task
+  # whose ID appears bolded in another entry's prose as a duplicate (the known
+  # Check-7 FP on every cold start). `[[:space:]]` not `\s` (BSD grep lacks
+  # `\s`). `-oE` prints only the matched prefix, so a heading line that also
+  # references another ID in trailing prose contributes just its own ID.
   mapfile -t dups < <(
-    grep -oE '(#+\s*\[(TASK|BUG)-[0-9]+\]|\*\*(TASK|BUG)-[0-9]+\*\*)' "$tasks" \
+    grep -oE '^(#+[[:space:]]*\[(TASK|BUG)-[0-9]+\]|[[:space:]]*[-*][[:space:]]+\*\*(TASK|BUG)-[0-9]+\*\*)' "$tasks" \
       | grep -oE '(TASK|BUG)-[0-9]+' \
       | sort \
       | uniq -d
@@ -439,14 +445,16 @@ check_gnu_toolchain() {
 # consumer-owned (never manifest-updated), so this doctor warning is the
 # propagation channel (TASK-024 principle). Fingerprints are entry titles
 # unique to the leaked upstream content; the clean templates ship none of
-# them. The framework's OWN dev repo (identified by a canonical framework in
-# 02_solution/) legitimately carries dev content in its dirty root board, so it
-# is skipped here (TASK-054 retired the framework-self redirect; the dirty root
-# IS the dev board now).
+# them. The framework's OWN dev repo (identified by a committed
+# `.claude/.framework-dev-repo` marker, TASK-089) legitimately carries dev
+# content in its dirty root board, so it is skipped here (TASK-054 retired
+# the framework-self redirect; the dirty root IS the dev board now).
 check_state_file_leak() {
   # Skip in the framework's own dev repo — its root board is the real dev board,
-  # not a leaked consumer template. Signal: it ships a canonical from 02_solution/.
-  [ -d "$PROJECT_ROOT/02_solution/.claude/framework" ] && return
+  # not a leaked consumer template. Signal: a committed .claude/.framework-dev-repo
+  # marker (TASK-089 — replaced the old "02_solution/.claude/framework exists"
+  # signal once 02_solution/ was retired as a separate dev-build copy).
+  [ -f "$PROJECT_ROOT/.claude/.framework-dev-repo" ] && return
   local f hits=""
   for f in "$PROJECT_ROOT/.claude/GOTCHAS.md" "$PROJECT_ROOT/.claude/FRAMEWORK-SUGGESTIONS.md"; do
     [ -f "$f" ] || continue
@@ -470,7 +478,7 @@ check_state_file_leak() {
 # before a human hits a degraded surface.
 #
 # Canonical board grammar (agreed cross-repo, CHANNEL round 2, 2026-06-26 — the
-# the bundled Console both READS and WRITES this board):
+# Console both READS and WRITES this board):
 #   - Task/bug entries are BRACKETED level-4 headings: `#### [TASK-N]` /
 #     `#### [BUG-N]`. Enforced — the Console writes `#### [BUG-n]` into the board
 #     (flag-as-bug), so a bare entry makes a flagged board MIXED. Bare entries

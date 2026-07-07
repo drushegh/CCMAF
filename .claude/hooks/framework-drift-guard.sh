@@ -31,8 +31,9 @@ if ! command -v jq &>/dev/null; then
 fi
 
 # State files live at .claude/ (root). framework-self mode was retired in
-# TASK-054: the upstream repo now keeps its dirty dev board at root and ships
-# the clean canonical from 02_solution/ instead of redirecting to self/.
+# TASK-054: the upstream repo now keeps its dirty dev board at root — and,
+# since TASK-089 retired the separate 02_solution/ clean-canonical copy, root
+# is also the framework's only in-repo tree — instead of redirecting to self/.
 STATE_ROOT="$REPO_ROOT/.claude"
 STATE_PREFIX=".claude/"
 
@@ -176,6 +177,29 @@ if [ "$COMPACT_ENABLED" = true ] && [ "$SINCE_COMPACT" -ge "$COMPACT_TURNS" ]; t
   DRIFT_DETECTED=true
   COMPACT_REMINDED=true
   _set_primary "compaction-nudge"
+fi
+
+# Indicator 6: unresolved dependency-verification advisory (verify-deps.sh).
+# verify-deps.sh writes .claude/.dep-verification-issues.md when a manifest
+# edit adds a package it can't confirm on the registry — the anti-hallucination
+# MISSING-package signal — but until now NOTHING surfaced it: the file "died
+# unread" unless someone happened to open it. Inject a one-line pointer here so
+# it reaches the model on the NEXT turn (and every turn while it persists),
+# until the agent verifies the packages and deletes the file. Surfaced whenever
+# the file exists — this is a real unresolved issue, not a throttled nudge.
+DEP_ISSUES="$STATE_ROOT/.dep-verification-issues.md"
+if [ -f "$DEP_ISSUES" ]; then
+  # grep -c prints "0" on no match (no `|| echo` needed — same idiom as the
+  # indicators above); strip any stray CR from a Windows-authored file.
+  DEP_MISSING=$(grep -c 'MISSING' "$DEP_ISSUES" 2>/dev/null)
+  DEP_MISSING="${DEP_MISSING//[^0-9]/}"; DEP_MISSING="${DEP_MISSING:-0}"
+  if [ "$DEP_MISSING" -gt 0 ]; then
+    REMINDERS="${REMINDERS}🚨 Dependency check: ${STATE_PREFIX}.dep-verification-issues.md flags ${DEP_MISSING} package(s) NOT found on their registry (likely hallucinated). Verify each exists before commit, then delete that file.\n"
+  else
+    REMINDERS="${REMINDERS}📦 Dependency check: ${STATE_PREFIX}.dep-verification-issues.md has unverified dependency advisories from a recent manifest edit. Review and resolve them, then delete that file.\n"
+  fi
+  DRIFT_DETECTED=true
+  _set_primary "dep-verification"
 fi
 
 # Update drift state

@@ -8,7 +8,7 @@
 #   CLAUDE_DISABLED_HOOKS = "id1,id2 id3"   (comma/space-separated stable IDs)
 #
 # Profile semantics — each hook declares a TIER when it calls hook_enabled:
-#   safety  — runs in ALL profiles (only block-dangerous today)
+#   safety  — runs in ALL profiles (block-dangerous + guard-interpreter-check)
 #   normal  — runs in standard + strict; skipped in minimal
 #   strict  — runs only in strict (reserved for opt-in extra-strict hooks)
 #

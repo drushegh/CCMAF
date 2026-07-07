@@ -18,14 +18,24 @@
 # Fail-soft: any gap (no jq, unreadable/!json input) → exit 0, change nothing; the
 # doctor's "unregistered hook" check remains the backstop.
 #
-# Usage: merge-hook-registrations.sh <consumer-settings.json> <canonical-settings.json>
-# Prints one summary line to stderr; exit 0 always (advisory, never blocks update).
+# RETIREMENT DETECTION (optional 3rd arg = the PINNED / previous canonical
+# settings): the additive merge alone leaves a STALE registration behind when a
+# framework hook's COMMAND changes (old cmd stays + new cmd added → the hook
+# double-fires) or a hook is retired entirely. Given the pinned canonical, this
+# script also WARNS about any command that the pinned framework shipped, the
+# current framework no longer does, and the consumer still has registered — so
+# the human can remove it. It never auto-removes (consumer settings are sacred;
+# the additive-only, never-rewrite guarantee above still holds).
+#
+# Usage: merge-hook-registrations.sh <consumer-settings> <canonical-settings> [pinned-canonical-settings]
+# Prints summary/advisory lines to stderr; exit 0 always (advisory, never blocks update).
 
 set -u
 CONSUMER="${1:-}"
 CANON="${2:-}"
+PINNED="${3:-}"   # optional — previous (pinned) canonical settings.json
 
-[ -n "$CONSUMER" ] && [ -n "$CANON" ] || { echo "merge-hook-registrations: usage: <consumer-settings> <canonical-settings>" >&2; exit 0; }
+[ -n "$CONSUMER" ] && [ -n "$CANON" ] || { echo "merge-hook-registrations: usage: <consumer-settings> <canonical-settings> [pinned-canonical]" >&2; exit 0; }
 [ -f "$CONSUMER" ] && [ -f "$CANON" ] || exit 0
 command -v jq >/dev/null 2>&1 || {
   echo "merge-hook-registrations: jq not found — skipping; register new framework hooks manually (doctor will flag them)." >&2
@@ -35,6 +45,36 @@ command -v jq >/dev/null 2>&1 || {
 # Validate both are JSON before touching anything.
 jq -e . "$CONSUMER" >/dev/null 2>&1 || { echo "merge-hook-registrations: $CONSUMER is not valid JSON — skipping." >&2; exit 0; }
 jq -e . "$CANON"    >/dev/null 2>&1 || { echo "merge-hook-registrations: canonical settings not valid JSON — skipping." >&2; exit 0; }
+
+# --- Retirement / command-change warning (needs the pinned canonical) -------
+# Flat list of every registered hook command in a settings file (one per line).
+_hook_cmds() { jq -r '[.hooks // {} | .[][]? | (.hooks // [])[] | .command] | .[]' "$1" 2>/dev/null; }
+if [ -n "$PINNED" ] && [ -f "$PINNED" ] && jq -e . "$PINNED" >/dev/null 2>&1; then
+  # Set membership via grep -Fx (fixed-string, whole-line) over REAL temp files.
+  # NOT comm (collation-fragile) and NOT `grep -Fxf <(...)` — a native grep on
+  # Git-Bash/MSYS cannot open a process-substitution /dev/fd/N as a pattern
+  # file, silently reading zero patterns. Temp files are portable everywhere.
+  _rt_pinned="$(mktemp)"; _rt_canon="$(mktemp)"; _rt_consumer="$(mktemp)"
+  _hook_cmds "$PINNED"   > "$_rt_pinned"
+  _hook_cmds "$CANON"    > "$_rt_canon"
+  _hook_cmds "$CONSUMER" > "$_rt_consumer"
+  # Commands the PINNED framework shipped that the CURRENT canonical no longer
+  # ships (retired outright, or the command string was changed).
+  retired="$(grep -Fxvf "$_rt_canon" "$_rt_pinned" 2>/dev/null || true)"
+  if [ -n "$retired" ]; then
+    # ...of those, the ones the consumer STILL has registered → stale double-fire.
+    stale="$(printf '%s\n' "$retired" | grep -Fxf "$_rt_consumer" 2>/dev/null || true)"
+    if [ -n "$stale" ]; then
+      echo "merge-hook-registrations: ⚠ STALE framework hook registration(s) — shipped by your" >&2
+      echo "  PINNED framework version, RETIRED or command-CHANGED by this update, still present" >&2
+      echo "  in $CONSUMER (they will double-fire alongside the current registration):" >&2
+      printf '%s\n' "$stale" | sed 's/^/    - /' >&2
+      echo "  Remove each stale command from the hooks section of .claude/settings.json." >&2
+      echo "  (This script never auto-edits existing entries; the doctor hook checks are the backstop.)" >&2
+    fi
+  fi
+  rm -f "$_rt_pinned" "$_rt_canon" "$_rt_consumer"
+fi
 
 # The merge. Flatten the canonical hooks into (event, matcher, hook) tuples, then
 # reduce them over the consumer settings: insert any tuple whose command is not
@@ -84,12 +124,13 @@ if [ "$added" -le 0 ]; then
 fi
 
 # Write only when something changed (preserve mtime + avoid churn on no-op runs).
-# mktemp -p alongside the destination (audit minor a): mktemp's default
+# mktemp alongside the destination (audit minor a): mktemp's default
 # (system temp — C: on Windows) plus `mv` to a project-drive file is a
 # cross-filesystem copy+unlink, not an atomic rename — an interruption
 # mid-copy can truncate settings.json. Same-directory mktemp keeps the
-# final `mv` a same-filesystem rename.
-tmp="$(mktemp -p "$(dirname "$CONSUMER")")"
+# final `mv` a same-filesystem rename. Portable full-path template (GNU + BSD);
+# `mktemp -p` is GNU-only.
+tmp="$(mktemp "$(dirname "$CONSUMER")/.settings.json.XXXXXX")"
 printf '%s\n' "$merged" > "$tmp" && mv "$tmp" "$CONSUMER" || { rm -f "$tmp"; echo "merge-hook-registrations: write failed — settings unchanged." >&2; exit 0; }
 echo "merge-hook-registrations: registered $added new framework hook(s) in $CONSUMER (additive; permissions + your own hooks untouched)."
 exit 0

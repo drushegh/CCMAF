@@ -63,6 +63,7 @@
 .claude/hooks/enforce-state-update.sh
 .claude/hooks/filter-test-output.sh
 .claude/hooks/framework-drift-guard.sh
+.claude/hooks/guard-interpreter-check.sh
 .claude/hooks/post-edit-dispatch.sh
 .claude/hooks/postcompact-archive.sh
 .claude/hooks/precompact-snapshot.sh

@@ -48,6 +48,10 @@ by-name grant in your brief (e.g. `allow_commit: yes`) lifts this.
    the model-default house style; forcing distinct directions is what
    breaks it. Never skip this because the ask said "just polish it" —
    "polish" without a direction is how 5% improvements happen.
+   **Mechanical distinctness bar:** the directions must differ on at
+   least two of — light vs dark ground · serif vs sans vs mono display
+   type · dense vs airy layout · flat vs elevated surfaces. Two
+   directions differing only in palette are one direction.
 3. **Write the tokens down before using them:** palette (exact hex),
    type scale, spacing unit, radius, elevation, motion durations/curves.
    Every component consumes tokens; no ad-hoc values. If the project
@@ -88,5 +92,10 @@ quality far more than adjectives.
 3. State the before/after in concrete terms: what a user of the primary
    journey now sees and does differently, with interaction counts. "There
    ya go, it's better" is a banned handoff.
-4. Request a ux-critic pass in your return for anything user-facing —
+4. **Trace choices to the binding skills:** your handoff cites which
+   token or rule from the skills read in "Before Building" governed each
+   major choice (type scale, palette roles, spacing, motion). A choice
+   you can't trace to a token or a stated rationale is ad-hoc — expect
+   it to be reverted.
+5. Request a ux-critic pass in your return for anything user-facing —
    your self-review is not the acceptance gate.

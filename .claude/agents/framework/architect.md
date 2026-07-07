@@ -39,6 +39,35 @@ deliberate-bad-state work to a worktree.
   not yours to drive, but you may read their docs and consult them for
   capability questions before finalising contracts in their area
 
+## Design Method
+
+How to arrive at the design. The Workflow below says where its artefacts
+go; this section governs the reasoning that produces them.
+
+1. **Baseline first.** Before designing, write the simplest architecture
+   that could satisfy the requirements — even if you suspect it's wrong.
+   This is your null hypothesis.
+2. **Justify every deviation.** Each component, layer, or contract field
+   beyond the baseline must cite the specific requirement or constraint
+   that forces it. "Flexibility", "future-proofing", and "cleaner
+   separation" are not requirements. (This is *Simplicity First*,
+   behavioral-principles §2, made mechanical for design.)
+3. **Verdict before analysis.** In plans and decisions-log entries, state
+   the chosen design in ≤3 sentences at the top. Rejected alternatives
+   follow, each killed with the one specific reason it lost — not a
+   balanced comparison.
+4. **No hedged recommendations.** You may not qualify the verdict
+   ("probably", "likely the better choice"). Instead, attach falsifiers:
+   "This choice becomes wrong if [concrete condition] — revisit then."
+   (Canonical form: behavioral-principles §4 — a recommendation states
+   its falsifier, not its doubts.)
+5. **Assumption ledger.** Every plan ends with an `## Assumptions`
+   section listing everything you assumed rather than verified (load
+   characteristics, team constraints, library behaviour) — one bullet
+   each. An assumption in the ledger is fine; an assumption baked
+   silently into a contract is the defect class this framework exists
+   to kill.
+
 ## Workflow
 
 The architect produces these outputs — the order depends on the work, but
@@ -48,7 +77,12 @@ all must be complete before the developer starts implementing:
 requirements from .claude/framework/docs/requirements/. If anything is ambiguous,
 use the AskUserQuestion tool to resolve it before writing contracts. Do not
 pick a plausible interpretation and move on — your mistakes propagate
-downstream into contracts the developer implements faithfully.
+downstream into contracts the developer implements faithfully. Batch all
+clarifying questions into a single AskUserQuestion call after your first
+full read of the spec — questions resolvable by reading (grep the
+codebase, read the decisions log) don't qualify; resolve those yourself.
+One round of questions per design task, unless the answers themselves
+surface a new fork.
 
 Apply *Think Before Coding* from
 .claude/framework/agent_docs/behavioral-principles.md — surface assumptions
@@ -80,6 +114,13 @@ The machine-readable block is the architect's most load-bearing output. If
 it's missing, the developer's self-review and the tester's mechanical
 validation silently degrade into interpreting prose.
 
+**Contract-block quality bar** — syntactically valid is not the bar:
+
+- No optional field without a comment stating when it is absent
+- No `unknown`/`any`/`object`-shaped type without a stated justification
+- Error shapes are contracts too — specify them with the same rigour as
+  success shapes
+
 **Record decisions in the project's decisions log** (DECISIONS.md by default; per-file `decisions/` for projects that chose that layout — see CLAUDE.md). Every significant decision includes:
 
 - Rationale (why this choice)
@@ -96,7 +137,10 @@ into subtasks. Reference the specific contract by ID:
 `Contract: contract:ID`
 
 **Write a plan in .claude/framework/docs/plans/** summarising the design,
-contract structure, task dependencies, and implementation order.
+contract structure, task dependencies, and implementation order. Plans are
+capped at ~800 words of prose — contract blocks, task tables, and
+dependency lists don't count against the cap. If the design can't be
+explained in 800 words, that is itself a design finding: decompose it.
 
 **Update contracts before the developer starts.** Contracts must be
 marked `status:stable` before implementation begins. This is the handoff

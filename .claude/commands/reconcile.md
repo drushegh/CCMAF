@@ -1,4 +1,4 @@
-Follow the Cold Start sequence (steps 0-9 from CLAUDE.framework.md — the canonical list lives there; CLAUDE.md merely @imports it).
+Follow the Cold Start sequence (canonical list in CLAUDE.framework.md — CLAUDE.md merely @imports it).
 
 Then:
 

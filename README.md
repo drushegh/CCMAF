@@ -39,8 +39,8 @@ separately but ship together:
 | Component | Where | What it gives you |
 | --------- | ----- | ----------------- |
 | **Framework** | repo root + [`.claude/`](.claude/) | The agent roles, state files, two-lane board, hooks, slash commands, session-lifecycle rules, and self-update system. The core. |
-| **Project Console** *(opt-in)* | [`console/`](console/) | A localhost cockpit that renders your `.claude/` state as a live UI — dashboard, kanban, the human-verify loop, contracts, decisions, docs — and writes your verdicts back as files the agents read next pass. |
-| **Skills library** *(opt-in)* | [`skills/`](skills/) | 52 production-grade [agent skills](skills/README.md) — one per technology domain (React, Rust, .NET, Kubernetes, Power Platform, …), each packaging the conventions, decision tables, and pitfalls a senior practitioner would enforce. |
+| **Project Console** *(opt-in)* | npm: [`ccmaf-console`](https://www.npmjs.com/package/ccmaf-console) | A localhost cockpit that renders your `.claude/` state as a live UI — dashboard, kanban, the human-verify loop, contracts, decisions, docs — and writes your verdicts back as files the agents read next pass. Installed on demand (`npx`/global), not bundled here. |
+| **Skills library** *(opt-in)* | [`drushegh/CCMAF---Skills`](https://github.com/drushegh/CCMAF---Skills) | Production-grade agent skills — one per technology domain (React, Rust, .NET, Kubernetes, Power Platform, …), each packaging the conventions, decision tables, and pitfalls a senior practitioner would enforce. Synced on demand from the public catalogue, not bundled here. |
 
 You can adopt just the framework, or pull in the Console and any subset of skills.
 
@@ -73,33 +73,35 @@ The Project Console — a localhost cockpit over your `.claude/` state — is op
 **recommended**. Opt in and let the framework run it for you:
 
 ```bash
-echo main > .claude/.console-version     # opt in
-node tools/console.mjs start             # builds it (first run), runs it, prints the URL
+echo latest > .claude/.console-version   # opt in (content = an npm version spec)
+node tools/console.mjs start             # resolves + runs the Console, prints the URL
 ```
 
-You don't run `npm` yourself — `console.mjs start` builds the bundled `console/` in place,
+The Console ships as the npm package [`ccmaf-console`](https://www.npmjs.com/package/ccmaf-console).
+`console.mjs start` resolves it — a global install (`npm i -g ccmaf-console`) or `npx` — then
 launches it, **starts the machine-global tray Hub if none is running**, and prints
 `http://127.0.0.1:<port>`. On every cold start the framework brings it back up. It's
-**localhost / personal use only** — no auth, no remote access. Details in
-[console/README.md](console/README.md).
+**localhost / personal use only** — no auth, no remote access.
 
 ### Adding skills (recommended)
 
-The 52 skills give the agent senior-level standards for your stack — **recommended**, not an
+The skills give the agent senior-level standards for your stack — **recommended**, not an
 afterthought. At setup the agent detects your stack and offers a tiered choice
 (**Base** — the skills that fit your stack / **Enhanced** — Base plus high-value
 cross-cutting skills like `read-the-damn-docs` and `secure-development` / **All** /
-**None**), then syncs your pick from the bundled `skills/` into `.claude/skills/`:
+**None**), then syncs your pick from the public
+[CCMAF---Skills](https://github.com/drushegh/CCMAF---Skills) catalogue into `.claude/skills/`:
 
 ```bash
 bash .claude/framework/update/skills-check.sh --suggest   # what matches your stack
 # put your choice in .claude/.skills-version (SKILLS_SELECTED="..."), then:
-bash .claude/framework/update/skills-sync.sh
+bash .claude/framework/update/skills-sync.sh              # fetches them from the public catalogue
 ```
 
 Each skill is self-contained and triggers automatically on the file types and keywords in
-its frontmatter. You can also install the whole library as a Claude Code plugin (see
-[skills/README.md](skills/README.md)).
+its frontmatter. The full catalogue lives in the public
+[CCMAF---Skills](https://github.com/drushegh/CCMAF---Skills) repo (also installable as a Claude
+Code plugin).
 
 ---
 
@@ -234,10 +236,8 @@ CCMAF/
 │   ├── framework/             # update system, doctor, tests, agent docs, specs
 │   └── skills/                # where your selected skills land
 ├── 01_Project/                # your application code lives here
-├── console/                   # the Project Console (opt-in, build on setup)
-├── skills/                    # the full 52-skill catalogue (opt-in)
 ├── docs/                      # supplementary docs the Console surfaces
-└── tools/                     # the Console launcher driver
+└── tools/                     # the Console launcher driver (resolves the npm package)
 ```
 
 ## Keeping up to date

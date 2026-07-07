@@ -345,6 +345,59 @@ load update_helpers
   [ "$status" -eq 2 ]
 }
 
+@test "apply-update: CRLF .framework-version is sourced cleanly, not treated as broken (Phase-B, DA-M12)" {
+  build_upstream
+  build_consumer
+  # Simulate a Windows checkout with no eol=lf: rewrite the version file CRLF.
+  # Sourcing it raw would leave \r on every value; the tr-strip source must
+  # keep the URL/branch/sha usable.
+  sed 's/$/\r/' "$CVERSION" > "$CVERSION.crlf" && mv "$CVERSION.crlf" "$CVERSION"
+  run apply_update
+  [ "$status" -eq 0 ]
+  grep -q "owned v2" "$CONSUMER/.claude/framework/owned/file.txt"
+  grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V2_SHA" "$CVERSION"
+}
+
+@test "apply-update: LOCAL manifest entry escaping the project root is rejected before any change (Phase-B)" {
+  build_upstream
+  build_consumer
+  echo "../../../etc/evil" >> "$CONSUMER/.claude/framework/update/framework-manifest.txt"
+  git -C "$CONSUMER" add -A
+  git -C "$CONSUMER" commit -qm "poisoned local manifest"
+  run apply_update
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"escapes the project root"* ]]
+  # Refused before fetch/stage/swap — still pinned at v1, tree untouched.
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+  grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V1_SHA" "$CVERSION"
+}
+
+@test "apply-update: LOCAL manifest entry using backslash (Windows) traversal is rejected before any change (Phase-B)" {
+  build_upstream
+  build_consumer
+  echo 'a\..\evil' >> "$CONSUMER/.claude/framework/update/framework-manifest.txt"
+  git -C "$CONSUMER" add -A
+  git -C "$CONSUMER" commit -qm "poisoned local manifest (backslash traversal)"
+  run apply_update
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"escapes the project root"* ]]
+  # Refused before fetch/stage/swap — still pinned at v1, tree untouched.
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+  grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V1_SHA" "$CVERSION"
+}
+
+@test "apply-update: UPSTREAM manifest entry with an absolute path is rejected (Phase-B)" {
+  build_upstream
+  echo "/etc/evil" >> "$UPSTREAM/.claude/framework/update/framework-manifest.txt"
+  git -C "$UPSTREAM" add -A
+  git -C "$UPSTREAM" commit -qm "poisoned upstream manifest"
+  build_consumer
+  run apply_update
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"escapes the project root"* ]]
+  grep -q "owned v1" "$CONSUMER/.claude/framework/owned/file.txt"
+}
+
 # --- check-updates.sh -------------------------------------------------
 
 @test "check-updates: throttle honoured — recently checked, no network attempt" {
@@ -400,6 +453,19 @@ load update_helpers
   grep -q "${UPSTREAM_V2_SHA:0:7}" "$CFLAG"
   grep -q "v2: framework changes" "$CFLAG"
   grep -q "## To apply" "$CFLAG"
+}
+
+@test "check-updates: CRLF .framework-version is sourced cleanly (no false 'offline', Phase-B)" {
+  build_upstream
+  build_consumer
+  # A raw source would leave a trailing \r on the URL, so `ls-remote "url\r"`
+  # would fail and the script would wrongly report offline (exit 3). The
+  # tr-strip source must parse the local-path upstream correctly and detect the
+  # available update.
+  sed 's/$/\r/' "$CVERSION" > "$CVERSION.crlf" && mv "$CVERSION.crlf" "$CVERSION"
+  run check_updates
+  [ "$status" -eq 0 ]
+  [ -f "$CFLAG" ]
 }
 
 @test "check-updates: SHA advanced but no framework paths changed — up to date, no flag (BUG-004)" {

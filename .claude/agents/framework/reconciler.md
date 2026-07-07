@@ -172,8 +172,29 @@ not a write-once guard.
 }
 ```
 
-The machine-readable block above is `status:draft` — this is a proposed
-contract for the Architect to ratify, not yet implemented anywhere.
+The machine-readable block above is `status:draft` in ECOSYSTEM.md terms —
+not yet ratified into a `status:stable` contract — but it is already live
+and wired: `/reconcile`, build.md, and healthcheck.md Part 3 all write this
+schema today. **This is the one sanctioned exemption from the
+don't-implement-against-draft gate:** that gate stops agents building on
+unratified *designs*; this schema is your own output format, not a design
+you are implementing against — write it every run without waiting for
+ratification.
+
+**Severity anchors (per category).** Anchor to these instead of
+re-deriving the P0-P3 mapping each run — the lifecycle carry-forward
+depends on findings staying recognisably the same across runs, so
+consistency matters more than per-run brilliance:
+
+- `contract` — drift that breaks a `status:stable` contract → P0 if
+  consumers misbehave now, P1 if the breakage is latent; additive or
+  cosmetic drift → P2/P3.
+- `seam` — unit or semantic mismatch on a money, time, or security path
+  → P1; other confirmed seam mismatches → P2.
+- `duplicate` — semantic duplicate with both copies actively maintained
+  → P2; a dead or clearly-abandoned twin → P3.
+- `convention` — divergence that changes behaviour or error handling →
+  P2; cosmetic drift → P3.
 
 ## Token Discipline (hard rules)
 

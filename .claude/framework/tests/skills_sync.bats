@@ -171,6 +171,90 @@ load update_helpers
   [[ "$output" != *"gamma-development"* ]]
 }
 
+@test "skills-sync: bundle mode (no upstream URL) sources in-repo skills/ and pins 'bundled' (Phase-B)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  # Convert to bundle mode: drop the URL, add an in-repo bundled catalogue.
+  mkdir -p "$SCONSUMER/skills/python"
+  printf -- '---\nname: python\n---\nbundled python v1\n' > "$SCONSUMER/skills/python/SKILL.md"
+  printf 'SKILLS_SELECTED="python"\n' > "$SVERSION"
+  run skills_sync
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"bundle mode"* ]]
+  grep -q "bundled python v1" "$SCONSUMER/.claude/skills/python/SKILL.md"
+  grep -q '^SKILLS_PINNED_SHA=bundled' "$SVERSION"
+}
+
+@test "skills-sync: clone mode wins even when a bundle also exists (Phase-B seam)" {
+  build_skills_upstream
+  build_skills_consumer "python"          # .skills-version HAS SKILLS_UPSTREAM_URL
+  # A bundled skills/ is ALSO present, but the configured URL must win → real sha pin.
+  mkdir -p "$SCONSUMER/skills/python"
+  printf 'bundled (should NOT be used)\n' > "$SCONSUMER/skills/python/SKILL.md"
+  run skills_sync
+  [ "$status" -eq 0 ]
+  grep -q "python skill v1" "$SCONSUMER/.claude/skills/python/SKILL.md"   # from the clone
+  grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"           # real sha, not "bundled"
+}
+
+@test "skills-sync: no URL, no bundle → DEFAULT mode syncs the (overridable) public catalogue (Phase-B)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  printf 'SKILLS_SELECTED="python"\n' > "$SVERSION"   # no URL, and $SCONSUMER has no skills/
+  export SKILLS_DEFAULT_UPSTREAM_URL="$SKILLS_UPSTREAM"   # point the public default at the fixture
+  run skills_sync
+  [ "$status" -eq 0 ]
+  grep -q "python skill v1" "$SCONSUMER/.claude/skills/python/SKILL.md"   # default-mode clone
+  grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"           # real sha, not "bundled"
+}
+
+@test "skills-sync: --suggest detects containers/kubernetes/sql/CI (Phase-B map additions)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  touch "$SCONSUMER/Dockerfile" "$SCONSUMER/Chart.yaml" "$SCONSUMER/schema.sql" "$SCONSUMER/Jenkinsfile"
+  run skills_sync --suggest
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"containers-development"* ]]
+  [[ "$output" == *"kubernetes-development"* ]]
+  [[ "$output" == *"sql-development"* ]]
+  [[ "$output" == *"devops-development"* ]]
+  # rtdd is now in the cross-cutting line.
+  [[ "$output" == *"read-the-damn-docs"* ]]
+}
+
+@test "skills-sync: partial sync (one refused) does NOT advance the pin (Phase-B)" {
+  build_skills_upstream
+  build_skills_consumer "python rust"
+  run skills_sync                                     # both sync, pin → v1 sha
+  [ "$status" -eq 0 ]
+  git -C "$SCONSUMER" add -A
+  git -C "$SCONSUMER" commit -qm "committed synced skills + pin"
+  # python now tracked+dirty → refused next sync.
+  echo "local tweak" >> "$SCONSUMER/.claude/skills/python/SKILL.md"
+  # Upstream advances so a CLEAN sync WOULD move the pin.
+  printf 'rust v2\n' >> "$SKILLS_UPSTREAM/rust/SKILL.md"
+  git -C "$SKILLS_UPSTREAM" add -A
+  git -C "$SKILLS_UPSTREAM" commit -qm "rust v2"
+  local new_sha
+  new_sha=$(git -C "$SKILLS_UPSTREAM" rev-parse HEAD)
+  run skills_sync
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"python: REFUSED"* ]]
+  [[ "$output" == *"rust: synced"* ]]
+  # Pin must NOT have advanced to the new sha (a refused skill is behind).
+  ! grep -q "^SKILLS_PINNED_SHA=$new_sha" "$SVERSION"
+  grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"
+}
+
+@test "skills-sync: backslash path-like skill name is rejected (Phase-B name guard)" {
+  build_skills_upstream
+  # No leading dot and no forward slash, so ONLY the backslash guard can catch it.
+  build_skills_consumer 'sub\evil'
+  run skills_sync
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"plain directory names"* ]]
+}
+
 @test "skills-sync: no companion advisory when all referenced siblings are selected" {
   SKILLS_UPSTREAM="$BATS_TEST_TMPDIR/skills-upstream-comp2"
   mkdir -p "$SKILLS_UPSTREAM/alpha-development" "$SKILLS_UPSTREAM/beta-development"
