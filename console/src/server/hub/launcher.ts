@@ -13,12 +13,14 @@
  */
 
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getProjectRoot } from "../project-root.js";
 import {
   findByRoot,
   deregisterConsole,
+  hubAlive,
   type RegistryEntry,
 } from "./registry.js";
 import { readSettings, type ConsoleSettings } from "./settings.js";
@@ -28,9 +30,44 @@ const APP_ID = "ccmaf-console";
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 /** dist-server/hub/launcher.js → dist-server/main.js */
 const SERVER_MAIN = resolve(__dirname, "../main.js");
+/** dist-server/hub/launcher.js → dist-server/hub/hub-main.js (sibling). */
+const HUB_MAIN = resolve(__dirname, "hub-main.js");
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Ensure the machine-global tray Hub is running so a just-started console is
+ * visible in it. If a Hub already answers its pid-lock (`hubAlive()`), log that
+ * and return; otherwise spawn `hub-main.js` DETACHED + unref so it outlives this
+ * process. The Hub self-guards via its own singleton lock, so a redundant spawn
+ * is a harmless no-op. Fail-soft: the tray Hub is a convenience layer, never
+ * fatal to a start. Logs which case happened to STDERR (stdout stays URL-only).
+ * (Moved here from the framework driver so every caller ensures the Hub.)
+ */
+function ensureHub(): void {
+  if (hubAlive()) {
+    console.error(
+      "[console] this console is now visible in your existing tray Hub.",
+    );
+    return;
+  }
+  if (!existsSync(HUB_MAIN)) return; // not built (shouldn't happen in a shipped package)
+  try {
+    const child = spawn(process.execPath, [HUB_MAIN], {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: false,
+    });
+    child.unref();
+    console.error(
+      "[console] no tray Hub was running on this machine — started one; " +
+        "your consoles are now visible in it.",
+    );
+  } catch {
+    /* fail-soft: a failed tray-Hub spawn never blocks the console start */
+  }
+}
 
 /** Read a `--flag value` argument from argv (undefined if absent). */
 export function readArg(argv: string[], name: string): string | undefined {
@@ -93,6 +130,7 @@ async function ensureRunning(root: string): Promise<string | null> {
   if (existing && (await isHealthy(existing.port, root))) {
     const url = `http://127.0.0.1:${existing.port}`;
     console.log(url);
+    ensureHub();
     return url;
   }
 
@@ -114,6 +152,7 @@ async function ensureRunning(root: string): Promise<string | null> {
     if (e && (await isHealthy(e.port, root))) {
       const url = `http://127.0.0.1:${e.port}`;
       console.log(url);
+      ensureHub();
       return url;
     }
     await sleep(300);
@@ -124,6 +163,13 @@ async function ensureRunning(root: string): Promise<string | null> {
 
 /** Ensure the console is up; open it too if `autoOpenOnStart` is set. */
 export async function start(root: string): Promise<number> {
+  // Honour a manual tray "End": a live entry with autoStart:false suppresses the
+  // cold-start respin until the next explicit Start. (Moved here from the
+  // framework driver so every caller — driver, Hub, bin — honours the tray End.)
+  if (findByRoot(root)?.autoStart === false) {
+    console.error("[console] start: manual tray End — skipping respin");
+    return 0;
+  }
   const url = await ensureRunning(root);
   if (!url) return 1;
   const settings = readSettings();
@@ -213,7 +259,8 @@ export async function main(argv: string[]): Promise<number> {
 
 // Run only when executed directly (not when imported by tests).
 const invokedDirectly =
-  !!process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  !!process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invokedDirectly) {
   void main(process.argv).then((code) => process.exit(code));
 }

@@ -9,7 +9,13 @@
  */
 
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, rmSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -35,9 +41,15 @@ const {
   assignPort,
   entryMtimeMs,
   isHeartbeatStale,
+  hubLockPath,
+  hubAlive,
 } = await import("../src/server/hub/registry.js");
 
-function makeEntry(port: number, root: string, over: Record<string, unknown> = {}) {
+function makeEntry(
+  port: number,
+  root: string,
+  over: Record<string, unknown> = {},
+) {
   return {
     schemaVersion: 1 as const,
     project: projectName(root),
@@ -139,6 +151,31 @@ describe("heartbeat / reaper helpers", () => {
     const grace = 60_000;
     expect(isHeartbeatStale(now - 30_000, grace, now)).toBe(false); // 30s old, 60s grace
     expect(isHeartbeatStale(now - 90_000, grace, now)).toBe(true); // 90s old → stale
+  });
+});
+
+describe("hubAlive — tray Hub pid-lock liveness (launcher's ensureHub gate)", () => {
+  it("false when no hub.lock exists", () => {
+    expect(hubLockPath()).toBe(join(stateDir, "hub.lock"));
+    expect(hubAlive()).toBe(false);
+  });
+
+  it("true when the lock holds a live pid (this test process)", () => {
+    mkdirSync(userStateDir(), { recursive: true });
+    writeFileSync(hubLockPath(), String(process.pid), "utf8");
+    expect(hubAlive()).toBe(true);
+  });
+
+  it("false when the lock holds a dead pid", () => {
+    mkdirSync(userStateDir(), { recursive: true });
+    writeFileSync(hubLockPath(), "999999999", "utf8"); // no such process → ESRCH
+    expect(hubAlive()).toBe(false);
+  });
+
+  it("false when the lock is malformed (non-numeric)", () => {
+    mkdirSync(userStateDir(), { recursive: true });
+    writeFileSync(hubLockPath(), "not-a-pid", "utf8");
+    expect(hubAlive()).toBe(false);
   });
 });
 

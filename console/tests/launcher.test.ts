@@ -21,12 +21,10 @@ function freshStateDir(): string {
   return d;
 }
 
-const { readArg, stop, open, restart, cockpitUrl } = await import(
-  "../src/server/hub/launcher.js"
-);
-const { registerConsole, findByRoot } = await import(
-  "../src/server/hub/registry.js"
-);
+const { readArg, start, stop, open, restart, cockpitUrl } =
+  await import("../src/server/hub/launcher.js");
+const { registerConsole, findByRoot } =
+  await import("../src/server/hub/registry.js");
 const { DEFAULT_SETTINGS } = await import("../src/server/hub/settings.js");
 
 beforeEach(() => {
@@ -75,6 +73,28 @@ describe("findByRoot resolution (launcher's lookup key)", () => {
   });
 });
 
+describe("start — autoStart gate (moved from the framework driver)", () => {
+  it("skips the respin (returns 0, no spawn) when the live entry has autoStart:false", async () => {
+    // A manual tray "End" sets autoStart:false; start() must honour it and bail
+    // BEFORE ensureRunning (so no server is spawned and no Hub is ensured).
+    registerConsole({
+      schemaVersion: 1,
+      project: "ended",
+      rootPath: "F:/p/ended",
+      port: 6188,
+      pid: 1,
+      version: "0.1.0",
+      startedAt: "2026-06-28T00:00:00Z",
+      shutdownToken: "t",
+      autoStart: false,
+    });
+    const code = await start("F:/p/ended");
+    expect(code).toBe(0);
+    // The entry is untouched — the gate is read-only.
+    expect(findByRoot("F:/p/ended")?.autoStart).toBe(false);
+  });
+});
+
 describe("open — exported and callable", () => {
   it("returns a number exit code (no console + bad root → starts then fails fast is out of scope here)", () => {
     // We only assert the export shape; the real open() path is live-verified.
@@ -103,6 +123,8 @@ describe("cockpitUrl — windowStyle shaping (TASK-041)", () => {
 
   it("tabbed + activePort → /shell preselecting that tab", () => {
     const s = { ...DEFAULT_SETTINGS, windowStyle: "tabbed" as const };
-    expect(cockpitUrl(base, s, 6121)).toBe("http://127.0.0.1:6120/shell?active=6121");
+    expect(cockpitUrl(base, s, 6121)).toBe(
+      "http://127.0.0.1:6120/shell?active=6121",
+    );
   });
 });

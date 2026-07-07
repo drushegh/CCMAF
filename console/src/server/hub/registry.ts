@@ -73,6 +73,35 @@ export function userStateDir(): string {
   }
 }
 
+/**
+ * The tray Hub's singleton pid-lockfile. The Hub owns/writes it (hub.ts); the
+ * launcher READS it (via `hubAlive()`) to decide whether to spawn a Hub. Kept
+ * here, next to `userStateDir()`, so both the Hub and the launcher agree on the
+ * path without a cross-import.
+ */
+export function hubLockPath(): string {
+  return join(userStateDir(), "hub.lock");
+}
+
+/**
+ * True if a tray Hub is currently live (its `hub.lock` pid answers a signal-0
+ * probe). `EPERM` counts as alive (a process we can't signal still exists);
+ * absent lock / dead pid / malformed file → false. Used by the launcher's
+ * ensureHub to spawn a Hub only when none is running.
+ */
+export function hubAlive(): boolean {
+  try {
+    const lock = hubLockPath();
+    if (!existsSync(lock)) return false;
+    const pid = Number(readFileSync(lock, "utf8").trim());
+    if (!Number.isFinite(pid)) return false;
+    process.kill(pid, 0); // throws (ESRCH) if the pid is dead
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 export function registryDir(): string {
   return join(userStateDir(), "registry");
 }
@@ -146,7 +175,9 @@ export function findByRoot(rootPath: string): RegistryEntry | null {
 /** Read one entry by port (null if absent/malformed). */
 export function readEntry(port: number): RegistryEntry | null {
   try {
-    const e = JSON.parse(readFileSync(entryPath(port), "utf8")) as RegistryEntry;
+    const e = JSON.parse(
+      readFileSync(entryPath(port), "utf8"),
+    ) as RegistryEntry;
     return e && typeof e.port === "number" ? e : null;
   } catch {
     return null;
