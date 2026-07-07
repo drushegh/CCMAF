@@ -4,6 +4,11 @@
 @import "./live.css";
 @import "./kanban-dnd.css";
 @import "./card-detail.css";
+@import "./palette.css";
+@import "./docpage.css";
+@import "./skeleton.css";
+@import "./swimlane.css";
+@import "./inbox.css";
 
 /* ============================================================
    Project Console — global styles

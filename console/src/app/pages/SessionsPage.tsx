@@ -24,7 +24,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
+  GanttChart,
   Keyboard,
+  MessageSquare,
   Network,
   PanelRightOpen,
   RefreshCw,
@@ -44,6 +46,9 @@ import {
 import { useAsync, LoadingState, ErrorState } from "./lib";
 import { NavRail, agentCycleOrder, isLiveSession } from "../sessions/NavRail";
 import { ConversationPane } from "../sessions/ConversationPane";
+import SwimlaneTimeline, {
+  type TurnAnchor,
+} from "../sessions/SwimlaneTimeline";
 import { ToolRail } from "../sessions/ToolRail";
 import { SearchOverlay } from "../sessions/SearchOverlay";
 import { useConversation } from "../sessions/useConversation";
@@ -86,6 +91,35 @@ function useLastReady<T>(phase: string, data: T | undefined): T | undefined {
   return phase === "ready" ? data : ref.current;
 }
 
+/* ── Nav-rail collapse persistence (BUG-017) ──
+   sessionStorage (not localStorage): collapse is a working-set gesture — a
+   fresh tab starts expanded, day labels ("Today"…) shift overnight anyway. */
+const COLLAPSED_SESSIONS_KEY = "sess-nav-collapsed-sessions";
+const COLLAPSED_DAYS_KEY = "sess-nav-collapsed-days";
+
+function readStoredSet(key: string): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (raw) {
+      const arr = JSON.parse(raw) as unknown;
+      if (Array.isArray(arr)) {
+        return new Set(arr.filter((x): x is string => typeof x === "string"));
+      }
+    }
+  } catch {
+    /* storage unavailable / corrupt — start expanded */
+  }
+  return new Set();
+}
+
+function persistStoredSet(key: string, set: Set<string>): void {
+  try {
+    sessionStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    /* ignore persistence failure */
+  }
+}
+
 export function SessionsPage() {
   const params = useParams<{ sessionId?: string; agentId?: string }>();
   const navigate = useNavigate();
@@ -93,6 +127,12 @@ export function SessionsPage() {
 
   const sessionId = params.sessionId ?? null;
   const agentId = sessionId ? (params.agentId ?? "root") : null;
+
+  /* ── Center-pane mode (Conversation | Timeline, §2.8) — route-reflected as
+     ?mode=timeline; ?t=<iso> centres the timeline on a conversation turn. ── */
+  const mode =
+    searchParams.get("mode") === "timeline" ? "timeline" : "conversation";
+  const centerTs = searchParams.get("t") ?? undefined;
 
   /* ── Session list ── */
   const sessions = useAsync(fetchSessions, []);
@@ -153,6 +193,29 @@ export function SessionsPage() {
   const [cursorKey, setCursorKey] = useState<string | null>(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [deepLinkMiss, setDeepLinkMiss] = useState(false);
+
+  /* ── Nav-rail collapse state (BUG-017) — owned here, rendered by NavRail ── */
+  const [collapsedSessions, setCollapsedSessions] = useState<Set<string>>(() =>
+    readStoredSet(COLLAPSED_SESSIONS_KEY),
+  );
+  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(() =>
+    readStoredSet(COLLAPSED_DAYS_KEY),
+  );
+  useEffect(() => {
+    persistStoredSet(COLLAPSED_SESSIONS_KEY, collapsedSessions);
+  }, [collapsedSessions]);
+  useEffect(() => {
+    persistStoredSet(COLLAPSED_DAYS_KEY, collapsedDays);
+  }, [collapsedDays]);
+  /** Selecting a session implies interest — clear its collapsed flag. */
+  const expandSession = useCallback((id: string) => {
+    setCollapsedSessions((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     setRailFilter("all");
@@ -248,6 +311,42 @@ export function SessionsPage() {
     void conv.loadEarlier();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnParam, conv.loadEarlier]);
+
+  /* ── Center-pane mode switch (Conversation ⇄ Timeline, §2.8) ── */
+  const setMode = useCallback(
+    (next: "conversation" | "timeline") => {
+      const nextParams = new URLSearchParams(searchParams);
+      if (next === "timeline") {
+        nextParams.set("mode", "timeline");
+        // Cursor-sync: entering Timeline from a ?turn= anchor centres on that
+        // turn's timestamp (?t=); otherwise the timeline opens un-centred.
+        const anchor = turnParam
+          ? conv.turns.find((t) => t.uuid === turnParam)
+          : undefined;
+        if (anchor?.timestamp) nextParams.set("t", anchor.timestamp);
+        else nextParams.delete("t");
+      } else {
+        nextParams.delete("mode");
+        nextParams.delete("t");
+      }
+      setSearchParams(nextParams, { replace: true });
+    },
+    [searchParams, setSearchParams, turnParam, conv.turns],
+  );
+
+  /** Timeline tick/bar click → Conversation mode at that turn (existing deep-
+      link chase + flash). turnUuid null (bar click) → the agent's tail. */
+  const onTimelineJump = useCallback(
+    ({ agentId: jumpAgentId, turnUuid }: TurnAnchor) => {
+      if (!sessionId) return;
+      navigate(
+        turnUuid
+          ? `/sessions/${sessionId}/${jumpAgentId}?turn=${encodeURIComponent(turnUuid)}`
+          : `/sessions/${sessionId}/${jumpAgentId}`,
+      );
+    },
+    [navigate, sessionId],
+  );
 
   /* ── Highlight helpers (fade after a beat) ── */
   const rowFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -643,7 +742,7 @@ export function SessionsPage() {
         <div className="sess-actions">
           <span
             className="sess-kbd-hint"
-            title="Keyboard: j/k rows · [ ] agents · t tool rail · e expand · / search · Esc"
+            title="Keyboard: j/k rows · [ ] agents (newest first) · ←/→ collapse/expand session · t tool rail · e expand · / search · Esc"
           >
             <Keyboard size={12} aria-hidden="true" />
             j/k · [ ] · t · e · /
@@ -683,77 +782,121 @@ export function SessionsPage() {
           tree={treeData}
           treeLoading={tree.phase === "loading"}
           subtitles={subtitles}
-          onSelectSession={(id) =>
-            id !== sessionId && navigate(`/sessions/${id}/root`)
-          }
+          collapsedSessions={collapsedSessions}
+          collapsedDays={collapsedDays}
+          onSelectSession={(id) => {
+            if (id === sessionId) return;
+            expandSession(id); // selection implies interest — auto-expand
+            navigate(`/sessions/${id}/root`);
+          }}
           onSelectAgent={(sid, aid) =>
             (sid !== sessionId || aid !== agentId) &&
             navigate(`/sessions/${sid}/${aid}`)
           }
+          onToggleSessionCollapsed={(id) => toggleIn(setCollapsedSessions, id)}
+          onToggleDayCollapsed={(label) => toggleIn(setCollapsedDays, label)}
         />
 
         <div className="sess-center">
-          {deepLinkMiss && (
-            <div className="sess-deeplink-note" role="status">
-              {conv.hasMore ? (
-                <>
-                  That turn isn't in the loaded range yet.
-                  <button
-                    type="button"
-                    className="sess-expand-btn"
-                    onClick={resumeChase}
-                  >
-                    Keep loading earlier turns
-                  </button>
-                </>
-              ) : (
-                <>That turn isn't in this agent's transcript.</>
-              )}
+          {sessionId && (
+            <div
+              className="sess-mode-switch"
+              role="tablist"
+              aria-label="Center pane view"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "conversation" ? "true" : "false"}
+                className={`sess-mode-tab${mode === "conversation" ? " is-active" : ""}`}
+                onClick={() => setMode("conversation")}
+              >
+                <MessageSquare size={12} aria-hidden="true" />
+                Conversation
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === "timeline" ? "true" : "false"}
+                className={`sess-mode-tab${mode === "timeline" ? " is-active" : ""}`}
+                onClick={() => setMode("timeline")}
+              >
+                <GanttChart size={12} aria-hidden="true" />
+                Timeline
+              </button>
             </div>
           )}
-          {conv.phase === "error" ? (
-            <ErrorState error={conv.error!} onRetry={conv.reload} />
-          ) : conv.phase === "loading" ? (
-            <LoadingState label="Loading conversation…" />
-          ) : model.rows.length === 0 ? (
-            <EmptyState
-              icon={<Network size={22} />}
-              title="Empty transcript"
-              description="This agent has no displayable turns yet."
+          {mode === "timeline" && sessionId ? (
+            <SwimlaneTimeline
+              sessionId={sessionId}
+              initialCenterTs={centerTs}
+              onJumpToTurn={onTimelineJump}
             />
           ) : (
-            <ConversationPane
-              ref={convoListRef}
-              rows={model.rows}
-              ledger={model.ledger}
-              agentId={agentId ?? "root"}
-              agentType={conv.agentType}
-              description={conv.description}
-              model={conv.model}
-              loadedCount={conv.turns.length}
-              total={conv.total}
-              live={!!live}
-              hasMore={conv.hasMore}
-              loadingEarlier={conv.loadingEarlier}
-              follow={follow}
-              unseenCount={follow ? 0 : conv.unseenCount}
-              gapBehindLive={conv.gapBehindLive}
-              expandedGroups={expandedGroups}
-              expandedPrompts={expandedPrompts}
-              expandedThinking={expandedThinking}
-              highlightKey={highlightRowKey}
-              cursorKey={cursorKey}
-              markedKey={markedKey}
-              onLoadEarlier={() => void conv.loadEarlier()}
-              onToggleGroup={(k) => toggleIn(setExpandedGroups, k)}
-              onTogglePrompt={(k) => toggleIn(setExpandedPrompts, k)}
-              onToggleThinking={(k) => toggleIn(setExpandedThinking, k)}
-              onChipJump={onChipJump}
-              onCallJump={onCallJump}
-              onJumpToLatest={onJumpToLatest}
-              onAtBottomChange={onAtBottomChange}
-              onRowClick={setCursorKey}
-            />
+            <>
+              {deepLinkMiss && (
+                <div className="sess-deeplink-note" role="status">
+                  {conv.hasMore ? (
+                    <>
+                      That turn isn't in the loaded range yet.
+                      <button
+                        type="button"
+                        className="sess-expand-btn"
+                        onClick={resumeChase}
+                      >
+                        Keep loading earlier turns
+                      </button>
+                    </>
+                  ) : (
+                    <>That turn isn't in this agent's transcript.</>
+                  )}
+                </div>
+              )}
+              {conv.phase === "error" ? (
+                <ErrorState error={conv.error!} onRetry={conv.reload} />
+              ) : conv.phase === "loading" ? (
+                <LoadingState label="Loading conversation…" />
+              ) : model.rows.length === 0 ? (
+                <EmptyState
+                  icon={<Network size={22} />}
+                  title="Empty transcript"
+                  description="This agent has no displayable turns yet."
+                />
+              ) : (
+                <ConversationPane
+                  ref={convoListRef}
+                  rows={model.rows}
+                  ledger={model.ledger}
+                  agentId={agentId ?? "root"}
+                  agentType={conv.agentType}
+                  description={conv.description}
+                  model={conv.model}
+                  loadedCount={conv.turns.length}
+                  total={conv.total}
+                  live={!!live}
+                  hasMore={conv.hasMore}
+                  loadingEarlier={conv.loadingEarlier}
+                  follow={follow}
+                  unseenCount={follow ? 0 : conv.unseenCount}
+                  gapBehindLive={conv.gapBehindLive}
+                  expandedGroups={expandedGroups}
+                  expandedPrompts={expandedPrompts}
+                  expandedThinking={expandedThinking}
+                  highlightKey={highlightRowKey}
+                  cursorKey={cursorKey}
+                  markedKey={markedKey}
+                  onLoadEarlier={() => void conv.loadEarlier()}
+                  onToggleGroup={(k) => toggleIn(setExpandedGroups, k)}
+                  onTogglePrompt={(k) => toggleIn(setExpandedPrompts, k)}
+                  onToggleThinking={(k) => toggleIn(setExpandedThinking, k)}
+                  onChipJump={onChipJump}
+                  onCallJump={onCallJump}
+                  onJumpToLatest={onJumpToLatest}
+                  onAtBottomChange={onAtBottomChange}
+                  onRowClick={setCursorKey}
+                />
+              )}
+            </>
           )}
         </div>
 

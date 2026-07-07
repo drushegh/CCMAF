@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { useTheme } from "../useTheme";
 import { AccentPicker } from "./AccentPicker";
+import { InboxFlyout } from "./InboxFlyout";
+import { CommandPalette, buildProjectSources } from "./CommandPalette";
 
 interface NavItem {
   to: string;
@@ -109,6 +111,25 @@ export function Shell() {
   const { theme, toggle } = useTheme();
   const location = useLocation();
 
+  // ── ⌘K command palette (CONSOLE-V2-DESIGN.md §2.10, TASK-103) ──
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const paletteSources = useMemo(() => buildProjectSources(), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        !e.altKey &&
+        e.key.toLowerCase() === "k"
+      ) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const currentPage = NAV_ITEMS.find((item) =>
     location.pathname.startsWith(item.to),
   );
@@ -142,6 +163,7 @@ export function Shell() {
         </div>
 
         <div className="console-header-right">
+          <InboxFlyout />
           <AccentPicker />
           <button
             type="button"
@@ -215,6 +237,14 @@ export function Shell() {
           <span>Console</span>
         </div>
       </footer>
+
+      {/* ── ⌘K command palette (overlay; renders nothing while closed) ── */}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        sources={paletteSources}
+        onToggleTheme={toggle}
+      />
     </div>
   );
 }

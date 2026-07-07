@@ -20,13 +20,25 @@ import {
   AlertCircle,
   Ban,
   ArrowRight,
+  ChevronDown,
   ExternalLink,
   Layers,
   Bug,
 } from "lucide-react";
 import { PageLayout, EmptyState } from "../components/PageLayout";
-import { fetchTasks, type Lane, type TaskBoardColumn, type TaskItem, type TaskBoard } from "../api/state";
-import { useAsync, LoadingState, ErrorState } from "./lib";
+import {
+  fetchTasks,
+  type Lane,
+  type TaskBoardColumn,
+  type TaskItem,
+  type TaskBoard,
+} from "../api/state";
+import { useAsync, useLastReady, ErrorState } from "./lib";
+import {
+  SkeletonGroup,
+  SkeletonLine,
+  SkeletonCard,
+} from "../components/Skeleton";
 import { CardDetailPanel } from "../components/CardDetailPanel";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import {
@@ -42,7 +54,10 @@ import "../../styles/kanban-dnd.css";
 
 type ColorKey = "active" | "review" | "todo" | "done" | "blocked";
 
-function columnStyle(status: string): { colorKey: ColorKey; icon: React.ReactNode } {
+function columnStyle(status: string): {
+  colorKey: ColorKey;
+  icon: React.ReactNode;
+} {
   const s = status.toLowerCase();
   if (s.includes("in progress") || s.includes("fixing")) {
     return { colorKey: "active", icon: <Clock size={12} /> };
@@ -170,6 +185,53 @@ function TaskCard({ task, onOpenDetail }: TaskCardProps) {
   );
 }
 
+// ── Done-lane cap (v2 §5.6, TASK-106) ────────────────────────────────────────
+// Done is an archive, not work: rendering every card ever finished put 60+ DOM
+// cards of pure history on the board. Cap the Done column (both lanes) at the
+// NEWEST 25 full cards; the rest sit behind a terminal "Show all N →" card and,
+// when revealed, render as plain text rows (no per-card buttons) — cheaper and
+// visually de-emphasised, which is honest. (Virtualise only if a project ever
+// exceeds ~300 — deliberately not pre-engineered.)
+
+const DONE_CAP = 25;
+
+/** Numeric part of a task id (TASK-9 < TASK-10); non-numeric ids sort oldest. */
+function taskIdNum(id: string): number {
+  const m = /-(\d+)\s*$/.exec(id);
+  return m ? parseInt(m[1], 10) : -1;
+}
+
+/**
+ * Split a Done column's (already filtered/sorted) items into the newest-25
+ * card set and the older overflow — both preserving the caller's display
+ * order. Exported for tests.
+ */
+export function splitDoneItems<T extends { id: string }>(
+  items: T[],
+): { cards: T[]; overflow: T[] } {
+  if (items.length <= DONE_CAP) return { cards: items, overflow: [] };
+  const newest = new Set(
+    [...items]
+      .sort((a, b) => taskIdNum(b.id) - taskIdNum(a.id))
+      .slice(0, DONE_CAP)
+      .map((t) => t.id),
+  );
+  return {
+    cards: items.filter((t) => newest.has(t.id)),
+    overflow: items.filter((t) => !newest.has(t.id)),
+  };
+}
+
+/** Archived-history row: id + title only, no interactive chrome. */
+function PlainTaskRow({ task }: { task: TaskItem }) {
+  return (
+    <div className="task-row-plain" data-testid={`task-row-${task.id}`}>
+      <code className="task-row-plain-id">{task.id}</code>
+      <span className="task-row-plain-title">{task.title}</span>
+    </div>
+  );
+}
+
 // ── Column ───────────────────────────────────────────────────────────────────
 
 interface ColumnProps {
@@ -183,12 +245,40 @@ function Column({ column, filter, onOpenDetail }: ColumnProps) {
   // Apply the active filter/sort to this column's cards. The header count
   // reflects what's actually visible.
   const items = filterAndSortTasks(column.items, filter);
+
+  // §5.6: Done columns cap at the newest 25 cards until expanded in place.
+  const [showAllDone, setShowAllDone] = useState(false);
+  const { cards, overflow } =
+    colorKey === "done"
+      ? splitDoneItems(items)
+      : { cards: items, overflow: [] };
+
+  // §5.5 (≤720px accordion): each status section is collapsible; In Progress /
+  // Fixing start expanded. The class only takes effect inside the ≤720px media
+  // query (kanban-dnd.css) — desktop layouts ignore it entirely.
+  const [accCollapsed, setAccCollapsed] = useState(colorKey !== "active");
+
   return (
-    <div className="kanban-column">
+    <div
+      className={`kanban-column${accCollapsed ? " kanban-column--acc-collapsed" : ""}`}
+    >
       <div className={`kanban-column-header kanban-column-header--${colorKey}`}>
         <span className="kanban-column-icon">{icon}</span>
         <span className="kanban-column-status">{column.status}</span>
         <span className="kanban-column-count">{items.length}</span>
+        <button
+          type="button"
+          className="kanban-acc-toggle"
+          aria-expanded={accCollapsed ? "false" : "true"}
+          aria-label={`${accCollapsed ? "Expand" : "Collapse"} ${column.status} column`}
+          onClick={() => setAccCollapsed((c) => !c)}
+        >
+          <ChevronDown
+            size={14}
+            className="kanban-acc-chevron"
+            aria-hidden="true"
+          />
+        </button>
       </div>
       <div
         className="kanban-column-body"
@@ -197,9 +287,24 @@ function Column({ column, filter, onOpenDetail }: ColumnProps) {
         {items.length === 0 ? (
           <div className="kanban-column-empty">—</div>
         ) : (
-          items.map((t) => (
-            <TaskCard key={t.id} task={t} onOpenDetail={onOpenDetail} />
-          ))
+          <>
+            {cards.map((t) => (
+              <TaskCard key={t.id} task={t} onOpenDetail={onOpenDetail} />
+            ))}
+            {overflow.length > 0 &&
+              (showAllDone ? (
+                overflow.map((t) => <PlainTaskRow key={t.id} task={t} />)
+              ) : (
+                <button
+                  type="button"
+                  className="kanban-showall-card"
+                  onClick={() => setShowAllDone(true)}
+                >
+                  Show all {items.length}{" "}
+                  <ArrowRight size={12} aria-hidden="true" />
+                </button>
+              ))}
+          </>
         )}
       </div>
     </div>
@@ -218,7 +323,9 @@ interface LaneBoardProps {
 function LaneBoard({ lane, columns, filter, onOpenDetail }: LaneBoardProps) {
   const laneColumns = sortColumns(columns.filter((c) => c.lane === lane));
   if (laneColumns.length === 0) {
-    return <div className="kanban-lane-empty">No columns in this lane yet.</div>;
+    return (
+      <div className="kanban-lane-empty">No columns in this lane yet.</div>
+    );
   }
   return (
     <div className="kanban-board">
@@ -273,21 +380,46 @@ interface OpenPanel {
   openerElement: HTMLElement;
 }
 
+// First-load ghost of the board shape (v2 §5.2): three column ghosts with a
+// few card ghosts each. Refetches never show this — useLastReady keeps the
+// previous board on screen.
+function KanbanSkeleton() {
+  return (
+    <SkeletonGroup label="Loading task board">
+      <div className="skeleton-kanban">
+        {Array.from({ length: 3 }, (_, col) => (
+          <div key={col} className="skeleton-kanban-column">
+            <SkeletonLine width="55%" />
+            <SkeletonCard lines={1} />
+            <SkeletonCard lines={2} />
+            <SkeletonCard lines={1} />
+          </div>
+        ))}
+      </div>
+    </SkeletonGroup>
+  );
+}
+
 export function KanbanPage() {
   const { phase, data, error, reload } = useAsync(fetchTasks, []);
+  // §5.2: keep the last board across SSE refetches (useAsync flips to
+  // "loading" on every disk change; without this the whole board flashed).
+  const lastBoard = useLastReady(phase, data);
 
   // Optimistic overlay so a status change from the popout reflects immediately.
-  const [optimisticBoard, setOptimisticBoard] = useState<TaskBoard | null>(null);
+  const [optimisticBoard, setOptimisticBoard] = useState<TaskBoard | null>(
+    null,
+  );
   const [openPanel, setOpenPanel] = useState<OpenPanel | null>(null);
   // Initial lane can be deep-linked (e.g. the dashboard "Open Bugs" tile →
   // /kanban?lane=bug). Defaults to the feature lane.
   const [searchParams] = useSearchParams();
   const [selectedLane, setSelectedLane] = useState<Lane>(
-    searchParams.get("lane") === "bug" ? "bug" : "feature"
+    searchParams.get("lane") === "bug" ? "bug" : "feature",
   );
   const [filter, setFilter] = useState<FilterState>(DEFAULT_FILTER);
 
-  const board = optimisticBoard ?? (phase === "ready" ? data : null);
+  const board = optimisticBoard ?? lastBoard ?? null;
 
   // CRITICAL fix (mirrors VerifyViewer.tsx's "CRITICAL fix #1"): once a fresh,
   // authoritative board actually lands (`phase === "ready"` with new `data`),
@@ -312,9 +444,12 @@ export function KanbanPage() {
           .reduce((n, c) => n + c.items.length, 0)
       : 0;
 
-  const handleOpenDetail = useCallback((task: TaskItem, opener: HTMLElement) => {
-    setOpenPanel({ task, openerElement: opener });
-  }, []);
+  const handleOpenDetail = useCallback(
+    (task: TaskItem, opener: HTMLElement) => {
+      setOpenPanel({ task, openerElement: opener });
+    },
+    [],
+  );
 
   const handleClosePanel = useCallback(() => {
     setOpenPanel(null);
@@ -351,8 +486,10 @@ export function KanbanPage() {
       subtitle="Click a card to verify it, or open its details — reads .claude/TASKS.md"
       badge="TASKS.md"
     >
-      {phase === "loading" && !board && <LoadingState label="Loading task board…" />}
-      {phase === "error" && !board && <ErrorState error={error} onRetry={reload} />}
+      {phase === "loading" && !board && <KanbanSkeleton />}
+      {phase === "error" && !board && (
+        <ErrorState error={error} onRetry={reload} />
+      )}
 
       {board &&
         (board.columns.length === 0 ? (
@@ -362,7 +499,11 @@ export function KanbanPage() {
           />
         ) : (
           <>
-            <div className="kanban-lane-tabs" role="tablist" aria-label="Task lane">
+            <div
+              className="kanban-lane-tabs"
+              role="tablist"
+              aria-label="Task lane"
+            >
               <button
                 type="button"
                 role="tab"
@@ -372,7 +513,9 @@ export function KanbanPage() {
               >
                 <Layers size={14} aria-hidden="true" />
                 Feature Lane
-                <span className="kanban-lane-tab-count">{laneItemCount("feature")}</span>
+                <span className="kanban-lane-tab-count">
+                  {laneItemCount("feature")}
+                </span>
               </button>
               <button
                 type="button"
@@ -383,7 +526,9 @@ export function KanbanPage() {
               >
                 <Bug size={14} aria-hidden="true" />
                 Bug-Fix Lane
-                <span className="kanban-lane-tab-count">{laneItemCount("bug")}</span>
+                <span className="kanban-lane-tab-count">
+                  {laneItemCount("bug")}
+                </span>
               </button>
             </div>
 

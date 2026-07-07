@@ -63,6 +63,8 @@ export interface StateDoc {
   key: string;
   exists: boolean;
   markdown: string;
+  /** File mtime (ms epoch) for the DocPage "Last updated" meta row (TASK-106 §5.1). Absent when the file is. */
+  mtimeMs?: number;
 }
 
 export interface VerifyRef {
@@ -186,9 +188,18 @@ export interface SessionSummary {
   gitBranch: string | null;
   /** Snippet of the first real user prompt (command/caveat XML skipped). */
   firstPrompt: string | null;
-  /** Claude Code's own session label (`ai-title`/`summary` line) when present. */
+  /** Display label: a manual editor rename (`custom-title` line) when one
+   *  exists, else Claude Code's own label (`ai-title`/`summary` line). */
   title: string | null;
+  /** Which ladder rung the display label rides (§4.3): "rename" = manual
+   *  editor rename; "summary" = ai-title/summary line; "prompt" = firstPrompt
+   *  fallback; "id" = last resort. Optional for wire back-compat. */
+  titleSource?: SessionTitleSource;
 }
+
+/** Source of a SessionSummary's display label — see the title-source ladder
+ *  in transcript-parser.listSessions (§4.3 rename-aware titles). */
+export type SessionTitleSource = "rename" | "summary" | "prompt" | "id";
 
 export type AgentStatus = "running" | "done";
 
@@ -319,4 +330,32 @@ export interface HookMetrics {
 
 export interface TelemetrySummary extends HookMetrics {
   lastSession: LastSessionInfo | null;
+}
+
+// ── TASK-109: Needs-you attention aggregator (CONSOLE-V2-DESIGN.md S3) ────────
+
+/** Source kind of an AttentionItem (S3). */
+export type AttentionKind =
+  "verify" | "decision" | "doctor" | "bug" | "update" | "review";
+
+/**
+ * One ranked "needs a human" item — GET /api/attention (S3; feature #9 inbox,
+ * #6 ticker zone B, Hub toasts per plan §4c).
+ */
+export interface AttentionItem {
+  kind: AttentionKind;
+  /**
+   * Computed: P0 bug=0, doctor CRITICAL=1, verify=2, P1 bug=3,
+   * flagged decision=4, review criticals=5, update=6 (+age tiebreak —
+   * within a rank, older `since` first).
+   */
+  rank: number;
+  title: string;
+  detail: string;
+  /** In-project SPA route (contract:console-deep-links grammar). */
+  link: string;
+  /** e.g. pending items in a verify seed / open review criticals. */
+  count?: number;
+  /** ISO — drives "waiting 2d" chips. Null when the source has no timestamp. */
+  since: string | null;
 }

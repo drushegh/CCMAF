@@ -27,7 +27,6 @@ import {
   CheckSquare,
   CheckCircle2,
   CheckCircle,
-  Clock,
   AlertCircle,
   AlertTriangle,
   TrendingUp,
@@ -45,10 +44,16 @@ import {
   Layers,
   Compass,
   GitBranch,
-  Gauge,
+  Target,
 } from "lucide-react";
 
-import { useAsync, LoadingState, ErrorState } from "./lib.js";
+import { useAsync, useLastReady, ErrorState } from "./lib.js";
+import {
+  SkeletonGroup,
+  SkeletonTile,
+  SkeletonCard,
+  SkeletonLine,
+} from "../components/Skeleton.js";
 import { fetchDashboard } from "../api/dashboard.js";
 import type { DashboardSummary, VerifyRef } from "../api/dashboard.js";
 import {
@@ -75,7 +80,8 @@ import type {
  * health %: filtering test output or skipping a no-op format is NOT a problem,
  * so those don't count against a hook. Only real adverse signals do.
  */
-const ADVERSE_OUTCOME = /block|fail|error|flag|reject|drift-detected|stop_blocked/i;
+const ADVERSE_OUTCOME =
+  /block|fail|error|flag|reject|drift-detected|stop_blocked/i;
 
 interface HookHealth {
   pct: number;
@@ -86,11 +92,11 @@ interface HookHealth {
 
 function hookHealth(
   outcomes: Record<string, number>,
-  declaredTotal: number
+  declaredTotal: number,
 ): HookHealth {
   const adverse = Object.entries(outcomes).reduce(
     (s, [k, v]) => (ADVERSE_OUTCOME.test(k) ? s + v : s),
-    0
+    0,
   );
   const total =
     declaredTotal || Object.values(outcomes).reduce((a, b) => a + b, 0) || 1;
@@ -172,68 +178,99 @@ function Section({
   );
 }
 
-// ── Hero status pills ─────────────────────────────────────────────────────────
+// ── Context strip (v2 §5.3, TASK-106) ─────────────────────────────────────────
+// Replaces the ~230px dashboard-hero: the header already names the project, so
+// the hero's only unique payload was the sprint goal. One 56px row now carries
+// it plus the framework-state chips (branch / update / doctor) and the spec
+// link — vitals and the handback queue rise above the fold at 800px height.
+// The old hero-stats "N tasks · N contracts" pill was redundant with the tiles
+// directly below and is gone. All values remain real `.claude/` state.
 
-function HeroStat({
+function ContextChip({
   label,
   value,
   icon,
-  tone,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
   icon: React.ReactNode;
-  tone: "ok" | "warn" | "neutral";
+  tone?: "ok" | "warn" | "neutral";
 }) {
   return (
-    <div className={`hero-stat hero-stat--${tone}`}>
-      <span className="hero-stat-icon">{icon}</span>
-      <span className="hero-stat-text">
-        <span className="hero-stat-label">{label}</span>
-        <span className="hero-stat-value">{value}</span>
-      </span>
-    </div>
+    <span className={`ctx-chip ctx-chip--${tone}`}>
+      <span className="ctx-chip-icon">{icon}</span>
+      <span className="ctx-chip-label">{label}</span>
+      <span className="ctx-chip-value">{value}</span>
+    </span>
   );
 }
 
-function HeroStats({ health }: { health: FrameworkHealth | null }) {
-  if (!health) return null;
-  const nominal = health.doctorClean && !health.updateAvailable;
+function ContextStrip({
+  sprintGoal,
+  currentSpec,
+  health,
+}: {
+  sprintGoal: string | null;
+  currentSpec: string | null;
+  health: FrameworkHealth | null;
+}) {
+  const goal =
+    sprintGoal && sprintGoal.length > 160
+      ? sprintGoal.slice(0, 160).trimEnd() + "…"
+      : sprintGoal;
   return (
-    <div className="hero-stats">
-      <HeroStat
-        label="Branch"
-        value={health.version ?? "—"}
-        icon={<GitBranch size={13} />}
-        tone="neutral"
-      />
-      {health.updateAvailable ? (
-        <HeroStat
-          label="Update"
-          value="available"
-          icon={<ArrowUp size={13} />}
-          tone="warn"
-        />
-      ) : (
-        <HeroStat
-          label="Framework"
-          value="up to date"
-          icon={<CheckCircle size={13} />}
-          tone="ok"
-        />
-      )}
-      <HeroStat
-        label="Doctor"
-        value={health.doctorClean ? "clean" : "findings"}
-        icon={<ShieldCheck size={13} />}
-        tone={health.doctorClean ? "ok" : "warn"}
-      />
-      <HeroStat
-        label="Health"
-        value={nominal ? "all systems nominal" : "needs attention"}
-        icon={<Gauge size={13} />}
-        tone={nominal ? "ok" : "warn"}
-      />
+    <div className="dashboard-context-strip">
+      <span className="ctx-goal" title={sprintGoal ?? undefined}>
+        <Target size={13} className="ctx-goal-icon" aria-hidden="true" />
+        <span className={`ctx-goal-text${goal ? "" : " ctx-goal-text--empty"}`}>
+          {goal ?? "No sprint goal set"}
+        </span>
+      </span>
+      <span className="ctx-chips">
+        {health?.version && (
+          <ContextChip
+            label="Branch"
+            value={health.version}
+            icon={<GitBranch size={12} />}
+          />
+        )}
+        {health &&
+          (health.updateAvailable ? (
+            <ContextChip
+              label="Update"
+              value="available"
+              icon={<ArrowUp size={12} />}
+              tone="warn"
+            />
+          ) : (
+            <ContextChip
+              label="Framework"
+              value="up to date"
+              icon={<CheckCircle size={12} />}
+              tone="ok"
+            />
+          ))}
+        {health && (
+          <ContextChip
+            label="Doctor"
+            value={health.doctorClean ? "clean" : "findings"}
+            icon={<ShieldCheck size={12} />}
+            tone={health.doctorClean ? "ok" : "warn"}
+          />
+        )}
+        {currentSpec && (
+          <Link
+            to={`/spec/${encodeURIComponent(currentSpec)}`}
+            className="ctx-chip ctx-chip--link"
+          >
+            <span className="ctx-chip-icon">
+              <FileText size={12} />
+            </span>
+            <span className="ctx-chip-value">{currentSpec}</span>
+          </Link>
+        )}
+      </span>
     </div>
   );
 }
@@ -247,8 +284,8 @@ function HandbackQueue({ items }: { items: VerifyRef[] }) {
         <CheckCircle2 size={32} className="handback-empty-icon" />
         <span className="handback-empty-title">No tasks awaiting verdict</span>
         <span className="handback-empty-desc">
-          Tasks in <code>Ready for Test</code> will appear here once a
-          pass-file is written by the Tester.
+          Tasks in <code>Ready for Test</code> will appear here once a pass-file
+          is written by the Tester.
         </span>
       </div>
     );
@@ -265,7 +302,9 @@ function HandbackQueue({ items }: { items: VerifyRef[] }) {
         return (
           <li key={item.task} className="handback-queue-item">
             <Link to={`/verify/${item.task}`} className="handback-queue-link">
-              <span className={`handback-queue-bar handback-queue-bar--${state}`} />
+              <span
+                className={`handback-queue-bar handback-queue-bar--${state}`}
+              />
               <span className="handback-queue-main">
                 <span className="handback-queue-toprow">
                   <span className="handback-queue-id">{item.task}</span>
@@ -322,13 +361,15 @@ function Vitals({
   const readyForTest = sum(
     (c) =>
       c.status.toLowerCase().includes("test") &&
-      !c.status.toLowerCase().includes("ready for review")
+      !c.status.toLowerCase().includes("ready for review"),
   );
   const done = sum((c) => c.status.toLowerCase() === "done");
   // OPEN bugs only — a Done bug isn't "requires attention". (All-time bug count
   // including Done was misleading: it read "N bugs / Requires attention" even
   // when every bug was fixed.) DEC-018: honest derived data.
-  const bugsOpen = sum((c) => c.lane === "bug" && c.status.toLowerCase() !== "done");
+  const bugsOpen = sum(
+    (c) => c.lane === "bug" && c.status.toLowerCase() !== "done",
+  );
 
   const stable =
     dashboard.contractCounts.find((c) => c.status === "stable")?.n ?? 0;
@@ -341,7 +382,7 @@ function Vitals({
   const driftFires = telemetry
     ? Object.values(telemetry.by_session).reduce(
         (s, sess) => s + sess.drift_fires,
-        0
+        0,
       )
     : 0;
   const openCriticals = findings?.review.openCriticals ?? 0;
@@ -451,24 +492,10 @@ function LatestDecisions({
   );
 }
 
-// ── Sprint goal ───────────────────────────────────────────────────────────────
-
-function SprintGoal({ goal }: { goal: string | null }) {
-  if (!goal) return null;
-  const short = goal.length > 160 ? goal.slice(0, 160).trimEnd() + "…" : goal;
-  return (
-    <div className="dashboard-hero-brief">
-      <Clock size={11} className="dashboard-hero-brief-icon" />
-      <span className="dashboard-hero-brief-text">{short}</span>
-    </div>
-  );
-}
-
 // ── Framework Activity card ───────────────────────────────────────────────────
 
 function HookBadge({ status }: { status: HookHealth["status"] }) {
-  const tone =
-    status === "OK" ? "ok" : status === "WARN" ? "warn" : "alert";
+  const tone = status === "OK" ? "ok" : status === "WARN" ? "warn" : "alert";
   return <span className={`hook-badge hook-badge--${tone}`}>{status}</span>;
 }
 
@@ -561,8 +588,8 @@ function QualityCard({ findings }: { findings: FindingsSummary | null }) {
             isApproved
               ? "quality-verdict--ok"
               : findings.review.latestVerdict
-              ? "quality-verdict--warn"
-              : ""
+                ? "quality-verdict--warn"
+                : ""
           }`}
         >
           {findings.review.latestVerdict ?? "—"}
@@ -654,41 +681,14 @@ function DashboardContent({
   frameworkHealth: FrameworkHealth | null;
   suggestions: SuggestionEntry[] | null;
 }) {
-  const totalTasks = dashboard.taskCounts.reduce((s, c) => s + c.n, 0);
-  const stableContracts =
-    dashboard.contractCounts.find((c) => c.status === "stable")?.n ?? 0;
-
   return (
     <div className="dashboard">
-      {/* ── Hero row ── */}
-      <div className="dashboard-hero">
-        <div className="dashboard-hero-content">
-          <div className="dashboard-hero-icon">
-            <Activity size={22} />
-          </div>
-          <div className="dashboard-hero-text">
-            <h2 className="dashboard-hero-title">Project Console</h2>
-            <p className="dashboard-hero-desc">
-              Framework · Project state overview
-            </p>
-            <SprintGoal goal={dashboard.sprintGoal} />
-          </div>
-        </div>
-        <div className="dashboard-hero-meta">
-          <span className="dashboard-hero-phase">
-            {totalTasks} tasks · {stableContracts} contracts
-          </span>
-          {dashboard.currentSpec && (
-            <Link
-              to={`/spec/${encodeURIComponent(dashboard.currentSpec)}`}
-              className="dashboard-hero-task"
-            >
-              {dashboard.currentSpec}
-            </Link>
-          )}
-          <HeroStats health={frameworkHealth} />
-        </div>
-      </div>
+      {/* ── Context strip (v2 §5.3 — replaces the ~230px hero) ── */}
+      <ContextStrip
+        sprintGoal={dashboard.sprintGoal}
+        currentSpec={dashboard.currentSpec}
+        health={frameworkHealth}
+      />
 
       {/* ── Vitals strip (all single-number metrics; deterministic 10-tile grid) ── */}
       <Vitals
@@ -836,6 +836,24 @@ function DashboardContent({
   );
 }
 
+// First-load ghost of the page shape (v2 §5.2): context strip + the 10-tile
+// vitals grid + two section cards. Refetches never show this — useLastReady
+// keeps the previous data on screen.
+function DashboardSkeleton() {
+  return (
+    <SkeletonGroup label="Loading dashboard" className="dashboard-skeleton">
+      <SkeletonLine width="100%" />
+      <div className="skeleton-tile-grid">
+        {Array.from({ length: 10 }, (_, i) => (
+          <SkeletonTile key={i} />
+        ))}
+      </div>
+      <SkeletonCard lines={4} />
+      <SkeletonCard lines={3} />
+    </SkeletonGroup>
+  );
+}
+
 export function DashboardPage() {
   const dashboardState = useAsync(fetchDashboard);
   const telemetryState = useAsync(fetchTelemetry);
@@ -844,23 +862,39 @@ export function DashboardPage() {
   const frameworkState = useAsync(fetchFrameworkHealth);
   const suggestionsState = useAsync(fetchSuggestions);
 
-  if (dashboardState.phase === "loading") {
-    return <LoadingState label="Loading dashboard…" />;
-  }
-  if (dashboardState.phase === "error") {
-    return <ErrorState error={dashboardState.error} onRetry={dashboardState.reload} />;
-  }
+  // §5.2: keep the last ready payloads across SSE-driven refetches so a disk
+  // change never flashes the page back to its loading state.
+  const dashboard = useLastReady(dashboardState.phase, dashboardState.data);
+  const telemetry =
+    useLastReady(telemetryState.phase, telemetryState.data) ?? null;
+  const findings =
+    useLastReady(findingsState.phase, findingsState.data) ?? null;
+  const gotchas = useLastReady(gotchasState.phase, gotchasState.data) ?? null;
+  const frameworkHealth =
+    useLastReady(frameworkState.phase, frameworkState.data) ?? null;
+  const suggestions =
+    useLastReady(suggestionsState.phase, suggestionsState.data) ?? null;
 
-  // Secondary data: tolerate errors gracefully (show null/empty cards)
-  const telemetry = telemetryState.phase === "ready" ? telemetryState.data : null;
-  const findings = findingsState.phase === "ready" ? findingsState.data : null;
-  const gotchas = gotchasState.phase === "ready" ? gotchasState.data : null;
-  const frameworkHealth = frameworkState.phase === "ready" ? frameworkState.data : null;
-  const suggestions = suggestionsState.phase === "ready" ? suggestionsState.data : null;
+  if (!dashboard) {
+    // First load: skeleton while fetching; hard error with retry if it failed.
+    // (A refetch error with stale data in hand keeps rendering the last good
+    // state — that's the §5.2 rule.)
+    if (dashboardState.phase === "loading") return <DashboardSkeleton />;
+    return (
+      <ErrorState
+        error={
+          dashboardState.phase === "error"
+            ? dashboardState.error
+            : new Error("Dashboard data unavailable")
+        }
+        onRetry={dashboardState.reload}
+      />
+    );
+  }
 
   return (
     <DashboardContent
-      dashboard={dashboardState.data}
+      dashboard={dashboard}
       telemetry={telemetry}
       findings={findings}
       gotchas={gotchas}

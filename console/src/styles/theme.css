@@ -593,6 +593,45 @@
    both single-attribute blocks regardless of source order.)
    ============================================================ */
 
+/* ── Mono (noir — achromatic ground, ink accent; premium monochrome) ──
+   "Black accent" cannot mean literal black ON the dark theme (black-on-near-
+   black is invisible): Mono flips the accent to the INK POLE opposite the
+   ground — dark theme gets a silver/white accent family (reads as "black
+   theme" because the WORLD is black), light theme gets near-black ink.
+   Filled controls become white-chip-on-black / black-chip-on-white and
+   --on-accent flips accordingly (the yellow/orange accents already prove
+   this pattern). Depth comes from LUMINANCE, not hue: the aurora recomputes
+   from the graphite --p-accent-strong into a soft silver bloom and the
+   --card-sheen white gradients carry the glass. If the canvas still reads
+   dead in QA, raise --dot-grid-color to white 6.5% SCOPED TO MONO ONLY —
+   do not touch the shared value. */
+:root[data-accent="mono"] {
+  --surface-hue: 300; /* irrelevant at zero chroma; keep for var() sanity */
+  --surface-chroma-scale: 0; /* TRUE neutral ladder — the whole point */
+  --p-accent: oklch(0.87 0 0); /* silver — text/icon grade */
+  --p-accent-strong: oklch(0.62 0 0); /* graphite — fill/gradient/glow grade */
+  --p-accent-bright: oklch(0.95 0 0); /* lifted hover text */
+  --accent-fill: oklch(0.92 0 0); /* filled buttons: white chip… */
+  --accent-fill-hi: oklch(0.97 0 0);
+  --on-accent: oklch(0.18 0 0); /* …with near-black ink — ~13:1 */
+  --accent-grad-to: oklch(0.78 0 0);
+  --aurora-companion: oklch(
+    0.5 0 0
+  ); /* gray answer — the aurora survives as sheen */
+  /* No status hue sits on an achromatic accent — all four stay untouched and
+     actually gain salience against the neutral ground. */
+}
+:root[data-theme="light"][data-accent="mono"] {
+  --surface-chroma-scale: 0;
+  --p-accent: oklch(0.3 0 0); /* ink — text/icon grade on paper-white */
+  --p-accent-strong: oklch(0.4 0 0);
+  --p-accent-bright: oklch(0.2 0 0);
+  --accent-fill: oklch(0.22 0 0); /* black chip… */
+  --accent-fill-hi: oklch(0.3 0 0);
+  --on-accent: white; /* …white ink — ~14:1 */
+  --aurora-companion: oklch(0.62 0 0);
+}
+
 /* ── Blue (cobalt — deeper + more saturated than status-info's sky blue) ── */
 :root[data-accent="blue"] {
   --p-accent: oklch(0.7 0.13 252);
@@ -699,8 +738,10 @@
   --surface-hue: 80;
   --surface-chroma-scale: 0.75;
   /* warn/blocked (75 amber) sits under the gold accent (95) — nudge to a
-     clear orange (55) so warnings never read as brand chrome */
-  --status-blocked: oklch(0.74 0.14 55);
+     clear orange (55) so warnings never read as brand chrome. Chroma runs
+     ABOVE the accent's 0.14 (0.17) so warn-vs-accent-gold survives at 12px
+     pill size, where chroma perception collapses (§3.2 legibility pass). */
+  --status-blocked: oklch(0.74 0.17 55);
 }
 :root[data-theme="light"][data-accent="yellow"] {
   /* Light ladder chroma is already a whisper (0.004-0.01) — restore full

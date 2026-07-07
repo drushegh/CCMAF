@@ -26,6 +26,9 @@ export interface SessionSummary {
   gitBranch: string | null;
   firstPrompt: string | null;
   title: string | null;
+  /** §4.3 title-source ladder: "rename" = manual editor rename (rail shows
+   *  the pencil glyph); optional for back-compat with older servers. */
+  titleSource?: "rename" | "summary" | "prompt" | "id";
 }
 
 export type AgentStatus = "running" | "done";

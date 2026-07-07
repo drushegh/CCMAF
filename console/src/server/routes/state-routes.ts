@@ -22,6 +22,7 @@
  */
 
 import type { FastifyInstance, FastifyPluginAsync } from "fastify";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import { dotClaudePath, getProjectRoot } from "../project-root.js";
@@ -54,7 +55,7 @@ const STATE_DOCS: Record<string, string> = {
 };
 
 export const stateRoutes: FastifyPluginAsync = async (
-  fastify: FastifyInstance
+  fastify: FastifyInstance,
 ) => {
   // ── GET /api/tasks ──────────────────────────────────────────────────────────
   fastify.get<{ Reply: TaskBoard }>("/api/tasks", async () => {
@@ -85,7 +86,9 @@ export const stateRoutes: FastifyPluginAsync = async (
     const specsDir = dotClaudePath("framework", "docs", "specs");
     const doc = readSpecDoc(specsDir, req.params.name);
     if (doc === null) {
-      return reply.code(404).send({ error: `Spec '${req.params.name}' not found` });
+      return reply
+        .code(404)
+        .send({ error: `Spec '${req.params.name}' not found` });
     }
     return doc;
   });
@@ -120,13 +123,16 @@ export const stateRoutes: FastifyPluginAsync = async (
         reply.code(404);
         return { error: "Not found" };
       }
-    }
+    },
   );
 
   // ── GET /api/statedoc/:key ──────────────────────────────────────────────────
   // Render a whitelisted `.claude/` markdown state file (TASK-027). The key→file
   // map (STATE_DOCS) is the only resolution path — an unknown key 404s, so there
   // is no traversal surface. Reuses parseReadmeFile for the {exists, markdown} read.
+  // TASK-106 (§5.1): also reports the file's mtime so the DocPage header can say
+  // "Last updated <ago>". Best-effort — a race between read and stat (file deleted
+  // in between) simply omits the field; the client renders without it.
   fastify.get<{ Params: { key: string }; Reply: StateDoc }>(
     "/api/statedoc/:key",
     async (req, reply) => {
@@ -135,8 +141,22 @@ export const stateRoutes: FastifyPluginAsync = async (
         reply.code(404);
         return { key: req.params.key, exists: false, markdown: "" };
       }
-      const doc = parseReadmeFile(dotClaudePath(file));
-      return { key: req.params.key, exists: doc.exists, markdown: doc.markdown };
-    }
+      const path = dotClaudePath(file);
+      const doc = parseReadmeFile(path);
+      let mtimeMs: number | undefined;
+      if (doc.exists) {
+        try {
+          mtimeMs = statSync(path).mtimeMs;
+        } catch {
+          /* deleted between read and stat — omit the field */
+        }
+      }
+      return {
+        key: req.params.key,
+        exists: doc.exists,
+        markdown: doc.markdown,
+        ...(mtimeMs !== undefined ? { mtimeMs } : {}),
+      };
+    },
   );
 };

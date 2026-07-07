@@ -9,6 +9,13 @@
  *                                             (:agentId "root" = main transcript)
  *   GET /api/sessions/:id/tools/:toolUseId  → ToolResultDetail | 404
  *   GET /api/sessions/:id/search?q=…        → SessionSearchResult | 404
+ *   GET /api/sessions/:id/insights          → SessionInsights | 404
+ *                                             (S1: whole-session usage incl.
+ *                                             subagents + per-agent usage/files)
+ *   GET /api/sessions/:id/timeline          → SwimlaneData | 404
+ *                                             (#8 swimlane: agents[] with spawn
+ *                                             linkage + binned tool events + gaps;
+ *                                             payload capped server-side)
  *   GET /api/sessions/:id/stream            → SSE: `event: change` when the
  *                                             session's transcripts change
  *
@@ -47,6 +54,12 @@ import { existsSync, watch, type FSWatcher } from "node:fs";
 import { join } from "node:path";
 
 import { getProjectRoot } from "../project-root.js";
+import {
+  readSessionInsights,
+  readSessionTimeline,
+  type SessionInsights,
+  type SwimlaneData,
+} from "../parsers/transcript-insights.js";
 import {
   listSessions,
   readAgentConversation,
@@ -162,6 +175,34 @@ export const sessionsRoutes: FastifyPluginAsync = async (
         .send({ error: `Session '${req.params.id}' not found` });
     }
     return result;
+  });
+
+  // ── GET /api/sessions/:id/insights (S1 usage + file-touch rollups) ──────────
+  fastify.get<{
+    Params: { id: string };
+    Reply: SessionInsights | { error: string };
+  }>("/api/sessions/:id/insights", async (req, reply) => {
+    const insights = readSessionInsights(getProjectRoot(), req.params.id);
+    if (insights === null) {
+      return reply
+        .code(404)
+        .send({ error: `Session '${req.params.id}' not found` });
+    }
+    return insights;
+  });
+
+  // ── GET /api/sessions/:id/timeline (#8 swimlane data) ───────────────────────
+  fastify.get<{
+    Params: { id: string };
+    Reply: SwimlaneData | { error: string };
+  }>("/api/sessions/:id/timeline", async (req, reply) => {
+    const timeline = readSessionTimeline(getProjectRoot(), req.params.id);
+    if (timeline === null) {
+      return reply
+        .code(404)
+        .send({ error: `Session '${req.params.id}' not found` });
+    }
+    return timeline;
   });
 
   // ── GET /api/sessions/:id/stream (SSE liveness) ─────────────────────────────

@@ -1,0 +1,274 @@
+/* ============================================================
+   Swimlane timeline — Sessions center-pane "Timeline" mode (§2.8).
+
+   Design restraint rules (the spec's rubric):
+     · every colour comes from theme tokens — lane hue is injected per
+       lane as --swim-hue (one of the --hue-* agent tokens);
+     · the live bar pulse is the ONLY motion, and it dies under
+       prefers-reduced-motion (a static arrow takes over);
+     · errors never ride on hue alone — the ✕ glyph is the shape channel.
+   ============================================================ */
+
+@layer components {
+  .swim-root {
+    position: relative;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    outline: none;
+  }
+
+  .swim-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+
+  .swim-svg {
+    display: block;
+  }
+
+  /* ── Notes / empty states ── */
+  .swim-note {
+    padding: 6px 12px 2px;
+    font-size: var(--font-size-meta);
+    color: var(--text-subtle);
+  }
+
+  .swim-empty {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: var(--text-subtle);
+    font-size: var(--font-size-meta);
+    padding: 24px;
+    text-align: center;
+  }
+
+  .swim-empty-retry {
+    border: 1px solid color-mix(in oklch, var(--text-subtle) 30%, transparent);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    padding: 3px 10px;
+    border-radius: var(--radius-pill);
+    cursor: pointer;
+  }
+  .swim-empty-retry:hover {
+    color: var(--text-primary);
+    border-color: color-mix(in oklch, var(--text-subtle) 55%, transparent);
+  }
+
+  /* ── Lane gutter ── */
+  .swim-lane-label {
+    fill: var(--text-muted);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+  .swim-lane-label--root {
+    fill: var(--text-primary);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+
+  /* ── Axis / grid / separators ── */
+  .swim-axis-label {
+    fill: var(--text-subtle);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+  }
+  .swim-gridline {
+    stroke: color-mix(in oklch, var(--text-subtle) 11%, transparent);
+  }
+  .swim-lane-sep {
+    stroke: color-mix(in oklch, var(--text-subtle) 7%, transparent);
+  }
+
+  /* ── Bars (lane hue at 30% mix per spec; hover lifts, never recolours) ── */
+  .swim-bar {
+    fill: color-mix(in oklch, var(--swim-hue) 30%, transparent);
+    stroke: color-mix(in oklch, var(--swim-hue) 55%, transparent);
+    stroke-width: 1;
+    cursor: pointer;
+  }
+  .swim-bar:hover {
+    fill: color-mix(in oklch, var(--swim-hue) 42%, transparent);
+  }
+  .swim-bar:focus-visible {
+    stroke: var(--color-accent);
+    stroke-width: 1.5;
+    outline: none;
+  }
+
+  /* Live right edge — THE one animated element. Reduced motion swaps the
+     pulse for a static arrow head (shape channel preserved, motion gone). */
+  .swim-live-pulse {
+    fill: var(--swim-hue);
+    animation: swim-pulse 1.6s ease-in-out infinite;
+  }
+  .swim-live-arrow {
+    fill: color-mix(in oklch, var(--swim-hue) 85%, transparent);
+    display: none;
+  }
+  @keyframes swim-pulse {
+    0%,
+    100% {
+      opacity: 0.25;
+    }
+    50% {
+      opacity: 0.95;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .swim-live-pulse {
+      animation: none;
+      display: none;
+    }
+    .swim-live-arrow {
+      display: initial;
+    }
+  }
+
+  /* Spawn connector elbow (parent lane → child bar start) */
+  .swim-elbow {
+    stroke: color-mix(in oklch, var(--swim-hue) 45%, transparent);
+    fill: none;
+    stroke-width: 1;
+  }
+
+  /* ── Tool-event ticks (colour by tool class; §2.8) ── */
+  .swim-tick--edit {
+    fill: var(--color-accent);
+  }
+  .swim-tick--read {
+    fill: color-mix(in oklch, var(--text-subtle) 75%, transparent);
+  }
+  .swim-tick--bash {
+    fill: var(--status-info);
+  }
+  .swim-tick--other {
+    fill: color-mix(in oklch, var(--text-subtle) 50%, transparent);
+  }
+
+  /* Density blocks (binned regions — never overplot) */
+  .swim-block--edit {
+    fill: color-mix(in oklch, var(--color-accent) 72%, transparent);
+  }
+  .swim-block--read {
+    fill: color-mix(in oklch, var(--text-subtle) 55%, transparent);
+  }
+  .swim-block--bash {
+    fill: color-mix(in oklch, var(--status-info) 70%, transparent);
+  }
+  .swim-block--other {
+    fill: color-mix(in oklch, var(--text-subtle) 40%, transparent);
+  }
+
+  /* Error ✕ — status hue PLUS glyph geometry (accent-collision defence) */
+  .swim-tick-x {
+    stroke: var(--status-error);
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    fill: none;
+  }
+
+  .swim-hit {
+    cursor: pointer;
+  }
+  .swim-hit-rect {
+    fill: transparent;
+  }
+
+  /* ── Idle-gap snips (⌇) ── */
+  .swim-snip-band {
+    fill: color-mix(in oklch, var(--text-subtle) 6%, transparent);
+  }
+  .swim-snip-edge {
+    stroke: color-mix(in oklch, var(--text-subtle) 30%, transparent);
+    stroke-dasharray: 2 3;
+  }
+  .swim-snip-glyph {
+    fill: var(--text-subtle);
+    font-family: var(--font-mono);
+    font-size: 10px;
+  }
+
+  /* Cursor-sync marker (?t= — entering Timeline from a conversation turn) */
+  .swim-cursor {
+    stroke: color-mix(in oklch, var(--color-accent) 65%, transparent);
+    stroke-dasharray: 3 3;
+  }
+
+  /* ── Bottom brush ── */
+  .swim-brush-track {
+    fill: color-mix(in oklch, var(--text-subtle) 6%, transparent);
+    stroke: color-mix(in oklch, var(--text-subtle) 14%, transparent);
+  }
+  .swim-brush-bar {
+    opacity: 0.65;
+  }
+  .swim-brush-window {
+    fill: color-mix(in oklch, var(--color-accent) 14%, transparent);
+    stroke: color-mix(in oklch, var(--color-accent) 55%, transparent);
+  }
+  .swim-brush-sel {
+    fill: color-mix(in oklch, var(--color-accent) 20%, transparent);
+  }
+  .swim-brush-overlay {
+    fill: transparent;
+    cursor: crosshair;
+  }
+
+  /* Zoom state chip (top-right; appears only while zoomed) */
+  .swim-zoom-chip {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    z-index: 2;
+    padding: 2px 10px;
+    border-radius: var(--radius-pill);
+    border: 1px solid color-mix(in oklch, var(--color-accent) 40%, transparent);
+    background: color-mix(in oklch, var(--color-accent) 10%, var(--surface-2));
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .swim-zoom-chip kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--text-primary);
+  }
+
+  /* ── Hover tooltip ── */
+  .swim-tooltip {
+    position: absolute;
+    z-index: var(--z-edge);
+    pointer-events: none;
+    max-width: 320px;
+    padding: 6px 9px;
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in oklch, var(--text-subtle) 22%, transparent);
+    background: var(--surface-3);
+    box-shadow: var(--shadow-float);
+    font-size: var(--font-size-meta);
+    line-height: 1.35;
+  }
+  .swim-tooltip-title {
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .swim-tooltip-meta {
+    color: var(--text-subtle);
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+  }
+  .swim-tooltip-error {
+    color: var(--status-error);
+    font-weight: 600;
+  }
+}

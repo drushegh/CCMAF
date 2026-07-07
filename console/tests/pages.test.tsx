@@ -1,11 +1,21 @@
-import { render, screen, waitFor, within, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  within,
+  fireEvent,
+} from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 
 import { KanbanPage } from "../src/app/pages/KanbanPage";
 import { ContractsPage } from "../src/app/pages/ContractsPage";
 import { DecisionsPage } from "../src/app/pages/DecisionsPage";
-import { ReadmePage, readmeImgSrc, readmeFigureSrc } from "../src/app/pages/ReadmePage";
+import {
+  ReadmePage,
+  readmeImgSrc,
+  readmeFigureSrc,
+} from "../src/app/pages/ReadmePage";
 import { ReadmeMarkdown } from "../src/app/pages/lib";
 import { SpecPage } from "../src/app/pages/SpecPage";
 import { DashboardPage } from "../src/app/pages/DashboardPage";
@@ -41,41 +51,47 @@ afterEach(() => {
 
 describe("readmeImgSrc (README inline-image resolution)", () => {
   it("rewrites a repo-relative docs image to the confined raw endpoint", () => {
-    expect(readmeImgSrc("01_Project/docs/diagrams/architecture.drawio.svg")).toBe(
-      "/api/docs/raw?path=diagrams%2Farchitecture.drawio.svg"
-    );
+    expect(
+      readmeImgSrc("01_Project/docs/diagrams/architecture.drawio.svg"),
+    ).toBe("/api/docs/raw?path=diagrams%2Farchitecture.drawio.svg");
   });
 
   it("tolerates a leading ./ on the docs path", () => {
-    expect(readmeImgSrc("./01_Project/docs/diagrams/handback-loop.drawio.svg")).toBe(
-      "/api/docs/raw?path=diagrams%2Fhandback-loop.drawio.svg"
-    );
+    expect(
+      readmeImgSrc("./01_Project/docs/diagrams/handback-loop.drawio.svg"),
+    ).toBe("/api/docs/raw?path=diagrams%2Fhandback-loop.drawio.svg");
   });
 
   it("passes through absolute, data and root-relative URLs untouched", () => {
-    expect(readmeImgSrc("https://example.com/a.png")).toBe("https://example.com/a.png");
-    expect(readmeImgSrc("data:image/png;base64,AAAA")).toBe("data:image/png;base64,AAAA");
+    expect(readmeImgSrc("https://example.com/a.png")).toBe(
+      "https://example.com/a.png",
+    );
+    expect(readmeImgSrc("data:image/png;base64,AAAA")).toBe(
+      "data:image/png;base64,AAAA",
+    );
     expect(readmeImgSrc("/already/served.svg")).toBe("/already/served.svg");
   });
 
   it("routes other repo-relative images to the confined README asset endpoint (BUG-015)", () => {
     expect(readmeImgSrc("some/other/path.png")).toBe(
-      "/api/readme/asset?path=some%2Fother%2Fpath.png"
+      "/api/readme/asset?path=some%2Fother%2Fpath.png",
     );
     expect(readmeImgSrc(".github/assets/hero.webp")).toBe(
-      "/api/readme/asset?path=.github%2Fassets%2Fhero.webp"
+      "/api/readme/asset?path=.github%2Fassets%2Fhero.webp",
     );
   });
 });
 
 describe("readmeFigureSrc (raw centered-figure src validation, BUG-015)", () => {
   it("allows http(s) absolutes and repo-relative paths", () => {
-    expect(readmeFigureSrc("https://example.com/a.webp")).toBe("https://example.com/a.webp");
+    expect(readmeFigureSrc("https://example.com/a.webp")).toBe(
+      "https://example.com/a.webp",
+    );
     expect(readmeFigureSrc(".github/assets/hero.webp")).toBe(
-      "/api/readme/asset?path=.github%2Fassets%2Fhero.webp"
+      "/api/readme/asset?path=.github%2Fassets%2Fhero.webp",
     );
     expect(readmeFigureSrc("01_Project/docs/diagrams/x.svg")).toBe(
-      "/api/docs/raw?path=diagrams%2Fx.svg"
+      "/api/docs/raw?path=diagrams%2Fx.svg",
     );
   });
 
@@ -90,26 +106,43 @@ describe("readmeFigureSrc (raw centered-figure src validation, BUG-015)", () => 
 });
 
 describe("ReadmeMarkdown — centered figures (BUG-015)", () => {
-  const center = (img: string) => `# Title\n\n<p align="center">\n  ${img}\n</p>\n\nAfter.`;
+  const center = (img: string) =>
+    `# Title\n\n<p align="center">\n  ${img}\n</p>\n\nAfter.`;
 
   it("renders the GitHub centered-image idiom as a figure with a rewritten src", () => {
-    const md = center('<img src=".github/assets/hero.webp" width="850" alt="Hero shot" />');
-    const { container } = renderPage(
-      <ReadmeMarkdown source={md} transformImgSrc={readmeImgSrc} resolveFigureSrc={readmeFigureSrc} />
+    const md = center(
+      '<img src=".github/assets/hero.webp" width="850" alt="Hero shot" />',
     );
-    const fig = container.querySelector(".readme-figure img") as HTMLImageElement | null;
+    const { container } = renderPage(
+      <ReadmeMarkdown
+        source={md}
+        transformImgSrc={readmeImgSrc}
+        resolveFigureSrc={readmeFigureSrc}
+      />,
+    );
+    const fig = container.querySelector(
+      ".readme-figure img",
+    ) as HTMLImageElement | null;
     expect(fig).not.toBeNull();
-    expect(fig!.getAttribute("src")).toBe("/api/readme/asset?path=.github%2Fassets%2Fhero.webp");
+    expect(fig!.getAttribute("src")).toBe(
+      "/api/readme/asset?path=.github%2Fassets%2Fhero.webp",
+    );
     expect(fig!.getAttribute("width")).toBe("850");
     expect(fig!.getAttribute("alt")).toBe("Hero shot");
     // The raw <p align="center"> markup is NOT shown as escaped text.
-    expect(container.querySelector(".markdown-body")?.innerHTML).not.toContain("&lt;p align");
+    expect(container.querySelector(".markdown-body")?.innerHTML).not.toContain(
+      "&lt;p align",
+    );
   });
 
   it("DROPS a centered figure with a javascript: src (no img, no raw text, XSS-safe)", () => {
     const md = center('<img src="javascript:alert(1)" alt="x" />');
     const { container } = renderPage(
-      <ReadmeMarkdown source={md} transformImgSrc={readmeImgSrc} resolveFigureSrc={readmeFigureSrc} />
+      <ReadmeMarkdown
+        source={md}
+        transformImgSrc={readmeImgSrc}
+        resolveFigureSrc={readmeFigureSrc}
+      />,
     );
     const body = container.querySelector(".markdown-body") as HTMLElement;
     expect(body.querySelector("img")).toBeNull(); // figure dropped entirely
@@ -120,20 +153,36 @@ describe("ReadmeMarkdown — centered figures (BUG-015)", () => {
   it("does NOT execute a <script> embedded in the README (html:false baseline holds)", () => {
     const md = "Intro\n\n<script>window.__readmePwned = true;</script>\n\nEnd.";
     const { container } = renderPage(
-      <ReadmeMarkdown source={md} transformImgSrc={readmeImgSrc} resolveFigureSrc={readmeFigureSrc} />
+      <ReadmeMarkdown
+        source={md}
+        transformImgSrc={readmeImgSrc}
+        resolveFigureSrc={readmeFigureSrc}
+      />,
     );
     expect(container.querySelector(".markdown-body script")).toBeNull();
-    expect((window as unknown as { __readmePwned?: boolean }).__readmePwned).toBeUndefined();
+    expect(
+      (window as unknown as { __readmePwned?: boolean }).__readmePwned,
+    ).toBeUndefined();
     // Escaped, shown verbatim — proves it was inert, not silently stripped.
-    expect(container.querySelector(".markdown-body")?.innerHTML).toContain("&lt;script&gt;");
+    expect(container.querySelector(".markdown-body")?.innerHTML).toContain(
+      "&lt;script&gt;",
+    );
   });
 
   it("ignores a non-numeric width (keeps the figure, drops the bad attr)", () => {
-    const md = center('<img src="https://x.test/a.png" width="850;evil" alt="A" />');
-    const { container } = renderPage(
-      <ReadmeMarkdown source={md} transformImgSrc={readmeImgSrc} resolveFigureSrc={readmeFigureSrc} />
+    const md = center(
+      '<img src="https://x.test/a.png" width="850;evil" alt="A" />',
     );
-    const fig = container.querySelector(".readme-figure img") as HTMLImageElement | null;
+    const { container } = renderPage(
+      <ReadmeMarkdown
+        source={md}
+        transformImgSrc={readmeImgSrc}
+        resolveFigureSrc={readmeFigureSrc}
+      />,
+    );
+    const fig = container.querySelector(
+      ".readme-figure img",
+    ) as HTMLImageElement | null;
     expect(fig).not.toBeNull();
     expect(fig!.hasAttribute("width")).toBe(false);
     expect(fig!.getAttribute("src")).toBe("https://x.test/a.png");
@@ -146,22 +195,40 @@ describe("KanbanPage", () => {
       {
         status: "In Progress",
         lane: "feature",
-        items: [{ id: "TASK-001", title: "Scaffold the app", status: "In Progress", lane: "feature" }],
+        items: [
+          {
+            id: "TASK-001",
+            title: "Scaffold the app",
+            status: "In Progress",
+            lane: "feature",
+          },
+        ],
       },
       {
         status: "Ready for Test",
         lane: "feature",
-        items: [{ id: "TASK-006", title: "Read-only pages", status: "Ready for Test", lane: "feature" }],
+        items: [
+          {
+            id: "TASK-006",
+            title: "Read-only pages",
+            status: "Ready for Test",
+            lane: "feature",
+          },
+        ],
       },
       {
         status: "Done",
         lane: "feature",
-        items: [{ id: "TASK-002", title: "Server", status: "Done", lane: "feature" }],
+        items: [
+          { id: "TASK-002", title: "Server", status: "Done", lane: "feature" },
+        ],
       },
       {
         status: "Reported",
         lane: "bug",
-        items: [{ id: "BUG-001", title: "A bug", status: "Reported", lane: "bug" }],
+        items: [
+          { id: "BUG-001", title: "A bug", status: "Reported", lane: "bug" },
+        ],
       },
     ],
   };
@@ -177,16 +244,22 @@ describe("KanbanPage", () => {
     expect(screen.getByText("Done")).toBeInTheDocument();
 
     // The In-Progress task sits under its own column, not elsewhere.
-    const inProgressHeader = screen.getByText("In Progress").closest(".kanban-column");
+    const inProgressHeader = screen
+      .getByText("In Progress")
+      .closest(".kanban-column");
     expect(inProgressHeader).not.toBeNull();
-    expect(within(inProgressHeader as HTMLElement).getByText("TASK-001")).toBeInTheDocument();
+    expect(
+      within(inProgressHeader as HTMLElement).getByText("TASK-001"),
+    ).toBeInTheDocument();
   });
 
   it("shows lane tabs and switches to the bug lane", async () => {
     renderPage(<KanbanPage />);
     // Both lane tabs render; Feature is the default — its cards show, the bug
     // card stays hidden until its tab is selected.
-    expect(await screen.findByRole("tab", { name: /Feature Lane/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("tab", { name: /Feature Lane/i }),
+    ).toBeInTheDocument();
     expect(screen.getByText("TASK-001")).toBeInTheDocument();
     expect(screen.queryByText("BUG-001")).toBeNull();
 
@@ -222,16 +295,24 @@ describe("ContractsPage", () => {
     const stableId = await screen.findByText("console-http-api");
     const stableRow = stableId.closest(".contract-row") as HTMLElement;
     expect(within(stableRow).getByText("stable")).toBeInTheDocument();
-    expect(stableRow.querySelector(".contract-status-badge--stable")).not.toBeNull();
+    expect(
+      stableRow.querySelector(".contract-status-badge--stable"),
+    ).not.toBeNull();
 
-    const draftRow = screen.getByText("draft-thing").closest(".contract-row") as HTMLElement;
+    const draftRow = screen
+      .getByText("draft-thing")
+      .closest(".contract-row") as HTMLElement;
     expect(within(draftRow).getByText("draft")).toBeInTheDocument();
-    expect(draftRow.querySelector(".contract-status-badge--draft")).not.toBeNull();
+    expect(
+      draftRow.querySelector(".contract-status-badge--draft"),
+    ).not.toBeNull();
   });
 
   it("counts stable vs draft", async () => {
     renderPage(<ContractsPage />);
-    const stableChip = (await screen.findByText("Stable")).closest(".contracts-count-chip") as HTMLElement;
+    const stableChip = (await screen.findByText("Stable")).closest(
+      ".contracts-count-chip",
+    ) as HTMLElement;
     expect(within(stableChip).getByText("1")).toBeInTheDocument();
   });
 
@@ -256,7 +337,9 @@ describe("ContractsPage", () => {
     fireEvent.click(draftChip);
     const rowsAfter = container.querySelectorAll(".contract-row");
     expect(rowsAfter).toHaveLength(1);
-    expect(within(rowsAfter[0] as HTMLElement).getByText("draft-thing")).toBeInTheDocument();
+    expect(
+      within(rowsAfter[0] as HTMLElement).getByText("draft-thing"),
+    ).toBeInTheDocument();
     expect(draftChip.getAttribute("aria-pressed")).toBe("true");
     expect(draftChip.classList.contains("is-active")).toBe(true);
 
@@ -270,8 +353,12 @@ describe("ContractsPage", () => {
     const { container } = renderPage(<ContractsPage />);
     await screen.findByText("console-http-api");
 
-    const stableChip = screen.getByText("Stable").closest(".contracts-count-chip") as HTMLElement;
-    const draftChip = screen.getByText("Draft").closest(".contracts-count-chip") as HTMLElement;
+    const stableChip = screen
+      .getByText("Stable")
+      .closest(".contracts-count-chip") as HTMLElement;
+    const draftChip = screen
+      .getByText("Draft")
+      .closest(".contracts-count-chip") as HTMLElement;
 
     fireEvent.click(draftChip);
     expect(draftChip.getAttribute("aria-pressed")).toBe("true");
@@ -282,7 +369,9 @@ describe("ContractsPage", () => {
     expect(draftChip.getAttribute("aria-pressed")).toBe("false");
     const rows = container.querySelectorAll(".contract-row");
     expect(rows).toHaveLength(1);
-    expect(within(rows[0] as HTMLElement).getByText("console-http-api")).toBeInTheDocument();
+    expect(
+      within(rows[0] as HTMLElement).getByText("console-http-api"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -304,14 +393,23 @@ describe("DecisionsPage — markdown rendering + sanitization", () => {
     // Markdown emphasis becomes real <strong> elements.
     const strongs = container.querySelectorAll(".markdown-body strong");
     expect(strongs.length).toBeGreaterThanOrEqual(2);
-    expect(Array.from(strongs).some((s) => s.textContent === "bold")).toBe(true);
+    expect(Array.from(strongs).some((s) => s.textContent === "bold")).toBe(
+      true,
+    );
   });
 
   it("does NOT execute or emit a <script> embedded in markdown (XSS-safe)", async () => {
-    const exploit = "Intro\n\n<script>window.__pwned = true;</script>\n\nAfter.";
+    const exploit =
+      "Intro\n\n<script>window.__pwned = true;</script>\n\nAfter.";
     stubFetch({
       "/api/decisions": [
-        { id: "DEC-XSS", date: "2026-06-23", status: "active", title: "XSS attempt", body: exploit },
+        {
+          id: "DEC-XSS",
+          date: "2026-06-23",
+          status: "active",
+          title: "XSS attempt",
+          body: exploit,
+        },
       ],
     });
     const { container } = renderPage(<DecisionsPage />);
@@ -320,18 +418,28 @@ describe("DecisionsPage — markdown rendering + sanitization", () => {
     // No live <script> node was injected into the rendered markdown.
     expect(container.querySelector(".markdown-body script")).toBeNull();
     // The global side-effect never ran.
-    expect((window as unknown as { __pwned?: boolean }).__pwned).toBeUndefined();
+    expect(
+      (window as unknown as { __pwned?: boolean }).__pwned,
+    ).toBeUndefined();
     // The raw text is escaped and shown verbatim (proves it was inert, not stripped silently).
-    expect(container.querySelector(".markdown-body")?.innerHTML).toContain("&lt;script&gt;");
+    expect(container.querySelector(".markdown-body")?.innerHTML).toContain(
+      "&lt;script&gt;",
+    );
   });
 });
 
 describe("ReadmePage", () => {
   it("renders markdown when README exists", async () => {
-    stubFetch({ "/api/readme": { exists: true, markdown: "# Project Title\n\nHello." } });
+    stubFetch({
+      "/api/readme": { exists: true, markdown: "# Project Title\n\nHello." },
+    });
     const { container } = renderPage(<ReadmePage />);
-    await waitFor(() => expect(container.querySelector(".markdown-body h1")).not.toBeNull());
-    expect(container.querySelector(".markdown-body h1")?.textContent).toBe("Project Title");
+    await waitFor(() =>
+      expect(container.querySelector(".markdown-body h1")).not.toBeNull(),
+    );
+    expect(container.querySelector(".markdown-body h1")?.textContent).toBe(
+      "Project Title",
+    );
   });
 
   it("shows a graceful empty state when README is absent", async () => {
@@ -342,12 +450,12 @@ describe("ReadmePage", () => {
 });
 
 describe("SpecPage", () => {
-  const specList = [
-    { name: "console-spec.md" },
-    { name: "tasks-spec.md" },
-  ];
+  const specList = [{ name: "console-spec.md" }, { name: "tasks-spec.md" }];
 
-  function stubSpecFetch(list = specList, content = "# Console Spec\n\nSpec content here.") {
+  function stubSpecFetch(
+    list = specList,
+    content = "# Console Spec\n\nSpec content here.",
+  ) {
     const routes: Record<string, unknown> = { "/api/specs": list };
     for (const s of list) {
       routes[`/api/specs/${s.name}`] = { name: s.name, markdown: content };
@@ -383,7 +491,9 @@ describe("SpecPage", () => {
     expect(firstBtn.className).toContain("is-active");
     // Content renders the spec markdown
     await waitFor(() =>
-      expect(container.querySelector(".markdown-body h1")?.textContent).toBe("Console Spec"),
+      expect(container.querySelector(".markdown-body h1")?.textContent).toBe(
+        "Console Spec",
+      ),
     );
   });
 
@@ -395,7 +505,9 @@ describe("SpecPage", () => {
     // Click the second item
     fireEvent.click(screen.getByRole("button", { name: /tasks-spec\.md/i }));
     await waitFor(() =>
-      expect(container.querySelector(".markdown-body h1")?.textContent).toBe("Tasks Spec"),
+      expect(container.querySelector(".markdown-body h1")?.textContent).toBe(
+        "Tasks Spec",
+      ),
     );
     expect(
       screen.getByRole("button", { name: /tasks-spec\.md/i }).className,
@@ -405,7 +517,9 @@ describe("SpecPage", () => {
   it("shows the empty state when the spec list is empty", async () => {
     stubSpecFetch([]);
     renderPage(<SpecPage />);
-    expect(await screen.findByText("No spec documents found")).toBeInTheDocument();
+    expect(
+      await screen.findByText("No spec documents found"),
+    ).toBeInTheDocument();
   });
 });
 
@@ -421,7 +535,13 @@ describe("DashboardPage — TASK-025 analytics cards render", () => {
       { status: "draft", n: 1 },
     ],
     latestDecisions: [
-      { id: "DEC-001", date: "2026-06-23", status: "active", title: "No-state-projection", body: "" },
+      {
+        id: "DEC-001",
+        date: "2026-06-23",
+        status: "active",
+        title: "No-state-projection",
+        body: "",
+      },
     ],
     currentSpec: null,
     sprintGoal: null,
@@ -447,7 +567,13 @@ describe("DashboardPage — TASK-025 analytics cards render", () => {
   };
 
   const gotchasData = [
-    { title: "SSE stub closes stream", category: "Technology", confidence: "Verified", count: 1, firstSeen: "2026-06-23" },
+    {
+      title: "SSE stub closes stream",
+      category: "Technology",
+      confidence: "Verified",
+      count: 1,
+      firstSeen: "2026-06-23",
+    },
   ];
 
   const frameworkData = {
@@ -481,7 +607,7 @@ describe("DashboardPage — TASK-025 analytics cards render", () => {
           status: 200,
           headers: { "Content-Type": "application/json" },
         });
-      })
+      }),
     );
   }
 
@@ -520,14 +646,19 @@ describe("DashboardPage — TASK-025 analytics cards render", () => {
     expect(screen.getByText("FS-002")).toBeInTheDocument();
   });
 
-  it("renders hero status pills (branch, update, doctor, health)", async () => {
+  it("renders the context strip chips (branch, update, doctor) — v2 §5.3", async () => {
     renderPage(<DashboardPage />);
-    // Two-line label/value chips: BRANCH 1.2.3 · FRAMEWORK up to date · DOCTOR clean.
+    // One-row context strip: BRANCH 1.2.3 · FRAMEWORK up to date · DOCTOR clean.
     expect(await screen.findByText("1.2.3")).toBeInTheDocument();
     expect(screen.getByText("up to date")).toBeInTheDocument();
     expect(screen.getByText("clean")).toBeInTheDocument();
-    // Health rollup: doctor clean + no update available → nominal.
-    expect(screen.getByText("all systems nominal")).toBeInTheDocument();
+    // The old hero block is gone: no "Project Console" title, no redundant
+    // "N tasks · N contracts" pill, no health-rollup chip.
+    expect(screen.queryByText("Project Console")).not.toBeInTheDocument();
+    expect(screen.queryByText(/tasks · \d+ contracts/)).not.toBeInTheDocument();
+    expect(screen.queryByText("all systems nominal")).not.toBeInTheDocument();
+    // No sprint goal in this fixture → honest empty placeholder.
+    expect(screen.getByText("No sprint goal set")).toBeInTheDocument();
   });
 
   it("renders clean empty states when secondary data absent", async () => {
@@ -544,24 +675,29 @@ describe("DashboardPage — TASK-025 analytics cards render", () => {
         }
         // Return 500 for all analytics endpoints — they should degrade to null
         return new Response("error", { status: 500 });
-      })
+      }),
     );
     renderPage(<DashboardPage />);
     // Dashboard should still render (primary data available)
     expect(await screen.findByText("Framework Activity")).toBeInTheDocument();
     // Cards render empty-state text instead of crashing
     expect(
-      await screen.findByText(/No telemetry data yet/)
+      await screen.findByText(/No telemetry data yet/),
     ).toBeInTheDocument();
   });
 });
 
 describe("Error states", () => {
   it("KanbanPage shows an error + retry when the API fails", async () => {
-    const fetchMock = vi.fn(async () => new Response("boom", { status: 500, statusText: "Server Error" }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response("boom", { status: 500, statusText: "Server Error" }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     renderPage(<KanbanPage />);
-    expect(await screen.findByText("Could not load this view")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Could not load this view"),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
   });
 });

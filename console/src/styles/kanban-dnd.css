@@ -268,4 +268,193 @@
   .kanban-move-error-dismiss:hover {
     color: var(--text-primary);
   }
+
+  /* ── Done-lane cap (v2 §5.6, TASK-106) ──────────────────────── */
+  /* Terminal "Show all N →" card at the bottom of a capped Done column. */
+  .kanban-showall-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px dashed var(--border-subtle);
+    border-radius: var(--radius-lg);
+    cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-snappy),
+      border-color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .kanban-showall-card:hover {
+    color: var(--text-primary);
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 40%,
+      var(--border-card)
+    );
+  }
+
+  .kanban-showall-card:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
+  }
+
+  /* Older-than-cap Done entries: pure text rows — an archive, not work. */
+  .task-row-plain {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    padding: 3px 6px;
+    font-size: 11px;
+    color: var(--text-subtle);
+    min-width: 0;
+  }
+
+  .task-row-plain-id {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+
+  .task-row-plain-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── ≤720px accordion toggle (v2 §5.5) ──────────────────────── */
+  /* Hidden except in the single-column accordion below; the collapsed class
+     is likewise inert outside that media query. */
+  .kanban-acc-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: 2px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-subtle);
+    cursor: pointer;
+  }
+
+  .kanban-acc-toggle:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
+  }
+
+  .kanban-acc-chevron {
+    transition: transform var(--duration-fast) var(--ease-snappy);
+  }
+}
+
+/* ============================================================
+   Kanban below 1100px — v2 §5.5 (TASK-106)
+   Two breakpoints. 721–1100px: the column row becomes a horizontal
+   scroll-snap track instead of squeezing columns until cards wrap
+   illegibly; lane tabs + filter bar stay sticky; a right-edge fade
+   signals more columns. ≤720px: single-column accordion (each
+   status a collapsible section, In Progress expanded by default —
+   the toggle lives in KanbanPage.tsx, all layout here).
+   KEEP the 1100px breakpoint in step with RAIL_DRAWER_QUERY
+   (SessionsPage.tsx) and docpage.css's rail collapse.
+   ============================================================ */
+@layer components {
+  @media (max-width: 1100px) and (min-width: 721px) {
+    .kanban-board {
+      /* Columns keep a readable width and the track scrolls instead. */
+      grid-auto-columns: minmax(248px, 1fr);
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scroll-padding-inline: 4px;
+      padding-bottom: 6px; /* breathing room for the scrollbar */
+    }
+
+    .kanban-column {
+      scroll-snap-align: start;
+    }
+
+    /* Right-edge fade: a sticky pseudo grid-item pinned to the visible right
+       edge of the scroll container — pure CSS "there's more" cue. */
+    .kanban-board::after {
+      content: "";
+      position: sticky;
+      right: 0;
+      grid-row: 1 / -1;
+      width: 28px;
+      margin-left: -38px; /* overlap the last column (28px) + grid gap (10px) */
+      background: linear-gradient(
+        to right,
+        transparent,
+        color-mix(in oklch, var(--surface-0) 85%, transparent)
+      );
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Lane tabs + filter bar stay pinned while the board scrolls under them.
+       --kanban-tabs-h approximates the rendered tab-row height; the filter
+       bar stacks directly beneath. Frosted backgrounds so cards scrolling
+       beneath don't ghost through. */
+    .kanban-lane-tabs,
+    .task-filter-bar {
+      position: sticky;
+      z-index: 5;
+      background: color-mix(in oklch, var(--surface-0) 88%, transparent);
+      -webkit-backdrop-filter: blur(10px);
+      backdrop-filter: blur(10px);
+    }
+
+    .kanban-lane-tabs {
+      top: 0;
+      --kanban-tabs-h: 42px;
+    }
+
+    .task-filter-bar {
+      top: 42px;
+    }
+  }
+
+  @media (max-width: 720px) {
+    /* Single-column accordion: statuses stack; bodies toggle via the header
+       chevron (KanbanPage.tsx state — inert above this breakpoint). */
+    .kanban-board {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .kanban-column {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .kanban-acc-toggle {
+      display: inline-flex;
+    }
+
+    .kanban-column--acc-collapsed .kanban-acc-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .kanban-column--acc-collapsed .kanban-column-body {
+      display: none;
+    }
+
+    .kanban-column--acc-collapsed .kanban-column-header {
+      border-bottom: none;
+      border-radius: var(--radius-card);
+    }
+  }
 }

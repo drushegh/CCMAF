@@ -101,11 +101,40 @@ export function useAsync<T>(
   return { ...state, reload };
 }
 
+/**
+ * Keep the last ready value so live refetches don't blank a pane (TASK-106 §5.2).
+ *
+ * useAsync flips back to `phase:"loading"` (data undefined) on every SSE-driven
+ * re-run — without this, each disk change flashes the page back to its loading
+ * state. Pair the two:
+ *
+ *   const { phase, data, error, reload } = useAsync(loader, []);
+ *   const doc = useLastReady(phase, data);
+ *   // first load  → !doc && phase==="loading"  → skeleton
+ *   // refetch     → doc stays defined          → keep rendering last data
+ *   // hard error  → !doc && phase==="error"    → <ErrorState> with retry
+ *
+ * Promoted from SessionsPage.tsx (which still carries a local copy — owned by
+ * another task; switch it to this import when that file is next touched).
+ */
+export function useLastReady<T>(
+  phase: string,
+  data: T | undefined,
+): T | undefined {
+  const ref = useRef<T | undefined>(undefined);
+  if (phase === "ready" && data !== undefined) ref.current = data;
+  return phase === "ready" ? data : ref.current;
+}
+
 /* ── Loading + error UI ─────────────────────────────────────────────── */
 
 export function LoadingState({ label }: { label: string }) {
   return (
-    <div className="state-panel state-panel--loading" role="status" aria-live="polite">
+    <div
+      className="state-panel state-panel--loading"
+      role="status"
+      aria-live="polite"
+    >
       <Loader2 className="state-spinner" size={20} aria-hidden="true" />
       <span className="state-panel-text">{label}</span>
     </div>
@@ -121,7 +150,11 @@ export function ErrorState({
 }) {
   return (
     <div className="state-panel state-panel--error" role="alert">
-      <AlertTriangle className="state-panel-icon" size={20} aria-hidden="true" />
+      <AlertTriangle
+        className="state-panel-icon"
+        size={20}
+        aria-hidden="true"
+      />
       <div className="state-panel-body">
         <span className="state-panel-title">Could not load this view</span>
         <span className="state-panel-text">{error.message}</span>
@@ -277,12 +310,15 @@ export function ReadmeMarkdown({
     const token = (i: number) => `READMECENTEREDFIGURE${i}ENDTOKEN`;
 
     // 1) Lift centered figures out of the raw source → placeholders.
-    const lifted = src.replace(CENTERED_BLOCK_RE, (_block, _tag, inner: string) => {
-      const fig = buildCenteredFigure(inner, resolveFigureSrc);
-      if (!fig) return ""; // unrenderable centered block → drop (was raw text)
-      const i = figures.push(fig) - 1;
-      return `\n\n${token(i)}\n\n`;
-    });
+    const lifted = src.replace(
+      CENTERED_BLOCK_RE,
+      (_block, _tag, inner: string) => {
+        const fig = buildCenteredFigure(inner, resolveFigureSrc);
+        if (!fig) return ""; // unrenderable centered block → drop (was raw text)
+        const i = figures.push(fig) - 1;
+        return `\n\n${token(i)}\n\n`;
+      },
+    );
 
     // 2) Render the rest with html:false (safe baseline), harden anchors, rewrite
     //    markdown image srcs.

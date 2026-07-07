@@ -1,18 +1,23 @@
 /**
  * NavRail.tsx — the merged session + agent tree (left pane of the Sessions view).
  *
- * ONE tree: sessions grouped by day ("Live now" pinned on top), the selected
- * session expanded in place with its agents nested under it (live agents
- * pinned first among siblings, pulsing, with a one-line latest-activity
- * subtitle when available). Replaces the old separate session list +
- * horizontal agent band.
+ * ONE tree (role="tree"): sessions grouped by day ("Live now" pinned on top),
+ * the selected session expanded in place with its agents nested under it.
+ * Sibling agents order by RECENCY — live first, then lastActivity DESC within
+ * each partition (§4.1: the agent that just did something is the top row) —
+ * with a 5s pointer-freeze guard so live re-sorts never jump rows under the
+ * cursor. Session and day-group carets are REAL collapse toggles
+ * (`<button aria-expanded>`, BUG-017): `expanded = selected && !collapsed`,
+ * collapse state owned by SessionsPage (sessionStorage-persisted). ←/→ on a
+ * focused session/day row collapse/expand (tree-view keys). Sessions renamed
+ * in the editor carry a subtle pencil glyph (§4.3, titleSource "rename").
  *
  * Selection is routed — clicking navigates; the rail renders whatever the
  * URL says is selected.
  */
 
-import { Fragment } from "react";
-import { Bot, ChevronDown, ChevronRight, User } from "lucide-react";
+import { Fragment, useMemo, useRef } from "react";
+import { Bot, ChevronDown, ChevronRight, Pencil, User } from "lucide-react";
 import type { AgentNode, SessionSummary, SessionTree } from "../api/sessions";
 
 /* ── time helpers (shared style with the old page) ── */
@@ -36,6 +41,10 @@ export function shortModel(model: string | null): string | null {
 
 /** Session considered live when its last activity is within this window. */
 const LIVE_WINDOW_MS = 120_000;
+
+/** Live re-sorts freeze for this long after any pointer activity over the
+ *  rail, so rows never reorder under the cursor mid-click (§4.1). */
+const POINTER_FREEZE_MS = 5000;
 
 export function isLiveSession(s: SessionSummary, now = Date.now()): boolean {
   if (!s.lastActivity) return false;
@@ -86,7 +95,24 @@ export function groupSessions(
   return { live, days };
 }
 
-/** Agents ordered for display: children nested under parents, live first. */
+/** Sibling comparator (§4.1): lastActivity DESC, nulls last, id ASC tiebreak
+ *  (stable across polls when timestamps tie). */
+function byRecency(a: AgentNode, b: AgentNode): number {
+  const ta = a.lastActivity ? Date.parse(a.lastActivity) : NaN;
+  const tb = b.lastActivity ? Date.parse(b.lastActivity) : NaN;
+  const va = Number.isNaN(ta) ? Number.NEGATIVE_INFINITY : ta;
+  const vb = Number.isNaN(tb) ? Number.NEGATIVE_INFINITY : tb;
+  if (va !== vb) return vb - va;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * Agents ordered for display: children nested under parents (hierarchy is
+ * preserved — only SIBLING order changes); within each sibling list the live
+ * partition pins first, and BOTH partitions sort most-recent-activity first
+ * (§4.1), so the newest agent activity is always the top row under its
+ * spawner. `agentCycleOrder` inherits this, so [ / ] cycling follows recency.
+ */
 export function orderAgents(tree: SessionTree): {
   node: AgentNode;
   depth: number;
@@ -98,10 +124,10 @@ export function orderAgents(tree: SessionTree): {
     if (list) list.push(a);
     else childrenOf.set(pid, [a]);
   }
-  // Live agents pin first among siblings (stable within each partition).
+  // Live agents pin first among siblings; each partition sorts by recency.
   for (const list of childrenOf.values()) {
-    const live = list.filter((a) => a.status === "running");
-    const done = list.filter((a) => a.status !== "running");
+    const live = list.filter((a) => a.status === "running").sort(byRecency);
+    const done = list.filter((a) => a.status !== "running").sort(byRecency);
     list.splice(0, list.length, ...live, ...done);
   }
   const out: { node: AgentNode; depth: number }[] = [];
@@ -115,7 +141,8 @@ export function orderAgents(tree: SessionTree): {
   return out;
 }
 
-/** Flat keyboard order for [ / ] agent cycling: root, then nested agents. */
+/** Flat keyboard order for [ / ] agent cycling: root, then nested agents
+ *  (recency-ordered — see orderAgents). */
 export function agentCycleOrder(tree: SessionTree): string[] {
   return ["root", ...orderAgents(tree).map((a) => a.node.id)];
 }
@@ -131,8 +158,60 @@ export interface NavRailProps {
   treeLoading: boolean;
   /** agentId → one-line latest activity (live agents; paged backend only). */
   subtitles: Map<string, string>;
+  /** Session ids whose agent group the user collapsed (BUG-017) — owned by
+   *  SessionsPage, sessionStorage-persisted. `expanded = selected && !has`. */
+  collapsedSessions: Set<string>;
+  /** Day-group labels the user collapsed ("Live now" is never collapsible). */
+  collapsedDays: Set<string>;
   onSelectSession: (sessionId: string) => void;
   onSelectAgent: (sessionId: string, agentId: string) => void;
+  onToggleSessionCollapsed: (sessionId: string) => void;
+  onToggleDayCollapsed: (label: string) => void;
+}
+
+/**
+ * Display order of the selected session's agents, with the pointer-freeze
+ * guard (§4.1): while the pointer was active over the rail within the last
+ * POINTER_FREEZE_MS and the agent SET is unchanged, the previous sibling
+ * order is kept (fresh node data, frozen positions) so live re-sorts never
+ * yank a row out from under the cursor. A membership change (new agent) or
+ * a different session always takes the fresh order.
+ */
+function useFrozenAgentOrder(
+  tree: SessionTree | null,
+  lastPointerRef: { readonly current: number },
+): { node: AgentNode; depth: number }[] {
+  const frozenRef = useRef<{ sessionId: string; ids: string[] } | null>(null);
+  return useMemo(() => {
+    if (!tree) {
+      frozenRef.current = null;
+      return [];
+    }
+    const fresh = orderAgents(tree);
+    const prev = frozenRef.current;
+    const pointerRecent =
+      Date.now() - lastPointerRef.current < POINTER_FREEZE_MS;
+    if (
+      prev &&
+      pointerRecent &&
+      prev.sessionId === tree.sessionId &&
+      prev.ids.length === fresh.length
+    ) {
+      const byId = new Map(fresh.map((f) => [f.node.id, f]));
+      const remapped: { node: AgentNode; depth: number }[] = [];
+      for (const id of prev.ids) {
+        const f = byId.get(id);
+        if (!f) break;
+        remapped.push(f);
+      }
+      if (remapped.length === fresh.length) return remapped; // freeze holds
+    }
+    frozenRef.current = {
+      sessionId: tree.sessionId,
+      ids: fresh.map((f) => f.node.id),
+    };
+    return fresh;
+  }, [tree, lastPointerRef]);
 }
 
 export function NavRail({
@@ -142,23 +221,45 @@ export function NavRail({
   tree,
   treeLoading,
   subtitles,
+  collapsedSessions,
+  collapsedDays,
   onSelectSession,
   onSelectAgent,
+  onToggleSessionCollapsed,
+  onToggleDayCollapsed,
 }: NavRailProps) {
   const { live, days } = groupSessions(sessions);
 
-  const renderSession = (s: SessionSummary, liveGroup: boolean) => {
+  const lastPointerRef = useRef(0);
+  const markPointer = () => {
+    lastPointerRef.current = Date.now();
+  };
+  const orderedAgents = useFrozenAgentOrder(tree, lastPointerRef);
+
+  const renderSession = (
+    s: SessionSummary,
+    liveGroup: boolean,
+    level: number,
+  ) => {
     const selected = s.id === selectedSessionId;
+    const expanded = selected && !collapsedSessions.has(s.id);
     return (
       <Fragment key={s.id}>
         <SessionNode
           session={s}
           live={liveGroup}
           selected={selected}
-          expanded={selected}
+          expanded={expanded}
+          level={level}
           onSelect={() => onSelectSession(s.id)}
+          onToggleExpand={() => {
+            // Caret on an unselected session selects it (selection implies
+            // interest — SessionsPage clears its collapsed flag on select).
+            if (selected) onToggleSessionCollapsed(s.id);
+            else onSelectSession(s.id);
+          }}
         />
-        {selected && (
+        {expanded && (
           <div
             role="group"
             aria-label="Agents in this session"
@@ -175,15 +276,17 @@ export function NavRail({
                 <AgentRow
                   node={tree.root}
                   depth={1}
+                  level={level + 1}
                   selected={selectedAgentId === "root"}
                   subtitle={subtitles.get("root") ?? null}
                   onSelect={() => onSelectAgent(s.id, "root")}
                 />
-                {orderAgents(tree).map(({ node, depth }) => (
+                {orderedAgents.map(({ node, depth }) => (
                   <AgentRow
                     key={node.id}
                     node={node}
                     depth={depth + 1}
+                    level={level + 1 + depth}
                     selected={selectedAgentId === node.id}
                     subtitle={subtitles.get(node.id) ?? null}
                     onSelect={() => onSelectAgent(s.id, node.id)}
@@ -198,25 +301,67 @@ export function NavRail({
   };
 
   return (
-    <nav className="sess-nav" aria-label="Sessions and agents">
-      {live.length > 0 && (
-        <section
-          className="sess-nav-group"
-          aria-label={`Live now (${live.length})`}
-        >
-          <h3 className="sess-nav-day sess-nav-day--live">
-            <span className="sess-live-dot" aria-hidden="true" />
-            Live now
-          </h3>
-          {live.map((s) => renderSession(s, true))}
-        </section>
-      )}
-      {days.map((g) => (
-        <section key={g.label} className="sess-nav-group" aria-label={g.label}>
-          <h3 className="sess-nav-day">{g.label}</h3>
-          {g.sessions.map((s) => renderSession(s, false))}
-        </section>
-      ))}
+    <nav
+      className="sess-nav"
+      aria-label="Sessions and agents"
+      onPointerMove={markPointer}
+      onPointerDown={markPointer}
+    >
+      <div role="tree" aria-label="Sessions">
+        {live.length > 0 && (
+          <div className="sess-nav-group">
+            {/* Live-now is NEVER collapsible — a live agent must not be
+                hideable by a stale collapse flag. Presentation-only header. */}
+            <h3 className="sess-nav-day sess-nav-day--live" role="presentation">
+              <span className="sess-live-dot" aria-hidden="true" />
+              Live now
+              <span className="sess-nav-day-count">({live.length})</span>
+            </h3>
+            {live.map((s) => renderSession(s, true, 1))}
+          </div>
+        )}
+        {days.map((g) => {
+          const collapsed = collapsedDays.has(g.label);
+          return (
+            <div key={g.label} className="sess-nav-group">
+              <button
+                type="button"
+                role="treeitem"
+                aria-level={1}
+                aria-expanded={!collapsed}
+                className="sess-nav-day sess-nav-day--toggle"
+                onClick={() => onToggleDayCollapsed(g.label)}
+                onKeyDown={(e) => {
+                  if (
+                    (e.key === "ArrowLeft" && !collapsed) ||
+                    (e.key === "ArrowRight" && collapsed)
+                  ) {
+                    e.preventDefault();
+                    onToggleDayCollapsed(g.label);
+                  }
+                }}
+              >
+                <span className="sess-nav-day-caret" aria-hidden="true">
+                  {collapsed ? (
+                    <ChevronRight size={10} />
+                  ) : (
+                    <ChevronDown size={10} />
+                  )}
+                </span>
+                {g.label}
+                <span className="sess-nav-day-count">
+                  ({g.sessions.length})
+                </span>
+              </button>
+              {!collapsed && (
+                <div role="group">
+                  {g.sessions.map((s) => renderSession(s, false, 2))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </nav>
   );
 }
@@ -226,30 +371,73 @@ function SessionNode({
   live,
   selected,
   expanded,
+  level,
   onSelect,
+  onToggleExpand,
 }: {
   session: SessionSummary;
   live: boolean;
   selected: boolean;
   expanded: boolean;
+  level: number;
   onSelect: () => void;
+  onToggleExpand: () => void;
 }) {
   const label =
     session.title ?? session.firstPrompt ?? `${session.id.slice(0, 8)}…`;
+  const renamed = session.titleSource === "rename";
   return (
-    <button
-      type="button"
-      aria-current={selected ? "true" : undefined}
-      aria-expanded={expanded ? "true" : "false"}
+    // Wrapper div (not a button): the caret is a REAL nested collapse toggle
+    // (BUG-017) and buttons cannot legally nest inside buttons.
+    <div
+      role="treeitem"
+      aria-level={level}
+      aria-selected={selected}
+      aria-expanded={expanded}
       className={`sess-nav-session ${selected ? "is-selected" : ""} ${live ? "is-live" : ""}`}
-      onClick={onSelect}
     >
-      <span className="sess-nav-session-caret" aria-hidden="true">
+      <button
+        type="button"
+        className="sess-nav-session-caret"
+        aria-expanded={expanded}
+        aria-label={
+          expanded ? "Collapse session agents" : "Expand session agents"
+        }
+        title={expanded ? "Collapse (←)" : "Expand (→)"}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleExpand();
+        }}
+      >
         {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-      </span>
-      <span className="sess-nav-session-main">
+      </button>
+      <button
+        type="button"
+        className="sess-nav-session-main"
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          // Standard tree-view keys: ← collapses, → expands (§4.2).
+          if (
+            (e.key === "ArrowLeft" && expanded) ||
+            (e.key === "ArrowRight" && !expanded)
+          ) {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+      >
         <span className="sess-nav-session-title">{label}</span>
         <span className="sess-nav-session-meta">
+          {renamed && (
+            <span
+              className="sess-nav-session-renamed"
+              title="Renamed in editor"
+              aria-label="Renamed in editor"
+            >
+              <Pencil size={9} aria-hidden="true" />
+            </span>
+          )}
           {live && <span className="sess-live-label">live</span>}
           <span>{timeAgo(session.lastActivity)}</span>
           {/* Raw transcript records (incl. subagent sidechains) — labelled
@@ -262,20 +450,22 @@ function SessionNode({
             </span>
           )}
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }
 
 function AgentRow({
   node,
   depth,
+  level,
   selected,
   subtitle,
   onSelect,
 }: {
   node: AgentNode;
   depth: number;
+  level: number;
   selected: boolean;
   subtitle: string | null;
   onSelect: () => void;
@@ -285,7 +475,9 @@ function AgentRow({
   return (
     <button
       type="button"
-      aria-current={selected ? "true" : undefined}
+      role="treeitem"
+      aria-level={level}
+      aria-selected={selected}
       className={`sess-nav-agent ${selected ? "is-selected" : ""} ${running ? "is-live" : ""}`}
       style={{ paddingLeft: 14 + depth * 14 }}
       onClick={onSelect}

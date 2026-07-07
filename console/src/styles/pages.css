@@ -836,3 +836,197 @@
     padding: 8px 0;
   }
 }
+
+/* ============================================================
+   Dashboard context strip — v2 §5.3 (TASK-106)
+   Replaces the ~230px .dashboard-hero (components.css — now unused):
+   one 56px row of sprint goal + framework chips + spec link, so
+   vitals + the handback queue sit above the fold at 800px height.
+   ============================================================ */
+@layer components {
+  .dashboard-context-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: 56px;
+    padding: 0 28px;
+    border-bottom: 1px solid var(--border-card);
+    background: linear-gradient(
+      120deg,
+      color-mix(in oklch, var(--accent-strong) 10%, transparent) 0%,
+      color-mix(in oklch, var(--accent-strong) 3%, transparent) 45%,
+      transparent 70%
+    );
+  }
+
+  .ctx-goal {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .ctx-goal-icon {
+    color: var(--color-accent);
+    flex-shrink: 0;
+  }
+
+  .ctx-goal-text {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ctx-goal-text--empty {
+    color: var(--text-subtle);
+    font-style: italic;
+  }
+
+  .ctx-chips {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+
+  .ctx-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 24px;
+    padding: 0 9px;
+    font-size: 10.5px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-card);
+    background: color-mix(in oklch, var(--surface-2) 75%, transparent);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .ctx-chip-icon {
+    display: inline-flex;
+    color: var(--text-subtle);
+  }
+
+  .ctx-chip-label {
+    font-weight: 700;
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-subtle);
+  }
+
+  .ctx-chip-value {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .ctx-chip--ok {
+    border-color: var(--pill-success-border);
+    background: var(--pill-success-bg);
+  }
+  .ctx-chip--ok .ctx-chip-value,
+  .ctx-chip--ok .ctx-chip-icon {
+    color: var(--pill-success-fg);
+  }
+
+  .ctx-chip--warn {
+    border-color: var(--pill-warning-border);
+    background: var(--pill-warning-bg);
+  }
+  .ctx-chip--warn .ctx-chip-value,
+  .ctx-chip--warn .ctx-chip-icon {
+    color: var(--pill-warning-fg);
+  }
+
+  .ctx-chip--link {
+    text-decoration: none;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    transition: border-color var(--duration-fast) var(--ease-snappy);
+  }
+
+  .ctx-chip--link:hover {
+    border-color: color-mix(
+      in oklch,
+      var(--color-accent) 45%,
+      var(--border-card)
+    );
+  }
+
+  .ctx-chip--link .ctx-chip-value {
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Narrow viewport: chips shed their labels; the goal line keeps priority. */
+  @media (max-width: 900px) {
+    .ctx-chip-label {
+      display: none;
+    }
+  }
+
+  /* Dashboard first-load skeleton (§5.2) shares the page padding. */
+  .dashboard-skeleton {
+    padding: 20px 28px;
+  }
+
+  .dashboard-skeleton > .skeleton-line {
+    height: 40px;
+    border-radius: var(--radius-card);
+  }
+}
+
+/* ============================================================
+   Decisions page — §5.1 rail adoption (TASK-106)
+   Collapse affordance on the parsed-entry cards; the base card
+   styles stay in components.css.
+   ============================================================ */
+@layer components {
+  .decision-card-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    text-align: left;
+    color: inherit;
+    cursor: pointer;
+  }
+
+  .decision-card-toggle:focus-visible {
+    outline: none;
+    border-radius: var(--radius-md);
+    box-shadow:
+      0 0 0 2px var(--focus-inner),
+      0 0 0 4px var(--focus-outer);
+  }
+
+  .decision-card-chevron {
+    flex-shrink: 0;
+    color: var(--text-subtle);
+    transition: transform var(--duration-fast) var(--ease-snappy);
+  }
+
+  .decision-card-toggle:hover .decision-card-chevron {
+    color: var(--color-accent);
+  }
+
+  .decision-card--collapsed .decision-card-chevron {
+    transform: rotate(-90deg);
+  }
+
+  /* Anchor jumps from the TOC rail land clear of the viewport edge. */
+  .decision-card {
+    scroll-margin-top: 16px;
+  }
+}

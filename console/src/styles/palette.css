@@ -1,0 +1,199 @@
+/* ============================================================
+   palette.css — ⌘K command palette (CONSOLE-V2-DESIGN.md §2.10,
+   TASK-103). Owns .palette-* classes only.
+
+   Glass overlay follows the house idiom (sess-search):
+   --radius-overlay + --shadow-float on --surface-3, backdrop
+   frosted with the surface-0 veil. All colours are theme tokens —
+   the palette re-themes with data-theme / data-accent for free.
+   ============================================================ */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  background: color-mix(in oklch, var(--surface-0) 55%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+}
+
+.palette {
+  width: min(620px, 92vw);
+  max-height: 58vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-overlay);
+  background: var(--card-sheen), var(--surface-3);
+  box-shadow: var(--shadow-float);
+  overflow: hidden;
+  animation: palette-in 120ms ease-out;
+}
+
+@keyframes palette-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Input row ── */
+
+.palette-inputrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 12px 14px;
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}
+
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  outline: none;
+}
+.palette-input::placeholder {
+  color: var(--text-subtle);
+}
+
+.palette-spin {
+  animation: palette-rot 0.9s linear infinite;
+}
+@keyframes palette-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ── Results ── */
+
+.palette-list {
+  overflow-y: auto;
+  padding: 2px 6px 6px;
+  border-top: 1px solid var(--border-card);
+}
+
+.palette-group-label {
+  padding: 8px 10px 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+.palette-group + .palette-group .palette-group-label {
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in oklch, var(--border-card) 60%, transparent);
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.palette-row.is-active {
+  background: var(--surface-selected);
+}
+
+.palette-row-title {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.palette-hl {
+  background: none;
+  color: var(--color-accent-text);
+  font-weight: 700;
+}
+
+.palette-row-hint {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-subtle);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.palette-row-meta {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.palette-row-enter {
+  color: var(--text-subtle);
+  opacity: 0;
+  flex-shrink: 0;
+  align-self: center;
+}
+.palette-row.is-active .palette-row-enter {
+  opacity: 0.9;
+}
+
+.palette-none {
+  padding: 16px 14px 18px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+/* ── Footer key hints ── */
+
+.palette-footer {
+  display: flex;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border-card);
+  font-size: 10.5px;
+  color: var(--text-subtle);
+  flex-shrink: 0;
+}
+.palette-footer kbd {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  padding: 1px 5px;
+  margin-right: 2px;
+  border: 1px solid var(--border-card);
+  border-radius: 5px;
+  background: color-mix(in oklch, var(--text-subtle) 8%, transparent);
+}
+
+/* ── Motion restraint ── */
+
+@media (prefers-reduced-motion: reduce) {
+  .palette {
+    animation: none;
+  }
+  .palette-spin {
+    animation: none;
+  }
+}

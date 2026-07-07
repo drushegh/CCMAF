@@ -1,0 +1,158 @@
+/*
+ * skeleton.css — shimmer loading placeholders (Console v2 §5.2, TASK-106).
+ *
+ * Pairs with src/app/components/Skeleton.tsx. Three primitives (line / card /
+ * tile) plus the page-shape helpers the pages compose them with. The shimmer
+ * is a translucent sweep on ::after; under prefers-reduced-motion it is
+ * removed entirely — the static tinted bars alone still read as "loading".
+ *
+ * All colours from theme tokens. Imported via globals.css.
+ */
+
+@layer components {
+  /* ── Base ghost surface ─────────────────────────────────────── */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    display: block;
+    background: color-mix(in oklch, var(--surface-3) 65%, transparent);
+    border-radius: var(--radius-sm);
+  }
+
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      color-mix(in oklch, var(--text-subtle) 14%, transparent) 50%,
+      transparent 100%
+    );
+    animation: skeleton-shimmer 1.6s var(--ease-snappy, ease) infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .skeleton::after {
+      animation: none;
+      /* Static: no sweep at all — the tinted bar is the whole affordance. */
+      content: none;
+    }
+  }
+
+  /* ── Variants ───────────────────────────────────────────────── */
+  .skeleton-line {
+    height: 12px;
+  }
+
+  .skeleton-line--title {
+    height: 15px;
+    width: 42%;
+    margin-bottom: 4px;
+    border-radius: var(--radius-md);
+  }
+
+  .skeleton-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px 18px;
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-card);
+    background: var(--card-sheen), var(--surface-1);
+    box-shadow: var(--shadow-card);
+  }
+
+  .skeleton-tile {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 104px;
+    padding: 13px 15px;
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-card);
+    background: var(--card-sheen), var(--surface-1);
+    box-shadow: var(--shadow-card);
+  }
+
+  .skeleton-tile-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: var(--radius-md);
+  }
+
+  .skeleton-tile-value {
+    height: 20px;
+    width: 38%;
+  }
+
+  .skeleton-tile-label {
+    height: 10px;
+    width: 62%;
+    margin-top: auto;
+  }
+
+  /* ── Group wrapper (role="status" carrier) ──────────────────── */
+  .skeleton-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* ── Page shapes ────────────────────────────────────────────── */
+  /* Dashboard: context-strip ghost + tile grid + two section ghosts. Mirrors
+     the real .vitals-strip geometry (5-across at the target width). */
+  .skeleton-strip {
+    height: 56px;
+    border-radius: var(--radius-card);
+  }
+
+  .skeleton-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 12px;
+  }
+
+  @media (max-width: 720px) {
+    .skeleton-tile-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  /* Kanban: three ghost columns (headers + a few card ghosts each). */
+  .skeleton-kanban {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    align-items: start;
+  }
+
+  @media (max-width: 720px) {
+    .skeleton-kanban {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .skeleton-kanban-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-card);
+    background:
+      var(--card-sheen), color-mix(in oklch, var(--surface-1) 82%, transparent);
+    box-shadow: var(--shadow-card);
+  }
+
+  .skeleton-kanban-column > .skeleton-line--title {
+    width: 55%;
+  }
+}

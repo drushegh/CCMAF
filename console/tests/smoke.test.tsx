@@ -21,7 +21,13 @@ const STUB_DASHBOARD = {
     { status: "draft", n: 0 },
   ],
   latestDecisions: [
-    { id: "DEC-010", date: "2026-06-23", status: "active", title: "UI quality bar", body: "" },
+    {
+      id: "DEC-010",
+      date: "2026-06-23",
+      status: "active",
+      title: "UI quality bar",
+      body: "",
+    },
   ],
   currentSpec: "SPEC-project-console",
   sprintGoal: "Deliver the Project Console v1",
@@ -64,7 +70,7 @@ function stubFetch(dashboardBody: unknown) {
       const url = String(input);
       // Match analytics endpoints first
       const analyticsKey = Object.keys(STUB_ANALYTICS).find((k) =>
-        url.includes(k)
+        url.includes(k),
       );
       if (analyticsKey) {
         return new Response(JSON.stringify(STUB_ANALYTICS[analyticsKey]), {
@@ -77,7 +83,7 @@ function stubFetch(dashboardBody: unknown) {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    })
+    }),
   );
 }
 
@@ -87,10 +93,14 @@ describe("Project Console — smoke tests", () => {
     render(
       <MemoryRouter>
         <DashboardPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
-    // The loading state renders first; wait for the hero title to appear.
-    expect(await screen.findByText("Project Console")).toBeInTheDocument();
+    // The skeleton renders first; wait for the context strip's sprint goal
+    // (v2 §5.3 — the hero block and its "Project Console" title are gone).
+    expect(
+      await screen.findByText("Deliver the Project Console v1"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Project Console")).not.toBeInTheDocument();
   });
 
   it("Dashboard shows the Handback Queue section", async () => {
@@ -98,7 +108,7 @@ describe("Project Console — smoke tests", () => {
     render(
       <MemoryRouter>
         <DashboardPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(await screen.findByText("Handback Queue")).toBeInTheDocument();
   });
@@ -108,7 +118,7 @@ describe("Project Console — smoke tests", () => {
     render(
       <MemoryRouter>
         <DashboardPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     // Task lifecycle counts now live as tiles in the Vitals strip.
     // ("Ready for Test" also appears in the handback empty-state copy, so assert
@@ -138,7 +148,7 @@ function stubRoutes(routes: Record<string, unknown>) {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
-    })
+    }),
   );
 }
 
@@ -154,7 +164,7 @@ describe("Framework-surface pages — TASK-027", () => {
     render(
       <MemoryRouter>
         <StatusPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(await screen.findByText("Project Status")).toBeInTheDocument();
     expect(screen.getByText("Current sprint goal text.")).toBeInTheDocument();
@@ -167,7 +177,7 @@ describe("Framework-surface pages — TASK-027", () => {
     render(
       <MemoryRouter>
         <StatusPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(await screen.findByText("No STATUS.md found")).toBeInTheDocument();
   });
@@ -188,15 +198,15 @@ describe("Framework-surface pages — TASK-027", () => {
     render(
       <MemoryRouter>
         <GotchasPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(
-      await screen.findByText("Verify files are user data")
+      await screen.findByText("Verify files are user data"),
     ).toBeInTheDocument();
     expect(screen.getByText("Project-specific")).toBeInTheDocument();
     expect(screen.getByText("Verified")).toBeInTheDocument();
     expect(
-      screen.getByText("Never write the real pass-files in tests.")
+      screen.getByText("Never write the real pass-files in tests."),
     ).toBeInTheDocument();
   });
 
@@ -220,11 +230,17 @@ describe("Framework-surface pages — TASK-027", () => {
     render(
       <MemoryRouter>
         <FindingsPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(await screen.findByText("APPROVE")).toBeInTheDocument();
-    expect(screen.getByText("Review findings")).toBeInTheDocument();
-    expect(screen.getByText("Test findings")).toBeInTheDocument();
+    // The doc titles now ALSO appear as TOC-rail entries (v2 §5.1) — assert on
+    // the headings specifically.
+    expect(
+      screen.getByRole("heading", { name: "Review findings" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Test findings" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("No open criticals.")).toBeInTheDocument();
   });
 
@@ -249,7 +265,12 @@ describe("Framework-surface pages — TASK-027", () => {
                 path: "",
                 type: "dir",
                 children: [
-                  { name: "README.md", path: "README.md", type: "file", ext: "md" },
+                  {
+                    name: "README.md",
+                    path: "README.md",
+                    type: "file",
+                    ext: "md",
+                  },
                   {
                     name: "inspiration",
                     path: "inspiration",
@@ -266,16 +287,16 @@ describe("Framework-surface pages — TASK-027", () => {
                 ],
               },
             }),
-            { status: 200, headers: { "Content-Type": "application/json" } }
+            { status: 200, headers: { "Content-Type": "application/json" } },
           );
         }
         return new Response("not found", { status: 404 });
-      })
+      }),
     );
     render(
       <MemoryRouter>
         <DocsPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     // Tree shows the file + the nested dir…
     expect(await screen.findByText("README.md")).toBeInTheDocument();
@@ -290,7 +311,7 @@ describe("Framework-surface pages — TASK-027", () => {
     render(
       <MemoryRouter>
         <DocsPage />
-      </MemoryRouter>
+      </MemoryRouter>,
     );
     expect(await screen.findByText("No docs/ folder yet")).toBeInTheDocument();
   });

@@ -110,10 +110,16 @@
     gap: 2px;
   }
 
-  .sess-nav-group {
+  /* The tree/group WRAPPERS (role=tree around all groups; role=group around
+     a day's sessions — §4.2 a11y structure) reproduce the flex column + gap
+     the flat pre-BUG-017 markup inherited from .sess-nav directly. */
+  .sess-nav > [role="tree"],
+  .sess-nav-group,
+  .sess-nav-group > [role="group"] {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
   .sess-nav-day {
@@ -134,6 +140,44 @@
     color: var(--status-ok);
   }
 
+  /* Day-group headers are REAL collapse toggles (BUG-017) — buttons carrying
+     the .sess-nav-day type treatment. "Live now" stays a plain heading. */
+  .sess-nav-day--toggle {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    width: calc(100% - 8px);
+    text-align: left;
+    padding: 3px 4px;
+    margin: 10px 2px 4px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-snappy),
+      background var(--duration-fast) var(--ease-snappy);
+  }
+  .sess-nav-group:first-child .sess-nav-day--toggle {
+    margin-top: 4px;
+  }
+  .sess-nav-day--toggle:hover {
+    color: var(--text-muted);
+    background: color-mix(in oklch, var(--surface-3) 55%, transparent);
+  }
+
+  .sess-nav-day-caret {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+
+  .sess-nav-day-count {
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    opacity: 0.85;
+  }
+
   .sess-live-dot {
     width: 6px;
     height: 6px;
@@ -143,6 +187,9 @@
     animation: sess-pulse 1.6s ease-in-out infinite;
   }
 
+  /* Session row = a treeitem DIV wrapping TWO real buttons (BUG-017): the
+     caret (collapse toggle) and the main select area — a button cannot
+     legally nest inside a button, so the row itself is no longer one. */
   .sess-nav-session {
     display: flex;
     align-items: flex-start;
@@ -153,7 +200,6 @@
     border: 1px solid transparent;
     border-radius: var(--radius-lg);
     background: transparent;
-    cursor: pointer;
     min-width: 0;
     transition:
       background var(--duration-fast) var(--ease-snappy),
@@ -171,17 +217,39 @@
   }
 
   .sess-nav-session-caret {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 2px;
+    margin: 0 0 0 -2px;
+    border-radius: var(--radius-sm);
     color: var(--text-subtle);
     flex-shrink: 0;
-    margin-top: 2px;
     display: inline-flex;
+    cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-snappy),
+      background var(--duration-fast) var(--ease-snappy);
+  }
+  .sess-nav-session-caret:hover {
+    color: var(--text-primary);
+    background: color-mix(in oklch, var(--surface-4) 60%, transparent);
   }
 
   .sess-nav-session-main {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 3px;
     min-width: 0;
+    flex: 1;
   }
 
   .sess-nav-session-title {
@@ -209,6 +277,16 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
+  }
+
+  /* §4.3 rename-aware titles: subtle marker on sessions renamed in the
+     editor (titleSource "rename") — sits first in the meta row, directly
+     under the title it annotates. */
+  .sess-nav-session-renamed {
+    display: inline-flex;
+    align-items: center;
+    color: var(--text-subtle);
+    flex-shrink: 0;
   }
 
   /* Nested agents under the selected session */
@@ -381,6 +459,47 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+  }
+
+  /* ── Center-pane mode switch (Conversation | Timeline, §2.8) ── */
+  .sess-mode-switch {
+    display: inline-flex;
+    align-self: flex-start;
+    gap: 2px;
+    margin: 0 0 8px 2px;
+    padding: 2px;
+    background: color-mix(in oklch, var(--surface-3) 60%, transparent);
+    border: 1px solid var(--border-card);
+    border-radius: var(--radius-pill);
+    flex-shrink: 0;
+  }
+
+  .sess-mode-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-pill);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      color var(--duration-fast) var(--ease-snappy),
+      background var(--duration-fast) var(--ease-snappy);
+  }
+
+  .sess-mode-tab:hover {
+    color: var(--text-primary);
+  }
+
+  .sess-mode-tab.is-active {
+    color: var(--color-accent);
+    background: color-mix(in oklch, var(--color-accent) 16%, var(--surface-2));
+    box-shadow: 0 0 0 1px
+      color-mix(in oklch, var(--color-accent) 30%, transparent);
   }
 
   .sess-convo {

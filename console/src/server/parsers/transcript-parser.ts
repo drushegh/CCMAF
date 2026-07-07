@@ -23,8 +23,22 @@
  *   — completion arrives later as a `<task-notification>` queued_command line.
  *   Fallback: recent file mtime ⇒ running, stale ⇒ done.
  *
+ *   Renames (§4.3 / BUG-018, verified live on 2.1.202): a manual session
+ *   rename in the VS Code extension persists as
+ *     {"type":"custom-title","customTitle":"…","sessionId":"…"}
+ *   lines APPENDED to the main transcript (re-emitted as the session goes on,
+ *   so the newest rides near the tail). The ~/.claude/sessions/<pid>.json
+ *   index is NOT updated by a rename — its `nameSource` stays "derived" — so
+ *   it is useless as a rename source. listSessions therefore scans the head
+ *   window AND a bounded tail window for the LAST custom-title, and caches
+ *   every observed name in a machine-local sidecar
+ *   (<userStateDir()>/session-names.json) so a name survives the rare case
+ *   of the line falling outside both windows on a later listing.
+ *
  * READ-ONLY: pure `(path) → data` functions, fs reads only, defensive per-line
- * JSON.parse (a malformed line is skipped, never thrown on).
+ * JSON.parse (a malformed line is skipped, never thrown on). ONE deliberate
+ * exception: the machine-local rename sidecar above is written (best-effort,
+ * atomically) when a rename is observed — never a project or transcript file.
  *
  * contract:console-http-api
  */
@@ -32,14 +46,18 @@
 import {
   closeSync,
   existsSync,
+  mkdirSync,
   openSync,
   readFileSync,
   readSync,
   readdirSync,
+  renameSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve, sep } from "node:path";
+import { userStateDir } from "../hub/registry.js";
 import type {
   AgentConversation,
   AgentNode,
@@ -48,6 +66,7 @@ import type {
   SearchMatch,
   SessionSearchResult,
   SessionSummary,
+  SessionTitleSource,
   SessionTree,
   ToolResultDetail,
   TurnBlock,
@@ -63,6 +82,12 @@ const RUNNING_THRESHOLD_MS = 120_000;
 /** Bytes of a main transcript's head scanned for startedAt / branch / first
  *  prompt in listSessions (bounded so a 70MB transcript stays cheap to list). */
 const HEAD_SCAN_BYTES = 512 * 1024;
+
+/** Bytes of a main transcript's TAIL scanned for the newest custom-title
+ *  (rename) line in listSessions — renames are appended and re-emitted
+ *  (observed ~every few KB of activity), so a bounded tail window is
+ *  reliable; the sidecar cache covers the residual miss. */
+const TAIL_SCAN_BYTES = 256 * 1024;
 
 /** Chunk size for the raw message-count scan of large main transcripts. */
 const COUNT_CHUNK_BYTES = 1024 * 1024;
@@ -211,6 +236,7 @@ export function clearTranscriptCaches(): void {
   jsonlCacheBytes = 0;
   countCache.clear();
   headCache.clear();
+  namesCache = null;
 }
 
 /**
@@ -423,6 +449,41 @@ function readHead(filePath: string, maxBytes: number): string {
   return value;
 }
 
+/** Read up to `maxBytes` from the END of a file as utf8 ("" on error). The
+ *  window usually starts mid-line — parseLines skips the torn first line. */
+function readTailUncached(filePath: string, maxBytes: number): string {
+  const tok = statToken(filePath);
+  if (!tok) return "";
+  let fd: number;
+  try {
+    fd = openSync(filePath, "r");
+  } catch {
+    return "";
+  }
+  try {
+    const want = Math.min(maxBytes, tok.size);
+    if (want <= 0) return "";
+    const buf = Buffer.alloc(want);
+    const n = readSync(fd, buf, 0, want, Math.max(0, tok.size - want));
+    return buf.toString("utf8", 0, n);
+  } catch {
+    return "";
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Cached readTail — shares the head cache, disambiguated by a "tail" key. */
+function readTail(filePath: string, maxBytes: number): string {
+  const key = `${filePath}\0tail\0${maxBytes}`;
+  const tok = statToken(filePath);
+  const cached = smallCacheGet(headCache, key, tok);
+  if (cached.hit) return cached.value;
+  const value = readTailUncached(filePath, maxBytes);
+  smallCacheSet(headCache, key, tok, value);
+  return value;
+}
+
 /**
  * Count `"type":"user"` / `"type":"assistant"` occurrences by scanning raw
  * bytes in chunks — a 70MB transcript is counted without parsing (or holding)
@@ -484,6 +545,96 @@ export function countMessagesRaw(filePath: string): number {
   const value = countMessagesRawUncached(filePath);
   smallCacheSet(countCache, filePath, tok, value);
   return value;
+}
+
+// ── Rename sidecar (machine-local; <userStateDir()>/session-names.json) ──────
+//
+// Best-effort cache of observed manual renames: { [sessionId]: {name, seenAt} }.
+// Written ONLY when a custom-title is seen in a scan window (see module doc);
+// read as ladder fallback when the line has scrolled outside both windows.
+// Machine-local by design — never a project/repo file. CCMAF_CONSOLE_STATE_DIR
+// (via userStateDir) points it at a temp dir in tests.
+
+interface SessionNameEntry {
+  name: string;
+  seenAt: string;
+}
+type SessionNamesFile = Record<string, SessionNameEntry>;
+
+function sessionNamesPath(): string {
+  return join(userStateDir(), "session-names.json");
+}
+
+let namesCache: { token: StatToken | null; data: SessionNamesFile } | null =
+  null;
+
+function tokenEq(a: StatToken | null, b: StatToken | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.mtimeMs === b.mtimeMs && a.size === b.size;
+}
+
+/** Parsed sidecar content ({} when absent/corrupt), stat-key cached. */
+function readSessionNames(): SessionNamesFile {
+  const p = sessionNamesPath();
+  const tok = statToken(p);
+  if (namesCache && tokenEq(namesCache.token, tok)) return namesCache.data;
+  const data: SessionNamesFile = {};
+  try {
+    const parsed = JSON.parse(readFileSync(p, "utf8")) as unknown;
+    if (
+      parsed !== null &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+    ) {
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (v === null || typeof v !== "object" || Array.isArray(v)) continue;
+        const name = str((v as Line).name);
+        if (name) data[k] = { name, seenAt: str((v as Line).seenAt) ?? "" };
+      }
+    }
+  } catch {
+    // absent / unreadable / corrupt — treat as empty
+  }
+  namesCache = { token: tok, data };
+  return data;
+}
+
+/** Persist an observed rename (no-op when unchanged; never throws). */
+function rememberSessionName(sessionId: string, name: string): void {
+  try {
+    const data = readSessionNames();
+    if (data[sessionId]?.name === name) return;
+    const next: SessionNamesFile = {
+      ...data,
+      [sessionId]: { name, seenAt: new Date().toISOString() },
+    };
+    const p = sessionNamesPath();
+    mkdirSync(userStateDir(), { recursive: true });
+    const tmp = `${p}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(next, null, 2), "utf8");
+    renameSync(tmp, p); // atomic-ish: readers never see a torn file
+    namesCache = { token: statToken(p), data: next };
+  } catch {
+    // best-effort cache — a listing must never fail over it
+  }
+}
+
+/** Newest custom-title name for `sessionId` in an already-parsed line window
+ *  (null if none). Lines from a copied/forked transcript that name a
+ *  DIFFERENT session are ignored. */
+function lastCustomTitle(
+  lines: Iterable<Line>,
+  sessionId: string,
+): string | null {
+  let name: string | null = null;
+  for (const line of lines) {
+    if (line.type !== "custom-title") continue;
+    const sid = str(line.sessionId);
+    if (sid && sid !== sessionId) continue;
+    const t = str(line.customTitle);
+    if (t) name = t; // keep the LAST — a later rename wins
+  }
+  return name;
 }
 
 // ── First-prompt extraction ───────────────────────────────────────────────────
@@ -606,24 +757,32 @@ export function listSessions(
     const mainPath = join(sessionsDir, name);
 
     let mtimeMs: number;
+    let sizeBytes = 0;
     try {
       const st = statSync(mainPath);
       if (!st.isFile()) continue;
       mtimeMs = st.mtimeMs;
+      sizeBytes = st.size;
     } catch {
       continue;
     }
 
-    // Head scan: startedAt, branch, first prompt, title.
+    // Head scan: startedAt, branch, first prompt, title, rename.
     let startedAt: string | null = null;
     let gitBranch: string | null = null;
     let firstPrompt: string | null = null;
     let title: string | null = null;
+    let renameTitle: string | null = null;
     for (const line of parseLines(readHead(mainPath, HEAD_SCAN_BYTES))) {
       if (startedAt === null) startedAt = str(line.timestamp);
       if (gitBranch === null) gitBranch = str(line.gitBranch);
       if (title === null && line.type === "ai-title") title = str(line.aiTitle);
       if (title === null && line.type === "summary") title = str(line.summary);
+      if (line.type === "custom-title") {
+        const sid = str(line.sessionId);
+        const t = str(line.customTitle);
+        if (t && (!sid || sid === id)) renameTitle = t; // last-in-head wins
+      }
       if (firstPrompt === null && line.type === "user" && !line.isMeta) {
         const text = userTextOf(line);
         if (text && !isNoisePrompt(text)) {
@@ -634,6 +793,21 @@ export function listSessions(
         }
       }
     }
+
+    // Title-source ladder rung 1 (§4.3 / BUG-018): renames are custom-title
+    // lines APPENDED to the transcript, so on a long file the newest lives in
+    // the tail — scan a bounded tail window (later in file = newer, so it
+    // overrides a head hit). Observed names persist to the machine-local
+    // sidecar; when neither window holds the line any more, the sidecar does.
+    if (sizeBytes > HEAD_SCAN_BYTES) {
+      const tailName = lastCustomTitle(
+        parseLines(readTail(mainPath, TAIL_SCAN_BYTES)),
+        id,
+      );
+      if (tailName) renameTitle = tailName;
+    }
+    if (renameTitle) rememberSessionName(id, renameTitle);
+    const rename = renameTitle ?? readSessionNames()[id]?.name ?? null;
 
     // Agent files: count + fold their mtimes into lastActivity (the main
     // transcript can sit idle while a background agent works).
@@ -647,6 +821,17 @@ export function listSessions(
       }
     }
 
+    // The rest of the ladder (§4.3): rename > summary/ai-title > first
+    // prompt > id — `titleSource` names which rung the display label rides.
+    const titleSource: SessionTitleSource =
+      rename !== null
+        ? "rename"
+        : title !== null
+          ? "summary"
+          : firstPrompt !== null
+            ? "prompt"
+            : "id";
+
     sessions.push({
       id,
       startedAt,
@@ -655,7 +840,8 @@ export function listSessions(
       agentCount: agentFiles.length,
       gitBranch,
       firstPrompt,
-      title,
+      title: rename ?? title,
+      titleSource,
     });
   }
 

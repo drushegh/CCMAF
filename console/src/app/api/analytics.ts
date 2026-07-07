@@ -27,7 +27,13 @@ export interface TelemetrySummary {
   sessions: number;
   by_session: Record<
     string,
-    { total: number; blocked: number; flagged: number; drift_fires: number; stop_blocked?: number }
+    {
+      total: number;
+      blocked: number;
+      flagged: number;
+      drift_fires: number;
+      stop_blocked?: number;
+    }
   >;
   lastSession: LastSessionInfo | null;
 }
@@ -47,6 +53,8 @@ export interface StateDoc {
   key: string;
   exists: boolean;
   markdown: string;
+  /** File mtime (ms epoch) for the DocPage "Last updated" meta row (TASK-106 §5.1). Absent when the file is. */
+  mtimeMs?: number;
 }
 
 export interface FindingsSummary {
@@ -84,13 +92,13 @@ async function getJson<T>(path: string): Promise<T> {
     });
   } catch {
     throw new ApiError(
-      `Could not reach the Console server (${path}). Is it running?`
+      `Could not reach the Console server (${path}). Is it running?`,
     );
   }
   if (!res.ok) {
     throw new ApiError(
       `Request to ${path} failed with ${res.status} ${res.statusText}`,
-      res.status
+      res.status,
     );
   }
   try {

@@ -55,6 +55,7 @@ import { shellRoutes } from "./routes/shell-routes.js";
 import { settingsRoutes } from "./routes/settings-routes.js";
 import { hubRoutes } from "./routes/hub-routes.js";
 import { sessionsRoutes } from "./routes/sessions-routes.js";
+import { attentionRoutes } from "./routes/attention-routes.js";
 import { getWatcher } from "./watch/watcher.js";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -256,6 +257,7 @@ export async function buildServer(opts: {
   await fastify.register(settingsRoutes, { writeGuard }); // TASK-042 settings window + /api/settings
   await fastify.register(hubRoutes, { writeGuard, port }); // TASK-043 Hub flyout window + actions
   await fastify.register(sessionsRoutes); // Sessions agent-visualisation (read-only)
+  await fastify.register(attentionRoutes); // TASK-109 needs-you attention feed (S3, read-only)
 
   // File-watcher → SSE stream (TASK-008): start once per server; stop on close.
   getWatcher().start();

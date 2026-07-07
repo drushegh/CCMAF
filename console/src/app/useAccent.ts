@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 
 export const ACCENTS = [
   "purple",
+  "mono",
   "blue",
   "red",
   "green",
@@ -44,25 +45,69 @@ export function readStoredAccent(): Accent {
   return "purple";
 }
 
+/* ── Cross-instance sync ──
+   Several useAccent() consumers coexist (the header AccentPicker AND the ⌘K
+   command palette). The visual theme is always correct — it's a single
+   <html data-accent> attribute — but before this store a change from ONE
+   instance (e.g. the palette setting an accent) left the OTHER instance's
+   React state stale, so its checkmark lagged. A module-level store keeps every
+   instance in lock-step, and a `storage` listener extends that to other tabs. */
+
+let currentAccent: Accent = readStoredAccent();
+const listeners = new Set<(a: Accent) => void>();
+
+/** Reflect the accent onto <html> (purple = the default :root values). */
+function applyAccent(a: Accent): void {
+  if (typeof document === "undefined") return;
+  const root = document.documentElement;
+  if (a === "purple") root.removeAttribute("data-accent");
+  else root.setAttribute("data-accent", a);
+}
+
+/** Persist + apply + broadcast to every live useAccent() instance. */
+function commitAccent(a: Accent): void {
+  currentAccent = a;
+  applyAccent(a);
+  try {
+    localStorage.setItem(STORAGE_KEY, a);
+  } catch {
+    /* ignore persistence failure */
+  }
+  for (const l of listeners) l(a);
+}
+
+// Keep the DOM honest even without the pre-paint inline script (tests/SSR
+// hydration), then mirror cross-tab writes into this tab's store.
+if (typeof window !== "undefined") {
+  applyAccent(currentAccent);
+  window.addEventListener("storage", (e) => {
+    if (e.key !== STORAGE_KEY) return;
+    const next = isAccent(e.newValue) ? e.newValue : "purple";
+    if (next === currentAccent) return;
+    currentAccent = next;
+    applyAccent(next);
+    for (const l of listeners) l(next);
+  });
+}
+
 export function useAccent(): {
   accent: Accent;
   setAccent: (a: Accent) => void;
 } {
-  const [accent, setAccentState] = useState<Accent>(readStoredAccent);
+  const [accent, setAccentState] = useState<Accent>(currentAccent);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (accent === "purple")
-      root.removeAttribute("data-accent"); // purple = the default :root values
-    else root.setAttribute("data-accent", accent);
-    try {
-      localStorage.setItem(STORAGE_KEY, accent);
-    } catch {
-      /* ignore persistence failure */
-    }
-  }, [accent]);
+    // Catch any change that landed between module init and this subscribe,
+    // then track every future change from any instance/tab.
+    setAccentState(currentAccent);
+    const listener = (a: Accent): void => setAccentState(a);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
 
-  const setAccent = useCallback((a: Accent) => setAccentState(a), []);
+  const setAccent = useCallback((a: Accent) => commitAccent(a), []);
 
   return { accent, setAccent };
 }

@@ -1,0 +1,200 @@
+/* ============================================================
+   inbox.css — Needs-you inbox: header bell + flyout panel
+   (CONSOLE-V2-DESIGN.md §2.9, TASK-109). Owns .console-inbox-*
+   classes only.
+
+   Glass flyout follows the house idiom (.console-accent-pop):
+   frosted --surface-3 veil, --border-card, --shadow-float,
+   portaled to <body> and fixed-positioned (see InboxFlyout.tsx),
+   so it sits at toast level above page stacking contexts.
+   All colours are theme tokens — status hues are ALWAYS paired
+   with a per-kind icon (never colour alone).
+   ============================================================ */
+
+.console-inbox {
+  position: relative;
+  display: inline-flex;
+}
+
+/* The bell reuses .console-theme-toggle (round glass icon button);
+   this class only hosts the badge overlay. */
+.console-inbox-bell {
+  position: relative;
+}
+
+.console-inbox-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--status-error);
+  color: white;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--surface-0);
+  pointer-events: none;
+}
+
+/* ── Flyout panel (portaled; position set inline by the component) ── */
+
+.console-inbox-pop {
+  width: min(400px, calc(100vw - 24px));
+  max-height: min(480px, calc(100vh - 96px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklch, var(--surface-3) 92%, transparent);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  border: 1px solid var(--border-card);
+  box-shadow: var(--shadow-float);
+  /* Portaled to <body> (see InboxFlyout.tsx): must clear page content that
+     leaks a root-level stacking context, so sit at toast level — the same
+     tier as the accent popover. */
+  z-index: var(--z-toast);
+}
+
+.console-inbox-head {
+  padding: 10px 14px 8px;
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  border-bottom: 1px solid var(--border-card);
+  flex-shrink: 0;
+}
+
+.console-inbox-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+/* ── Rows ── */
+
+.console-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-snappy);
+}
+.console-inbox-row:hover,
+.console-inbox-row:focus-visible {
+  background: color-mix(in oklch, var(--color-accent) 9%, transparent);
+}
+
+/* Severity glyph — colour + icon shape together, never colour alone. */
+.console-inbox-glyph {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.console-inbox-glyph.is-danger {
+  color: var(--status-error);
+}
+.console-inbox-glyph.is-warn {
+  color: var(--status-blocked);
+}
+.console-inbox-glyph.is-accent {
+  color: var(--color-accent);
+}
+.console-inbox-glyph.is-info {
+  color: var(--status-info);
+}
+
+/* Kind chip — tiny tinted pill; tone mirrors the glyph. */
+.console-inbox-kind {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+.console-inbox-kind.is-danger {
+  color: var(--pill-danger-fg);
+  background: var(--pill-danger-bg);
+  border: 1px solid var(--pill-danger-border);
+}
+.console-inbox-kind.is-warn {
+  color: var(--pill-warning-fg);
+  background: var(--pill-warning-bg);
+  border: 1px solid var(--pill-warning-border);
+}
+.console-inbox-kind.is-accent {
+  color: var(--pill-neutral-fg);
+  background: var(--pill-neutral-bg);
+  border: 1px solid var(--pill-neutral-border);
+}
+.console-inbox-kind.is-info {
+  color: var(--status-info);
+  background: var(--info-soft);
+  border: 1px solid color-mix(in oklch, var(--status-info) 35%, transparent);
+}
+
+.console-inbox-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Count bubble (e.g. pending verify items) — neutral, quiet. */
+.console-inbox-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 5px;
+  text-align: center;
+  border-radius: var(--radius-pill);
+  background: color-mix(in oklch, var(--text-subtle) 14%, transparent);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+/* Age chip — only rendered when the item has waited > 24h. */
+.console-inbox-age {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--status-blocked);
+}
+
+/* ── Empty / error states ── */
+
+.console-inbox-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 22px 14px;
+  font-size: var(--font-size-meta);
+  color: var(--text-muted);
+}
+.console-inbox-empty.is-positive {
+  color: var(--status-ok);
+}

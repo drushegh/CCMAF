@@ -2,8 +2,10 @@
  * AccentPicker — the header's accent-colour control.
  *
  * A round glass icon-button (palette) beside the theme toggle; clicking it
- * opens a compact glass popover of six colour swatches. Picking one re-themes
+ * opens a compact glass popover of seven colour swatches. Picking one re-themes
  * the whole app instantly via useAccent (data-accent on <html>) and persists.
+ * Mono ("Noir") previews as a half-black/half-white diagonal split circle
+ * (data-swatch="mono" in components.css) so it reads in both themes.
  *
  * The popover is rendered in a PORTAL to <body>, positioned `fixed` under the
  * trigger. The header sets `backdrop-filter`, which creates a stacking context
@@ -25,6 +27,7 @@ import { ACCENTS, useAccent, type Accent } from "../useAccent";
 
 const LABELS: Record<Accent, string> = {
   purple: "Purple",
+  mono: "Noir",
   blue: "Blue",
   red: "Red",
   green: "Green",

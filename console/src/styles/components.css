@@ -267,6 +267,20 @@
     --swatch: oklch(0.7 0.17 55);
     --swatch-ink: oklch(0.23 0.05 55);
   }
+  /* Noir previews as a half-black/half-white DIAGONAL SPLIT circle so the
+     chip reads correctly in both themes. --swatch stays a solid graphite:
+     the is-active ring/glow box-shadows can't take a gradient. The mid-gray
+     check ink is legible over both halves (active state is also carried by
+     the ring). */
+  .console-accent-swatch[data-swatch="mono"] {
+    --swatch: oklch(0.62 0 0);
+    --swatch-ink: oklch(0.5 0 0);
+    background: linear-gradient(
+      135deg,
+      oklch(0.15 0 0) 50%,
+      oklch(0.95 0 0) 50%
+    );
+  }
 
   /* ── Body ── */
   .console-body {
@@ -546,6 +560,25 @@
     border: 1px solid var(--pill-danger-border);
   }
 
+  /* ── STATUS GEOMETRY RULE (GLOBAL — §3.2, promoted from sessions.css) ──
+     Status must NEVER ride on hue alone: an accent can land on any status
+     hue (green≈ok, yellow≈warn, red≈error, blue≈info), grayscale / forced-
+     colors strip hue entirely, and chroma perception collapses at 12px pill
+     size. Every status-toned surface therefore pairs its colour with a
+     SECOND, non-colour channel:
+       · status pills/badges (.page-badge--*, task/verify chips): colour +
+         an inline GLYPH (Check / AlertTriangle / XCircle / Info) — never a
+         colour-only pill. Component-side rule; the icons are already
+         imported everywhere these render.
+       · Kanban column headers: colour + their lifecycle icon (already do).
+       · Dashboard stat tiles: warn/danger tones carry a 2px LEFT INSET BAR
+         (shape channel) — see .stat-card--warn/--danger below.
+       · live/done dots: solid disc vs hollow ring (sessions.css).
+       · error ledger rows / timeline bars: inset left bar + hatch pattern
+         (sessions.css).
+     Acceptance test: every status signal must stay identifiable with the
+     page grayscaled. Apply this rule to any NEW status-coloured element. */
+
   .page-header-actions {
     display: flex;
     align-items: center;
@@ -647,112 +680,6 @@
     display: flex;
     flex-direction: column;
     min-height: 100%;
-  }
-
-  /* ── Hero ── */
-  .dashboard-hero {
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 26px 28px;
-    border-bottom: 1px solid var(--border-card);
-    background: linear-gradient(
-      120deg,
-      color-mix(in oklch, var(--accent-strong) 16%, transparent) 0%,
-      color-mix(in oklch, var(--accent-strong) 4%, transparent) 45%,
-      transparent 70%
-    );
-  }
-
-  /* Vertical aurora streak behind the hero title (inspo-3's light-flare
-     signature): a blurred violet ribbon on screen blend — decorative only,
-     kept behind the content layer. On the light theme, screen-blending a
-     mid-violet over a near-white ground resolves to ~white, so the streak
-     fades out automatically without a theme override. */
-  .dashboard-hero::after {
-    content: "";
-    position: absolute;
-    top: -55%;
-    bottom: -55%;
-    left: 26%;
-    width: 150px;
-    transform: rotate(12deg);
-    background: linear-gradient(
-      180deg,
-      transparent 0%,
-      color-mix(in oklch, var(--accent-bright) 55%, transparent) 45%,
-      color-mix(in oklch, var(--accent-strong) 45%, transparent) 62%,
-      transparent 100%
-    );
-    filter: blur(34px);
-    opacity: 0.5;
-    mix-blend-mode: screen;
-    pointer-events: none;
-  }
-
-  .dashboard-hero > * {
-    position: relative;
-    z-index: 1;
-  }
-
-  .dashboard-hero-content {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .dashboard-hero-icon {
-    width: 46px;
-    height: 46px;
-    border-radius: 14px;
-    background: var(--accent-grad);
-    border: 1px solid color-mix(in oklch, white 20%, transparent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--on-accent); /* dark ink on yellow/orange accents */
-    box-shadow: var(--glow-accent), var(--shadow-card);
-  }
-
-  .dashboard-hero-title {
-    font-family: var(--font-heading);
-    font-size: var(--font-size-hero);
-    font-weight: var(--weight-display);
-    color: var(--text-primary);
-    margin: 0;
-    letter-spacing: var(--tracking-tight);
-    line-height: 1.1;
-  }
-
-  .dashboard-hero-desc {
-    font-size: 12px;
-    color: var(--text-subtle);
-    margin: 0;
-    margin-top: 4px;
-  }
-
-  .dashboard-hero-meta {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 4px;
-  }
-
-  .dashboard-hero-phase {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--color-accent);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  .dashboard-hero-task {
-    font-size: 10px;
-    color: var(--text-subtle);
-    font-family: var(--font-mono);
-    letter-spacing: 0.06em;
   }
 
   /* ── Vitals strip ── */
@@ -1182,33 +1109,6 @@
     flex-shrink: 0;
   }
 
-  /* ── Hero brief box (sprint goal) ── */
-  .dashboard-hero-brief {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    margin-top: 10px;
-    max-width: 460px;
-    padding: 8px 11px;
-    background: color-mix(in oklch, var(--surface-0) 45%, transparent);
-    border: 1px solid var(--border-card);
-    border-radius: var(--radius-lg);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-  }
-
-  .dashboard-hero-brief-icon {
-    color: var(--color-accent);
-    flex-shrink: 0;
-    margin-top: 2px;
-  }
-
-  .dashboard-hero-brief-text {
-    font-size: 11px;
-    color: var(--text-muted);
-    line-height: 1.5;
-  }
-
   /* ── Generic empty text (TASK-007) ── */
   .dashboard-empty-text {
     font-size: 12px;
@@ -1292,11 +1192,18 @@
       color-mix(in oklch, var(--status-info) 7%, var(--surface-1));
   }
 
+  /* Warn/danger tiles carry a 2px LEFT INSET BAR — the shape channel of the
+     global status-geometry rule above (colour alone must never be the only
+     signal). The bar composes IN FRONT of --shadow-card and is repeated in
+     the hover rules below so it never blinks off mid-interaction. */
   .stat-card--warn {
     border-color: var(--warn-tint-border);
     background:
       var(--card-sheen),
       color-mix(in oklch, var(--status-blocked) 7%, var(--surface-1));
+    box-shadow:
+      inset var(--size-thin) 0 0 0 var(--status-blocked),
+      var(--shadow-card);
   }
 
   .stat-card--danger {
@@ -1308,6 +1215,23 @@
     background:
       var(--card-sheen),
       color-mix(in oklch, var(--status-error) 9%, var(--surface-1));
+    box-shadow:
+      inset var(--size-thin) 0 0 0 var(--status-error),
+      var(--shadow-card);
+  }
+
+  .stat-card-link:hover .stat-card--warn {
+    box-shadow:
+      inset var(--size-thin) 0 0 0 var(--status-blocked),
+      var(--shadow-raised),
+      var(--glow-accent-soft);
+  }
+
+  .stat-card-link:hover .stat-card--danger {
+    box-shadow:
+      inset var(--size-thin) 0 0 0 var(--status-error),
+      var(--shadow-raised),
+      var(--glow-accent-soft);
   }
 
   /* Tone-tinted icon + status (value colours handled below). */
@@ -1499,72 +1423,6 @@
     font-size: 12px;
     color: var(--text-muted);
     line-height: 1.4;
-  }
-
-  /* ── Hero status pills (TASK-025, enriched TASK-026) ── */
-  /* Two-line label/value chips: BRANCH · UP-TO-DATE · DOCTOR · HEALTH. */
-  .hero-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-    justify-content: flex-end;
-  }
-
-  .hero-stat {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 10px;
-    border-radius: var(--radius-pill);
-    border: 1px solid transparent;
-    white-space: nowrap;
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-  }
-
-  .hero-stat-icon {
-    display: inline-flex;
-    flex-shrink: 0;
-  }
-
-  .hero-stat-text {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.15;
-  }
-
-  .hero-stat-label {
-    font-size: 8px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    opacity: 0.7;
-  }
-
-  .hero-stat-value {
-    font-size: 10.5px;
-    font-weight: 600;
-    font-family: var(--font-mono);
-    text-transform: lowercase;
-  }
-
-  .hero-stat--ok {
-    color: var(--status-ok);
-    background: var(--ok-soft);
-    border-color: var(--ok-border);
-  }
-
-  .hero-stat--warn {
-    color: var(--status-blocked);
-    background: var(--warn-soft);
-    border-color: var(--warn-tint-border);
-  }
-
-  .hero-stat--neutral {
-    color: var(--text-muted);
-    background: color-mix(in oklch, var(--surface-2) 70%, transparent);
-    border-color: var(--border-card);
   }
 
   /* ── Analytics cards (TASK-025) ── */
@@ -2019,6 +1877,21 @@
     background: color-mix(in oklch, currentColor 15%, transparent);
     padding: 1px 7px;
     border-radius: var(--radius-pill);
+  }
+
+  /* §3.2 green×ok: when the brand accent IS green, the Done column's count
+     badge stops riding on hue alone — hollow ring + a literal check glyph
+     (the solid-vs-hollow rule from the agent dots, extended here). Pure CSS,
+     scoped to the one accent that collides with the done/ok family. */
+  :root[data-accent="green"] .kanban-column-header--done .kanban-column-count {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px
+      color-mix(in oklch, currentColor 55%, transparent);
+  }
+  :root[data-accent="green"]
+    .kanban-column-header--done
+    .kanban-column-count::before {
+    content: "✓ ";
   }
 
   .kanban-column-body {
