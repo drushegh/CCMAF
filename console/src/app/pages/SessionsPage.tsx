@@ -14,7 +14,8 @@
  *
  * Routing: /sessions/:sessionId/:agentId (+ ?turn=<uuid>) — selection lives
  * in the URL; refresh restores place. Keyboard: j/k rows · [ ] agents ·
- * t rail · e expand · / search · Esc.
+ * t rail · e expand · / search · Esc. On narrow viewports (≤1100px) the
+ * tool rail becomes a slide-in DRAWER (`t` / floating Tools button / Esc).
  *
  * Data: /api/sessions endpoints (see api/sessions.ts). Liveness: per-session
  * SSE triggers TAIL refetches (not full reloads). Observe-only.
@@ -28,6 +29,8 @@ import {
   PanelRightOpen,
   RefreshCw,
   Search,
+  TriangleAlert,
+  Wrench,
 } from "lucide-react";
 import { PageLayout, EmptyState } from "../components/PageLayout";
 import {
@@ -46,6 +49,8 @@ import { SearchOverlay } from "../sessions/SearchOverlay";
 import { useConversation } from "../sessions/useConversation";
 import {
   buildRowModel,
+  humanToolSummary,
+  matchesRailFilter,
   type ConvoRow,
   type LedgerEntry,
   type RailFilter,
@@ -60,6 +65,15 @@ const SSE_DEBOUNCE_MS = 1500;
 const DEEP_LINK_MAX_LOADS = 3;
 /** How long a jump highlight stays on a row/card. */
 const HIGHLIGHT_MS = 2400;
+
+/**
+ * Below this width the tool rail leaves the grid and becomes a slide-in
+ * DRAWER (toggled by `t` and a floating Tools button) — an embedded/side-panel
+ * viewport can't afford a third fixed column, but the ledger must stay
+ * reachable. KEEP IN SYNC with the `@media (max-width: 1100px)` block in
+ * styles/sessions.css.
+ */
+const RAIL_DRAWER_QUERY = "(max-width: 1100px)";
 
 /** Keep the last ready value so live refetches don't blank a pane. */
 function useLastReady<T>(phase: string, data: T | undefined): T | undefined {
@@ -107,7 +121,15 @@ export function SessionsPage() {
   const conv = useConversation(sessionId, agentId);
 
   /* ── UI state (reset per agent) ── */
-  const [railOpen, setRailOpen] = useState(true);
+  // Narrow viewport → the rail renders as a slide-in drawer (closed by
+  // default so it never covers the conversation on load).
+  const railDrawer = useMediaQuery(RAIL_DRAWER_QUERY);
+  const [railOpen, setRailOpen] = useState(
+    () => !matchesMedia(RAIL_DRAWER_QUERY),
+  );
+  useEffect(() => {
+    setRailOpen(!railDrawer);
+  }, [railDrawer]);
   const [railFilter, setRailFilter] = useState<RailFilter>("all");
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [expandedPrompts, setExpandedPrompts] = useState<Set<string>>(
@@ -269,25 +291,35 @@ export function SessionsPage() {
   const onChipJump = useCallback(
     (row: Extract<ConvoRow, { kind: "toolGroup" }>) => {
       setRailOpen(true);
-      setRailFilter("all");
-      const first = model.ledger[row.ledgerStart];
+      // PRESERVE the active rail filter mid-triage: land on the group's first
+      // entry that the filter shows. Only when the group has NO match does the
+      // filter widen to All (the pill visibly deactivates — never silent).
+      const group = model.ledger.slice(row.ledgerStart, row.ledgerEnd);
+      let target = group.find((e) => matchesRailFilter(e, railFilter)) ?? null;
+      if (!target) {
+        setRailFilter("all");
+        target = group[0] ?? null;
+      }
+      const t = target;
       flashRail(row.key, null);
       requestAnimationFrame(() => {
-        if (first) {
+        if (t) {
           railListRef.current?.scrollToKey(
-            first.toolUseId || `i${first.index}`,
+            t.toolUseId || `i${t.index}`,
             "start",
           );
         }
       });
     },
-    [model.ledger, flashRail],
+    [model.ledger, railFilter, flashRail],
   );
 
   const onCallJump = useCallback(
     (entry: LedgerEntry) => {
       setRailOpen(true);
-      setRailFilter("all");
+      // Keep the filter when it already shows this call; widen only when the
+      // clicked call would otherwise be invisible in the rail.
+      if (!matchesRailFilter(entry, railFilter)) setRailFilter("all");
       flashRail(null, entry.toolUseId);
       requestAnimationFrame(() => {
         railListRef.current?.scrollToKey(
@@ -296,7 +328,7 @@ export function SessionsPage() {
         );
       });
     },
-    [flashRail],
+    [railFilter, flashRail],
   );
 
   const onJumpToTurn = useCallback(
@@ -407,10 +439,14 @@ export function SessionsPage() {
           const idx = cursorKey
             ? rows.findIndex((r) => r.key === cursorKey)
             : -1;
+          // No cursor yet (tail-open): BOTH keys start at the LAST row — the
+          // one on screen. (j must never teleport a tail reader to row 0.)
           const next =
-            e.key === "j"
-              ? Math.min(rows.length - 1, idx + 1)
-              : Math.max(0, idx === -1 ? rows.length - 1 : idx - 1);
+            idx === -1
+              ? rows.length - 1
+              : e.key === "j"
+                ? Math.min(rows.length - 1, idx + 1)
+                : Math.max(0, idx - 1);
           const key = rows[next].key;
           setCursorKey(key);
           setFollowBoth(next === rows.length - 1);
@@ -442,7 +478,7 @@ export function SessionsPage() {
           if (!row) break;
           e.preventDefault();
           if (row.kind === "toolGroup") toggleIn(setExpandedGroups, row.key);
-          else if (row.kind === "prompt" && row.long)
+          else if (row.kind === "prompt" && (row.long || row.noise))
             toggleIn(setExpandedPrompts, row.key);
           else if (row.kind === "thinking")
             toggleIn(setExpandedThinking, row.key);
@@ -453,6 +489,11 @@ export function SessionsPage() {
           setSearchOpen(true);
           break;
         case "Escape":
+          if (railDrawer && railOpen) {
+            // Drawer-mode rail is an overlay — Esc dismisses it first.
+            setRailOpen(false);
+            break;
+          }
           setCursorKey(null);
           setHighlightRowKey(null);
           setDeepLinkMiss(false);
@@ -470,6 +511,8 @@ export function SessionsPage() {
     agentId,
     navigate,
     setFollowBoth,
+    railDrawer,
+    railOpen,
   ]);
 
   /* ── Render ── */
@@ -524,6 +567,31 @@ export function SessionsPage() {
   const agentLabel =
     agentId === "root" ? "Main session" : conv.agentType || agentId || "agent";
 
+  // Persistent deep-link marker: while ?turn= is in the URL, its row keeps a
+  // left-edge accent bar (the flash alone decays after ~2s).
+  const markedKey =
+    (turnParam ? model.rowKeyByTurnUuid.get(turnParam) : null) ?? null;
+
+  const toolRail = (
+    <ToolRail
+      ref={railListRef}
+      sessionId={sessionId ?? ""}
+      ledger={model.ledger}
+      toolCounts={model.toolCounts}
+      errorCount={model.errorCount}
+      filter={railFilter}
+      onFilterChange={setRailFilter}
+      highlightGroupKey={highlightGroupKey}
+      highlightToolUseId={highlightToolUseId}
+      expanded={railExpanded}
+      onToggleExpand={(id) => toggleIn(setRailExpanded, id)}
+      onJumpToTurn={onJumpToTurn}
+      onClose={() => setRailOpen(false)}
+      live={!!live}
+      autoFocusClose={railDrawer}
+    />
+  );
+
   return (
     <PageLayout
       title="Sessions"
@@ -563,7 +631,9 @@ export function SessionsPage() {
         </div>
       }
     >
-      <div className={`sess-shell${railOpen ? "" : " sess-shell--norail"}`}>
+      <div
+        className={`sess-shell${railDrawer ? " sess-shell--drawer" : railOpen ? "" : " sess-shell--norail"}`}
+      >
         <NavRail
           sessions={list ?? []}
           selectedSessionId={sessionId}
@@ -619,6 +689,7 @@ export function SessionsPage() {
               expandedThinking={expandedThinking}
               highlightKey={highlightRowKey}
               cursorKey={cursorKey}
+              markedKey={markedKey}
               onLoadEarlier={() => void conv.loadEarlier()}
               onToggleGroup={(k) => toggleIn(setExpandedGroups, k)}
               onTogglePrompt={(k) => toggleIn(setExpandedPrompts, k)}
@@ -632,23 +703,53 @@ export function SessionsPage() {
           )}
         </div>
 
-        {railOpen ? (
-          <ToolRail
-            ref={railListRef}
-            sessionId={sessionId ?? ""}
-            ledger={model.ledger}
-            toolCounts={model.toolCounts}
-            errorCount={model.errorCount}
-            filter={railFilter}
-            onFilterChange={setRailFilter}
-            highlightGroupKey={highlightGroupKey}
-            highlightToolUseId={highlightToolUseId}
-            expanded={railExpanded}
-            onToggleExpand={(id) => toggleIn(setRailExpanded, id)}
-            onJumpToTurn={onJumpToTurn}
-            onClose={() => setRailOpen(false)}
-            live={!!live}
-          />
+        {railDrawer ? (
+          railOpen ? (
+            /* Narrow viewport: the rail is a slide-in DRAWER over the page —
+               reachable via `t`, the Tools button, and closable via Esc /
+               backdrop / its own close button. */
+            <>
+              <button
+                type="button"
+                className="sess-drawer-backdrop"
+                onClick={() => setRailOpen(false)}
+                aria-label="Close tool rail"
+                tabIndex={-1}
+              />
+              <div
+                className="sess-drawer"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Tool activity"
+              >
+                {toolRail}
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="sess-drawer-fab"
+              onClick={() => setRailOpen(true)}
+              title="Show tool rail (t)"
+              aria-label="Show tool rail"
+            >
+              <Wrench size={13} aria-hidden="true" />
+              Tools
+              {model.ledger.length > 0 && (
+                <span className="sess-drawer-fab-count">
+                  {model.ledger.length}
+                </span>
+              )}
+              {model.errorCount > 0 && (
+                <span className="sess-drawer-fab-err">
+                  <TriangleAlert size={11} aria-hidden="true" />
+                  {model.errorCount}
+                </span>
+              )}
+            </button>
+          )
+        ) : railOpen ? (
+          toolRail
         ) : (
           <button
             type="button"
@@ -683,6 +784,34 @@ export function SessionsPage() {
 }
 
 /* ── helpers ── */
+
+/** Synchronous matchMedia read (false where unavailable, e.g. jsdom). */
+function matchesMedia(query: string): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia(query).matches
+  );
+}
+
+/** Live media-query state (guarded for environments without matchMedia). */
+function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => matchesMedia(query));
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mql = window.matchMedia(query);
+    const onChange = () => setMatches(mql.matches);
+    onChange();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    // Legacy listener API (older WebKit).
+    mql.addListener(onChange);
+    return () => mql.removeListener(onChange);
+  }, [query]);
+  return matches;
+}
 
 function toggleIn(
   set: React.Dispatch<React.SetStateAction<Set<string>>>,
@@ -734,7 +863,10 @@ function useLiveSubtitles(
             for (let j = c.turns[i].blocks.length - 1; j >= 0; j--) {
               const b = c.turns[i].blocks[j];
               if (b.kind === "tool_use") {
-                return [id, `${b.name} · ${b.summary}`] as const;
+                return [
+                  id,
+                  `${b.name} · ${humanToolSummary(b.name, b.summary)}`,
+                ] as const;
               }
             }
           }

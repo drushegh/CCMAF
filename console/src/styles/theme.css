@@ -574,8 +574,16 @@
    Yellow and orange cannot carry white text at an honest, bright lightness —
    they flip --on-accent to a dark same-hue ink instead of muddying the hue.
 
-   STATUS HUES NEVER MOVE: --status-ok/-error/-blocked/-info stay reserved
-   for status semantics even when the accent is green or red.
+   STATUS HUES HOLD THEIR DISTANCE FROM THE ACCENT: --status-ok/-error/
+   -blocked/-info stay reserved for status semantics, and when a chosen
+   accent lands ON one of them (green accent ≈ status-ok, red ≈ status-error,
+   yellow ≈ status-blocked, blue ≈ status-info) that ONE semantic hue is
+   nudged ~25–40° away (dark + light blocks below) so success/error/warn/info
+   never impersonate the brand colour. The nudged value keeps its semantic
+   family — ok stays a green, error stays a red — and its contrast grade.
+   Errors additionally differ by GEOMETRY, not just hue (inset left bar on
+   cards/chips, hatch pattern on timeline bars — see sessions.css), so error
+   signals survive even a same-family accent.
 
    The light-theme blocks below follow the same recipe as violet's light
    block: deeper accent for text on a light ground, fills re-tuned per hue.
@@ -597,6 +605,8 @@
      undertone legible without ever becoming a blue surface. */
   --surface-hue: 258;
   --surface-chroma-scale: 1.15;
+  /* info (240) sits on the cobalt accent — nudge it to cyan (215) */
+  --status-info: oklch(0.76 0.11 215);
 }
 :root[data-theme="light"][data-accent="blue"] {
   --p-accent: oklch(0.47 0.15 255);
@@ -605,6 +615,7 @@
   --accent-fill: oklch(0.46 0.16 258); /* white 7.3:1 */
   --accent-fill-hi: oklch(0.5 0.15 258); /* white 6.1:1 */
   --aurora-companion: oklch(0.6 0.1 225);
+  --status-info: oklch(0.5 0.12 215); /* cyan-shifted info (see dark block) */
 }
 
 /* ── Red (crimson-scarlet — warmer than status-error's rose) ── */
@@ -620,6 +631,9 @@
      darks — a whisper over baseline (+5%) is all the crimson needs. */
   --surface-hue: 28;
   --surface-chroma-scale: 1.05;
+  /* error (20) sits on the scarlet accent — nudge to crimson-pink (358);
+     error rings/bars additionally differ by geometry (sessions.css) */
+  --status-error: oklch(0.66 0.22 358);
 }
 :root[data-theme="light"][data-accent="red"] {
   --p-accent: oklch(0.5 0.19 30);
@@ -628,6 +642,7 @@
   --accent-fill: oklch(0.49 0.19 30); /* white 6.9:1 */
   --accent-fill-hi: oklch(0.535 0.18 31); /* white 5.7:1 */
   --aurora-companion: oklch(0.6 0.14 358);
+  --status-error: oklch(0.52 0.21 0); /* crimson-shifted error */
 }
 
 /* ── Green (emerald — deeper + cooler than status-ok's bright green) ── */
@@ -644,6 +659,9 @@
      dark stately; chroma −10% guards the same edge on the hover ladder. */
   --surface-hue: 168;
   --surface-chroma-scale: 0.9;
+  /* ok (152) sits on the emerald accent — nudge to spring green (132),
+     brighter + more chromatic than the muted emerald so live/ok reads apart */
+  --status-ok: oklch(0.83 0.19 132);
 }
 :root[data-theme="light"][data-accent="green"] {
   --p-accent: oklch(0.45 0.105 158);
@@ -652,6 +670,7 @@
   --accent-fill: oklch(0.47 0.105 158); /* white 6.5:1 */
   --accent-fill-hi: oklch(0.5 0.105 159); /* white 5.7:1 */
   --aurora-companion: oklch(0.6 0.1 195);
+  --status-ok: oklch(0.55 0.15 132); /* spring-shifted ok (see dark block) */
 }
 
 /* ── Yellow (gold — bright chips carry a dark same-hue ink, not white) ── */
@@ -670,6 +689,9 @@
      flatters the gold accent instead of competing with it. */
   --surface-hue: 80;
   --surface-chroma-scale: 0.75;
+  /* warn/blocked (75 amber) sits under the gold accent (95) — nudge to a
+     clear orange (55) so warnings never read as brand chrome */
+  --status-blocked: oklch(0.74 0.14 55);
 }
 :root[data-theme="light"][data-accent="yellow"] {
   /* Light ladder chroma is already a whisper (0.004-0.01) — restore full
@@ -682,6 +704,7 @@
   --accent-fill: oklch(0.8 0.15 92); /* dark ink 8.8:1 */
   --accent-fill-hi: oklch(0.84 0.15 94); /* dark ink 10.1:1 */
   --aurora-companion: oklch(0.68 0.13 70);
+  --status-blocked: oklch(0.56 0.13 50); /* orange-shifted warn */
 }
 
 /* ── Orange (tangerine — bright chips carry a dark same-hue ink, not white) ── */
@@ -699,6 +722,9 @@
      drifting milk-chocolate. */
   --surface-hue: 50;
   --surface-chroma-scale: 0.95;
+  /* warn/blocked (75 amber) sits near the tangerine accent (55) — nudge to
+     gold (95), away from both the accent and status-error's rose */
+  --status-blocked: oklch(0.85 0.14 95);
 }
 :root[data-theme="light"][data-accent="orange"] {
   --p-accent: oklch(0.53 0.13 50);
@@ -707,6 +733,7 @@
   --accent-fill: oklch(0.66 0.16 55); /* dark ink 5.2:1 */
   --accent-fill-hi: oklch(0.7 0.16 56); /* dark ink 6.1:1 */
   --aurora-companion: oklch(0.6 0.15 25);
+  --status-blocked: oklch(0.58 0.12 90); /* gold-shifted warn */
 }
 
 /* ── Reduced motion kill switch ── */

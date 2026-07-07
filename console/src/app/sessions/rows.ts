@@ -126,6 +126,108 @@ export function isNoisePrompt(text: string): boolean {
   return t.startsWith("<") || t.startsWith("Caveat:");
 }
 
+/** Human labels for the known injected wrappers (fallback: humanised tag). */
+const NOISE_LABELS: Record<string, string> = {
+  "system-reminder": "system reminder",
+  "task-notification": "task notification",
+  ide_opened_file: "IDE opened a file",
+  ide_selection: "IDE selection",
+  ide_diagnostics: "IDE diagnostics",
+  "command-name": "slash command",
+  "command-message": "slash command",
+  "command-args": "slash command args",
+  "local-command-stdout": "command output",
+  "local-command-stderr": "command output",
+};
+
+export interface NoiseInfo {
+  /** Short human label for the chip ("system reminder", "slash command"…). */
+  label: string;
+  /** One-line, tag-stripped content preview ("" when the wrapper is empty). */
+  snippet: string;
+}
+
+/**
+ * Describe an injected noise prompt for chip rendering: identify the wrapper
+ * (`<system-reminder>`, `<task-notification>`, "Caveat:"…) and produce a
+ * tag-free one-line snippet, so the prose pane never shows raw markup.
+ */
+export function describeNoisePrompt(text: string): NoiseInfo {
+  const t = text.trimStart();
+  let label: string;
+  if (t.startsWith("Caveat:")) {
+    label = "caveat";
+  } else {
+    const m = /^<([a-zA-Z][\w-]*)/.exec(t);
+    label = m
+      ? (NOISE_LABELS[m[1]] ?? m[1].replace(/[-_]+/g, " ").toLowerCase())
+      : "injected";
+  }
+  const snippet = t
+    .replace(/^Caveat:/, "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  return { label, snippet };
+}
+
+/* ── Tool-summary humanisation ──────────────────────────────────────── */
+
+const countMatches = (s: string, re: RegExp): number => {
+  let n = 0;
+  re.lastIndex = 0;
+  while (re.exec(s) !== null) n++;
+  return n;
+};
+
+const unescapeJson = (s: string): string =>
+  s.replace(/\\n/g, " ").replace(/\\(["\\/])/g, "$1");
+
+/**
+ * Turn raw-JSON tool summaries into human ones. The server one-lines a
+ * structured input as `JSON.stringify(input)` capped at ~300 chars, so
+ * TodoWrite/AskUserQuestion arrive as `{"todos":[{"content":…` — unreadable
+ * and often TRUNCATED (JSON.parse fails). Exact counts when the JSON parses;
+ * lenient regex counts (marked `+`) when it doesn't. Every other tool's
+ * summary passes through untouched.
+ */
+export function humanToolSummary(name: string, summary: string): string {
+  if (name === "TodoWrite") {
+    let total = 0;
+    let done = 0;
+    let active = 0;
+    let approx = false;
+    try {
+      const o = JSON.parse(summary) as { todos?: { status?: string }[] };
+      if (!o || !Array.isArray(o.todos)) return summary;
+      total = o.todos.length;
+      for (const t of o.todos) {
+        if (t?.status === "completed") done++;
+        else if (t?.status === "in_progress") active++;
+      }
+    } catch {
+      total = countMatches(summary, /"content"\s*:/g);
+      if (total === 0) return summary;
+      done = countMatches(summary, /"status"\s*:\s*"completed"/g);
+      active = countMatches(summary, /"status"\s*:\s*"in_progress"/g);
+      approx = summary.endsWith("…");
+    }
+    const parts = [
+      `${total}${approx ? "+" : ""} todo${total === 1 && !approx ? "" : "s"}`,
+    ];
+    if (done > 0) parts.push(`${done} done`);
+    if (active > 0) parts.push(`${active} in progress`);
+    return parts.join(" · ");
+  }
+  if (name === "AskUserQuestion") {
+    const m = /"question"\s*:\s*"((?:[^"\\]|\\.)*)/.exec(summary);
+    if (m && m[1]) return `asked: ${unescapeJson(m[1])}`;
+    return summary;
+  }
+  return summary;
+}
+
 function isLongPrompt(text: string): boolean {
   if (text.length > LONG_PROMPT_CHARS) return true;
   let lines = 1;
@@ -314,7 +416,7 @@ export function buildRowModel(
         const entry: LedgerEntry = {
           toolUseId: b.toolUseId,
           name: b.name,
-          summary: b.summary,
+          summary: humanToolSummary(b.name, b.summary),
           turnUuid: turn.uuid,
           timestamp: turn.timestamp,
           groupKey: g.key,
@@ -381,13 +483,19 @@ export function groupChipSegments(
 
 export type RailFilter = "all" | "errors" | { tool: string };
 
+/** One entry's visibility under a rail filter (chip⇄rail sync decisions). */
+export function matchesRailFilter(e: LedgerEntry, filter: RailFilter): boolean {
+  if (filter === "all") return true;
+  if (filter === "errors") return e.result?.isError === true;
+  return e.name === filter.tool;
+}
+
 export function filterLedger(
   ledger: LedgerEntry[],
   filter: RailFilter,
 ): LedgerEntry[] {
   if (filter === "all") return ledger;
-  if (filter === "errors") return ledger.filter((e) => e.result?.isError);
-  return ledger.filter((e) => e.name === filter.tool);
+  return ledger.filter((e) => matchesRailFilter(e, filter));
 }
 
 export interface TimelineBucket {

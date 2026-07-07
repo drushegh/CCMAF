@@ -9,8 +9,10 @@
  *
  * The choice persists in localStorage and is applied pre-paint by the inline
  * script in index.html, so there is no flash of the default accent on reload.
- * Status colours (ok/error/blocked/info) are separate tokens and never move
- * with the accent.
+ * Status colours (ok/error/blocked/info) are separate tokens; when an accent
+ * lands on one of them (green≈ok, red≈error, yellow≈blocked, blue≈info) that
+ * semantic hue is nudged away per-accent in theme.css so statuses never
+ * impersonate the brand colour.
  */
 import { useCallback, useEffect, useState } from "react";
 

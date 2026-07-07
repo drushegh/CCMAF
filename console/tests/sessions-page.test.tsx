@@ -5,10 +5,19 @@
  * (VirtualList falls back to estimates with an 800px viewport), so small
  * fixtures render fully. Fetch is stubbed per-endpoint below.
  */
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  within,
+} from "@testing-library/react";
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { SessionsPage } from "../src/app/pages/SessionsPage";
+import { ToolRail } from "../src/app/sessions/ToolRail";
+import { buildRowModel } from "../src/app/sessions/rows";
+import type { ConversationTurn } from "../src/app/api/sessions";
 
 /* ── fixtures ── */
 
@@ -168,8 +177,21 @@ const ROOT_CONVO = {
         },
       ],
     },
+    {
+      uuid: "u8",
+      role: "user",
+      timestamp: new Date(NOW - 2300_000).toISOString(),
+      model: null,
+      blocks: [
+        {
+          kind: "text",
+          text: "<system-reminder>Background lint finished cleanly.</system-reminder>",
+          truncated: false,
+        },
+      ],
+    },
   ],
-  total: 7,
+  total: 8,
   hasMore: false,
   oldestUuid: "u1",
 };
@@ -229,6 +251,20 @@ function stubSessionsFetch() {
       return json({ error: "not found" }, 404);
     }),
   );
+}
+
+/** Pretend the viewport is ≤1100px so the rail runs in drawer mode. */
+function stubNarrowViewport() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: query.includes("1100"),
+    media: query,
+    onchange: null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+    dispatchEvent: () => false,
+  }));
 }
 
 function renderAt(path: string) {
@@ -389,6 +425,147 @@ describe("SessionsPage — 3-pane layout", () => {
     expect(await screen.findByText("No sessions recorded")).toBeInTheDocument();
   });
 
+  it("j from a tail-open conversation starts at the LAST row, not row 0", async () => {
+    stubSessionsFetch();
+    renderAt(`/sessions/${SESSION_ID}/root`);
+    await screen.findByText("2 tool calls");
+    // No cursor yet (opened at the tail) — a REAL dispatched keydown.
+    fireEvent.keyDown(window, { key: "j" });
+    // Cursor lands on the LAST row (the noise chip turn), not the first.
+    const lastRow = screen.getByText("system reminder").closest(".sess-row");
+    expect(lastRow?.className).toContain("is-cursor");
+    const firstRow = screen
+      .getByText("Build the widget please", { selector: ".sess-prompt-text" })
+      .closest(".sess-row");
+    expect(firstRow?.className).not.toContain("is-cursor");
+    // k from the last row then steps UP.
+    fireEvent.keyDown(window, { key: "k" });
+    expect(lastRow?.className).not.toContain("is-cursor");
+    const prevRow = screen
+      .getByText("Done — one test failed, then fixed.")
+      .closest(".sess-row");
+    expect(prevRow?.className).toContain("is-cursor");
+  });
+
+  it("timeline seek PRESERVES the active Errors filter", async () => {
+    stubSessionsFetch();
+    renderAt(`/sessions/${SESSION_ID}/root`);
+    await screen.findByText("Tool activity");
+    fireEvent.click(screen.getByRole("button", { name: /Errors/ }));
+    expect(screen.queryByText("src/widget.ts")).not.toBeInTheDocument();
+    // Seek via the mini timeline — the filter must survive.
+    fireEvent.click(screen.getByRole("button", { name: "Jump to call 1" }));
+    expect(
+      screen
+        .getByRole("button", { name: /Errors/ })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(screen.queryByText("src/widget.ts")).not.toBeInTheDocument();
+    expect(screen.getByText("npm test")).toBeInTheDocument();
+  });
+
+  it("keeps a persistent is-marked edge marker on the ?turn target", async () => {
+    stubSessionsFetch();
+    renderAt(`/sessions/${SESSION_ID}/root?turn=u7`);
+    const row = (
+      await screen.findByText("Done — one test failed, then fixed.")
+    ).closest(".sess-row");
+    await waitFor(() => {
+      expect(row?.className).toContain("is-marked");
+    });
+  });
+
+  it("renders injected system markup as a labelled chip, not raw text", async () => {
+    stubSessionsFetch();
+    renderAt(`/sessions/${SESSION_ID}/root`);
+    await screen.findByText("2 tool calls");
+    // The wrapper renders as a dim labelled chip with a tag-free snippet…
+    expect(screen.getByText("system reminder")).toBeInTheDocument();
+    expect(
+      screen.getByText("Background lint finished cleanly."),
+    ).toBeInTheDocument();
+    // …never the raw markup.
+    expect(
+      screen.queryByText(/<system-reminder>/, { exact: false }),
+    ).not.toBeInTheDocument();
+    // Expanding the chip reveals the raw payload for inspection.
+    fireEvent.click(screen.getByText("system reminder"));
+    expect(
+      screen.getByText(
+        "<system-reminder>Background lint finished cleanly.</system-reminder>",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("narrow viewport: the tool rail becomes a drawer that t toggles", async () => {
+    stubSessionsFetch();
+    stubNarrowViewport();
+    renderAt(`/sessions/${SESSION_ID}/root`);
+    await screen.findByText("2 tool calls");
+    // Rail is NOT in the layout — a floating Tools affordance is.
+    expect(screen.queryByText("Tool activity")).not.toBeInTheDocument();
+    const fab = screen.getByRole("button", { name: "Show tool rail" });
+    expect(fab.className).toContain("sess-drawer-fab");
+    // t opens the drawer (dialog) with the full rail inside.
+    fireEvent.keyDown(window, { key: "t" });
+    const dialog = screen.getByRole("dialog", { name: "Tool activity" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("src/widget.ts")).toBeInTheDocument();
+    // Esc closes it again (affordance returns).
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(
+      screen.queryByRole("dialog", { name: "Tool activity" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show tool rail" }),
+    ).toBeInTheDocument();
+  });
+
+  it("folds >4 tool types behind a +N more pill toggle", () => {
+    const names = ["Read", "Edit", "Bash", "Grep", "Glob", "Write"];
+    const turns = names.map((name, i): ConversationTurn => ({
+      uuid: `pt${i}`,
+      role: "assistant",
+      timestamp: null,
+      model: null,
+      blocks: [{ kind: "tool_use", toolUseId: `pid${i}`, name, summary: "" }],
+    }));
+    const m = buildRowModel(turns);
+    render(
+      <ToolRail
+        sessionId="s"
+        ledger={m.ledger}
+        toolCounts={m.toolCounts}
+        errorCount={0}
+        filter="all"
+        onFilterChange={() => {}}
+        highlightGroupKey={null}
+        highlightToolUseId={null}
+        expanded={new Set()}
+        onToggleExpand={() => {}}
+        onJumpToTurn={() => {}}
+        onClose={() => {}}
+        live={false}
+      />,
+    );
+    const toolbar = () =>
+      within(screen.getByRole("toolbar", { name: "Filter tool calls" }));
+    expect(
+      toolbar().getByRole("button", { name: "+2 more" }),
+    ).toBeInTheDocument();
+    expect(
+      toolbar().queryByRole("button", { name: /Write/ }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(toolbar().getByRole("button", { name: "+2 more" }));
+    expect(
+      toolbar().getByRole("button", { name: /Write/ }),
+    ).toBeInTheDocument();
+    fireEvent.click(toolbar().getByRole("button", { name: "less" }));
+    expect(
+      toolbar().queryByRole("button", { name: /Write/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("tolerates the legacy (pre-pagination) conversation shape", async () => {
     const legacy = {
       sessionId: SESSION_ID,
@@ -418,6 +595,6 @@ describe("SessionsPage — 3-pane layout", () => {
     ).toBeInTheDocument();
     // No pagination fields → everything loaded, no load-earlier row.
     expect(screen.queryByText(/Load earlier/)).not.toBeInTheDocument();
-    expect(screen.getByText(/7 turns/)).toBeInTheDocument();
+    expect(screen.getByText(/8 turns/)).toBeInTheDocument();
   });
 });

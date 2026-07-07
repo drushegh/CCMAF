@@ -6,9 +6,12 @@ import { describe, it, expect } from "vitest";
 import {
   buildRowModel,
   buildTimeline,
+  describeNoisePrompt,
   filterLedger,
   groupChipSegments,
+  humanToolSummary,
   isNoisePrompt,
+  matchesRailFilter,
   searchLoadedTurns,
   type ConvoRow,
 } from "../src/app/sessions/rows";
@@ -274,5 +277,106 @@ describe("isNoisePrompt", () => {
     );
     expect(isNoisePrompt("Caveat: the messages below…")).toBe(true);
     expect(isNoisePrompt("Fix the login bug")).toBe(false);
+  });
+});
+
+describe("describeNoisePrompt", () => {
+  it("labels known wrappers and strips the markup from the snippet", () => {
+    const d = describeNoisePrompt(
+      "<system-reminder>Background task update: done.</system-reminder>",
+    );
+    expect(d.label).toBe("system reminder");
+    expect(d.snippet).toBe("Background task update: done.");
+    expect(d.snippet).not.toContain("<");
+  });
+
+  it("labels task-notification and IDE wrappers", () => {
+    expect(
+      describeNoisePrompt("<task-notification>t</task-notification>").label,
+    ).toBe("task notification");
+    expect(
+      describeNoisePrompt("<ide_opened_file>f.ts</ide_opened_file>").label,
+    ).toBe("IDE opened a file");
+  });
+
+  it("humanises unknown tags and handles caveats", () => {
+    expect(
+      describeNoisePrompt("<future_wrapper>x</future_wrapper>").label,
+    ).toBe("future wrapper");
+    const c = describeNoisePrompt("Caveat: the messages below were generated");
+    expect(c.label).toBe("caveat");
+    expect(c.snippet).toContain("the messages below");
+  });
+});
+
+describe("humanToolSummary", () => {
+  it("summarises a full TodoWrite JSON payload as counts", () => {
+    const json = JSON.stringify({
+      todos: [
+        { content: "a", status: "completed" },
+        { content: "b", status: "completed" },
+        { content: "c", status: "in_progress" },
+        { content: "d", status: "pending" },
+        { content: "e", status: "pending" },
+      ],
+    });
+    expect(humanToolSummary("TodoWrite", json)).toBe(
+      "5 todos · 2 done · 1 in progress",
+    );
+  });
+
+  it("summarises a TRUNCATED TodoWrite payload leniently (marked +)", () => {
+    const truncated =
+      '{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_pro…';
+    expect(humanToolSummary("TodoWrite", truncated)).toBe("2+ todos · 1 done");
+  });
+
+  it("surfaces the first AskUserQuestion question", () => {
+    const json = JSON.stringify({
+      questions: [
+        { question: "Which direction?", options: [] },
+        { question: "Second?", options: [] },
+      ],
+    });
+    expect(humanToolSummary("AskUserQuestion", json)).toBe(
+      "asked: Which direction?",
+    );
+    // truncated mid-question still yields the readable prefix
+    expect(
+      humanToolSummary(
+        "AskUserQuestion",
+        '{"questions":[{"question":"Which dir…',
+      ),
+    ).toBe("asked: Which dir…");
+  });
+
+  it("passes every other tool's summary through untouched", () => {
+    expect(humanToolSummary("Bash", "npm test")).toBe("npm test");
+    expect(humanToolSummary("Read", "src/a.ts")).toBe("src/a.ts");
+  });
+
+  it("is applied when the ledger is built", () => {
+    const m = buildRowModel([
+      turn("assistant", [
+        toolUse(
+          "td",
+          "TodoWrite",
+          '{"todos":[{"content":"x","status":"pending"}]}',
+        ),
+      ]),
+    ]);
+    expect(m.ledger[0].summary).toBe("1 todo");
+  });
+});
+
+describe("matchesRailFilter", () => {
+  it("mirrors filterLedger semantics for a single entry", () => {
+    const m = buildRowModel(miniConversation());
+    const [read, bash] = m.ledger;
+    expect(matchesRailFilter(read, "all")).toBe(true);
+    expect(matchesRailFilter(read, "errors")).toBe(false);
+    expect(matchesRailFilter(bash, "errors")).toBe(true);
+    expect(matchesRailFilter(read, { tool: "Read" })).toBe(true);
+    expect(matchesRailFilter(bash, { tool: "Read" })).toBe(false);
   });
 });

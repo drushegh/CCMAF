@@ -13,13 +13,14 @@ import {
   ChevronDown,
   ChevronRight,
   History,
+  Info,
   Loader2,
   TriangleAlert,
   User,
   Wrench,
 } from "lucide-react";
 import type { ConvoRow, LedgerEntry } from "./rows";
-import { groupChipSegments } from "./rows";
+import { describeNoisePrompt, groupChipSegments } from "./rows";
 import { shortModel, timeAgo } from "./NavRail";
 import { toolIcon } from "./toolIcons";
 import { VirtualList, type VirtualListHandle } from "./VirtualList";
@@ -69,6 +70,8 @@ export interface ConversationPaneProps {
   expandedThinking: ReadonlySet<string>;
   highlightKey: string | null;
   cursorKey: string | null;
+  /** Row of the ?turn= deep-link target — keeps a persistent edge marker. */
+  markedKey: string | null;
   onLoadEarlier: () => void;
   onToggleGroup: (key: string) => void;
   onTogglePrompt: (key: string) => void;
@@ -176,7 +179,8 @@ const Row = memo(function Row({
 }) {
   const highlight = pane.highlightKey === row.key;
   const cursor = pane.cursorKey === row.key;
-  const stateCls = `${highlight ? " is-highlight" : ""}${cursor ? " is-cursor" : ""}`;
+  const marked = pane.markedKey === row.key;
+  const stateCls = `${highlight ? " is-highlight" : ""}${cursor ? " is-cursor" : ""}${marked ? " is-marked" : ""}`;
 
   switch (row.kind) {
     case "loadEarlier":
@@ -202,12 +206,29 @@ const Row = memo(function Row({
 
     case "prompt": {
       if (row.noise) {
+        // Injected wrapper (<system-reminder>, <task-notification>, …): never
+        // raw markup — a dim labelled chip, expandable to the raw payload.
+        const { label, snippet } = describeNoisePrompt(row.text);
+        const noiseOpen = pane.expandedPrompts.has(row.key);
         return (
-          <div
-            className={`sess-row sess-row--notice${stateCls}`}
-            onClick={() => pane.onRowClick(row.key)}
-          >
-            <span className="sess-notice-text">{row.text}</span>
+          <div className={`sess-row sess-row--notice${stateCls}`}>
+            <button
+              type="button"
+              className="sess-notice-chip"
+              onClick={() => {
+                pane.onTogglePrompt(row.key);
+                pane.onRowClick(row.key);
+              }}
+              aria-expanded={noiseOpen ? "true" : "false"}
+              title={noiseOpen ? "Collapse" : "Show raw injected content"}
+            >
+              <Info size={10} aria-hidden="true" />
+              <span className="sess-notice-label">{label}</span>
+              {snippet && (
+                <span className="sess-notice-snippet">{snippet}</span>
+              )}
+            </button>
+            {noiseOpen && <pre className="sess-notice-body">{row.text}</pre>}
           </div>
         );
       }

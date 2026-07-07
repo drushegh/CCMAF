@@ -9,7 +9,7 @@
  * Virtualized like the conversation (a big session has thousands of calls).
  */
 
-import { forwardRef, useMemo, useState } from "react";
+import { forwardRef, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -42,6 +42,8 @@ export interface ToolRailProps {
   onClose: () => void;
   /** The current agent is live — the newest un-resulted call shows "running". */
   live: boolean;
+  /** Drawer mode: move focus to the close button on open (keyboard path). */
+  autoFocusClose?: boolean;
 }
 
 const EST_COLLAPSED = 46;
@@ -70,6 +72,29 @@ export const ToolRail = forwardRef<VirtualListHandle, ToolRailProps>(
       [filtered],
     );
 
+    // >MAX_TOOL_PILLS tool types: tail pills fold behind "+N more" (the active
+    // tool's pill always stays visible so a live filter is never orphaned).
+    const [pillsExpanded, setPillsExpanded] = useState(false);
+    const pillOverflow = toolCounts.length - MAX_TOOL_PILLS;
+    const visibleCounts = useMemo(() => {
+      if (pillsExpanded || pillOverflow <= 0) return toolCounts;
+      const head = toolCounts.slice(0, MAX_TOOL_PILLS);
+      if (
+        typeof filter === "object" &&
+        !head.some(([name]) => name === filter.tool)
+      ) {
+        const active = toolCounts.find(([name]) => name === filter.tool);
+        if (active) head[MAX_TOOL_PILLS - 1] = active;
+      }
+      return head;
+    }, [toolCounts, pillsExpanded, pillOverflow, filter]);
+
+    // Drawer mode: land keyboard focus inside the overlay when it opens.
+    const closeRef = useRef<HTMLButtonElement | null>(null);
+    useEffect(() => {
+      if (props.autoFocusClose) closeRef.current?.focus();
+    }, [props.autoFocusClose]);
+
     return (
       <aside className="sess-rail" aria-label="Tool activity">
         <header className="sess-rail-head">
@@ -79,6 +104,7 @@ export const ToolRail = forwardRef<VirtualListHandle, ToolRailProps>(
           </span>
           <button
             type="button"
+            ref={closeRef}
             className="sess-rail-close"
             onClick={onClose}
             title="Hide tool rail (t)"
@@ -99,7 +125,7 @@ export const ToolRail = forwardRef<VirtualListHandle, ToolRailProps>(
             active={filter === "all"}
             onClick={() => onFilterChange("all")}
           />
-          {toolCounts.slice(0, MAX_TOOL_PILLS).map(([name, n]) => (
+          {visibleCounts.map(([name, n]) => (
             <FilterPill
               key={name}
               label={name}
@@ -114,6 +140,16 @@ export const ToolRail = forwardRef<VirtualListHandle, ToolRailProps>(
               }
             />
           ))}
+          {pillOverflow > 0 && (
+            <button
+              type="button"
+              className="sess-filter-pill sess-filter-pill--more"
+              aria-expanded={pillsExpanded ? "true" : "false"}
+              onClick={() => setPillsExpanded((v) => !v)}
+            >
+              {pillsExpanded ? "less" : `+${pillOverflow} more`}
+            </button>
+          )}
           {errorCount > 0 && (
             <FilterPill
               label="Errors"
@@ -132,15 +168,19 @@ export const ToolRail = forwardRef<VirtualListHandle, ToolRailProps>(
             timeline={timeline}
             total={ledger.length}
             onSeek={(ledgerIndex) => {
-              const e = ledger[ledgerIndex];
-              if (!e) return;
-              onFilterChange("all");
-              // scroll happens next frame, once the unfiltered list renders
-              requestAnimationFrame(() => {
-                (
-                  listRef as React.RefObject<VirtualListHandle>
-                )?.current?.scrollToKey(e.toolUseId || `i${e.index}`, "start");
-              });
+              // PRESERVE the active filter: land on the first entry the
+              // filter shows at/after the seek point (or the last shown one
+              // when seeking past the final match). Never resets mid-triage.
+              const target =
+                filtered.find((e) => e.index >= ledgerIndex) ??
+                filtered[filtered.length - 1];
+              if (!target) return;
+              (
+                listRef as React.RefObject<VirtualListHandle>
+              )?.current?.scrollToKey(
+                target.toolUseId || `i${target.index}`,
+                "start",
+              );
             }}
           />
         )}
