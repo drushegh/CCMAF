@@ -194,6 +194,29 @@ else
   files="(diff unavailable — pinned SHA not found upstream)"
 fi
 
+# Hook-registration gap (BUG-029 — close the notify blind spot). A framework
+# hook's REGISTRATION lives in the consumer-owned settings.json (see
+# merge-hook-registrations.sh), which is NOT a manifest path — so a settings-only
+# registration change (a hook registered without a manifest change, or the tail
+# of a split file-then-registration release, e.g. BUG-028) is invisible to the
+# manifest diff above, and the consumer would never be prompted to apply-update
+# (the thing that runs the registration merge). Detect it jq-free — the same
+# `grep -oE '\.claude/hooks/…'` the doctor's hook check uses: a framework-hook
+# FILE the upstream canonical settings.json registers that the consumer's does
+# NOT. The upstream clone already exists here, so this costs no extra network.
+# grep -Fxvf over REAL temp files (not comm — collation-fragile; not a
+# process-substitution pattern file — a Git-Bash grep can't open /dev/fd/N).
+_canon_settings="$tmp_clone${FRAMEWORK_SOURCE_SUBDIR:+/$FRAMEWORK_SOURCE_SUBDIR}/.claude/settings.json"
+_consumer_settings="$PROJECT_ROOT/.claude/settings.json"
+hook_reg_gap=""
+if [ -f "$_canon_settings" ] && [ -f "$_consumer_settings" ]; then
+  _hrg_canon="$(mktemp)"; _hrg_consumer="$(mktemp)"
+  grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.(sh|py)' "$_canon_settings"    2>/dev/null | sort -u > "$_hrg_canon"    || true
+  grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.(sh|py)' "$_consumer_settings" 2>/dev/null | sort -u > "$_hrg_consumer" || true
+  hook_reg_gap="$(grep -Fxvf "$_hrg_consumer" "$_hrg_canon" 2>/dev/null || true)"
+  rm -f "$_hrg_canon" "$_hrg_consumer"
+fi
+
 pinned_short="${FRAMEWORK_PINNED_SHA:0:7}"
 latest_short="${latest_sha:0:7}"
 
@@ -203,10 +226,27 @@ latest_short="${latest_sha:0:7}"
 # apply. Treat as up to date instead of writing an empty "update available" flag that
 # nags the consumer on every cold start. Only suppress when the pinned SHA WAS found
 # upstream (otherwise "$files" is the non-empty "not found" fallback and we still notify).
-if git -C "$tmp_clone" cat-file -e "$FRAMEWORK_PINNED_SHA" 2>/dev/null && [ -z "$files" ]; then
+if git -C "$tmp_clone" cat-file -e "$FRAMEWORK_PINNED_SHA" 2>/dev/null && [ -z "$files" ] && [ -z "$hook_reg_gap" ]; then
   rm -f "$FLAG_FILE"
   echo "check-updates: upstream advanced to $latest_short but no framework-owned files changed since $pinned_short — up to date (no shipped paths affected)."
   exit 0
+fi
+
+# A hook-registration-only update (no manifest files changed, but the canonical
+# registers a framework hook the consumer's settings.json is missing) — surface
+# it in the flag so the "Files" section isn't a bare "(none)".
+hook_reg_note=""
+if [ -n "$hook_reg_gap" ]; then
+  hook_reg_note="
+## Framework hook registration(s) to add to your settings.json
+
+This update registers framework hook(s) your \`.claude/settings.json\` is missing
+(their files are already present; only the registration is new — see BUG-028/029).
+\`apply-update\` wires them in additively — your permissions and your own hooks are
+untouched:
+
+$(printf '%s\n' "$hook_reg_gap" | sed 's/^/    /')
+"
 fi
 
 cat > "$FLAG_FILE" <<EOF
@@ -228,7 +268,7 @@ ${commits:-(no commits touched framework paths — unusual; this flag file is st
 \`\`\`
 ${files:-(none)}
 \`\`\`
-
+${hook_reg_note}
 ## To apply
 
 Run: \`bash .claude/framework/update/apply-update.sh\` — it will list the
