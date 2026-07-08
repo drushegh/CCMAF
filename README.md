@@ -255,6 +255,14 @@ before applying. Updates are additive and safe — state files are never overwri
 and new hook registrations are merged into your `settings.json` rather than
 clobbering it.
 
+**On `.github/` (CI workflows):** the workflows you get by cloning (CI, CodeQL,
+Dependabot, PR-close) are **not** part of framework self-updates — they're a
+starting scaffold, frozen at clone time. They self-gate to stay safe in your own
+project: **CodeQL runs only on public repos** (a private repo needs paid GitHub
+Advanced Security, so the job skips instead of failing), and the PR-close
+workflow acts only on the canonical mirror. Adjust or delete `.github/` to suit
+your project.
+
 ---
 
 ## Using, contributing, and feedback

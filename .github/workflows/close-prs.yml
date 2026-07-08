@@ -19,11 +19,13 @@ permissions:
 
 jobs:
   close:
-    # Exempt Dependabot: auto-closing its PRs would defeat dependency monitoring
-    # (.github/dependabot.yml). The maintainer triages those PRs manually.
-    # (PR author, not actor — a human reopening a Dependabot PR must not defeat
-    # the exemption.)
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Only the canonical published mirror auto-closes PRs — a consumer who CLONED
+    # CCMAF as their project base must NOT have their own PRs auto-closed by this
+    # inherited workflow, so gate on the repo. Also exempt Dependabot: closing its
+    # PRs would defeat dependency monitoring (.github/dependabot.yml); the
+    # maintainer triages those manually (PR author, not actor — a human reopening
+    # a Dependabot PR must not defeat the exemption).
+    if: github.repository == 'drushegh/CCMAF' && github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/github-script@v9

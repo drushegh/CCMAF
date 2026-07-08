@@ -21,6 +21,11 @@ permissions:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
+    # CodeQL code scanning is free ONLY on public repos; on a private repo it
+    # needs GitHub Advanced Security (paid). Gate to public so a consumer who
+    # clones this onto a private/free-tier account gets a SKIPPED (green) job,
+    # not a perpetually-failing one. On a private repo WITH GHAS, remove this.
+    if: ${{ github.event.repository.visibility == 'public' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
