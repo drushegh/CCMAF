@@ -181,6 +181,12 @@ are loaded into the session context on cold start.
   a parallel-build wave merge (/build wires it in) or runs on demand via
   `/reconcile` (nudged by doctor Check 14), `full` mode runs inside
   /healthcheck
+- **Skills reach agents:** every role agent carries the `Skill` tool and is
+  instructed to consult installed `.claude/skills/` packs relevant to its
+  task before working — opt-in, so absent skills are a silent no-op, never an
+  error. When a skill covers the task area it outranks the model's priors.
+  UI agents (ui-designer/ux-critic) name `design-taste` + `ui-verification`
+  as must-haves; code agents pull their stack/testing/security/docs skills.
 - The agent that writes code does NOT review it
 - The agent that produced a claim does NOT verify it — a doer's green
   self-report is a defect gate, never the acceptance gate

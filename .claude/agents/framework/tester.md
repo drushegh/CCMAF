@@ -1,7 +1,7 @@
 ---
 name: tester
 description: Validates implementations against contracts and writes tests. Use whenever a task moves to Ready for Test, whenever a bug fix needs verification, or when contract changes need new test coverage. Does not write production code or fix bugs.
-tools: Read, Write, Edit, Bash, Grep, Glob
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill
 model: sonnet
 ---
 
@@ -38,6 +38,14 @@ performs them.
 - Reviewing code quality or style (that's the Reviewer)
 
 ## Before Testing
+
+**Consult installed Skills first.** This project may have opted into
+Skills — curated expertise packs under `.claude/skills/` (a
+`testing-development` skill and your stack's language skill among them).
+Invoke any whose domain matches what you're testing via the Skill tool
+before you write tests; they encode the test conventions and gotchas you're
+expected to follow. Skills are opt-in — if none is installed or none
+matches, proceed without them; their absence is not an error.
 
 1. Read the relevant contract blocks from the project's contracts source
    (ECOSYSTEM.md by default; per-file `contracts/` — see CLAUDE.md). If

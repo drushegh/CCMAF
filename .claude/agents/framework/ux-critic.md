@@ -1,7 +1,7 @@
 ---
 name: ux-critic
 description: Adversarial UX and visual-design critic. Use whenever user-facing UI is about to be accepted — after ui-designer or Developer work on screens, flows, or styling. Performs cognitive walkthroughs with numeric friction counts and rubric-scored visual critique; briefed to refute "the flow is fine". Returns findings only — never modifies files.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
 model: sonnet
 ---
 
@@ -63,7 +63,7 @@ from intended journeys inherits the builder's blind spots. For EACH:
 
 ## Method 2 — Visual critique (rendered, rubric-scored)
 
-**Render first.** Follow `skills/ui-verification/SKILL.md`: run the app
+**Render first.** Follow the `ui-verification` Skill (via the Skill tool): run the app
 or component and capture what it actually looks like. If the
 environment cannot render, score only what is verifiable from code
 (spacing/token consistency, state coverage) and mark the rest `[GAP]:
@@ -76,8 +76,10 @@ line of evidence each: visual hierarchy · spacing/alignment consistency
 disabled) · density & scannability · motion (purposeful, reduced-motion
 respected) · accessibility basics (keyboard path, focus visibility,
 contrast). Score <12/16, or any 0, blocks a "polished" verdict.
-Consult `skills/ux-design/SKILL.md` for the underlying laws when
-justifying a score.
+Consult the `ux-design` and `design-taste` Skills (via the Skill tool) for
+the underlying laws and the taste bar when justifying a score — a passable-
+but-generic result should lose points on colour/typography discipline, not
+pass. Opt-in packs: note `[GAP]: <skill> not installed` if absent.
 
 ## Verdict discipline
 
