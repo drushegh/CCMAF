@@ -53,6 +53,23 @@ are loaded into the session context on cold start.
      (create `.claude/.skills-declined`, COMMIT it, delete the flag).
    (Skills are separate from the framework update above — a different
    upstream, different pin.)
+
+   1.5 **CI workflow setup (once — the shipped `.github/` scaffold)** — If
+   `.github/workflows/codeql.yml` exists AND `.claude/.ci-configured` is absent
+   (a fresh clone that inherited the framework's CI scaffold), ask the user via
+   AskUserQuestion whether this is a **private repo on free-tier GitHub**: CodeQL
+   code scanning is free only on PUBLIC repos — a private repo needs paid GitHub
+   Advanced Security, so the shipped CodeQL job can't run there. (The workflow is
+   already gated to skip on private, so it won't *fail* — but it's dead weight.)
+   Options: *private + free-tier → disable CodeQL* (rename
+   `.github/workflows/codeql.yml` → `codeql.yml.disabled` — kept in the repo but
+   inactive, since GitHub only runs `.yml`) / *public, or I have GHAS → keep it*
+   (leave as-is; it self-skips on private anyway) / *decide later* (skip; re-asked
+   next cold start). On either of the first two, create + COMMIT
+   `.claude/.ci-configured` so this is asked once. **Re-enable anytime** by
+   renaming `codeql.yml.disabled` back to `codeql.yml`. (CodeQL is the only
+   shipped CI that assumes an account tier — `close-prs.yml` is already inert
+   outside the canonical repo, and Dependabot works on private free-tier repos.)
 2. **Framework insights check** — Run `bash .claude/framework/insights/analyse.sh`
    (silent if nothing to report; throttled by `INSIGHTS_CHECK_INTERVAL_DAYS`).
    If `.claude/.framework-insight-alert.md` exists afterwards, read it, summarise
