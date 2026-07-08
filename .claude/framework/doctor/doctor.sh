@@ -43,6 +43,15 @@
 #      have entered Done since .claude/telemetry/.last-reconcile's mtime —
 #      the horizontal /reconcile pass is falling behind the vertical build
 #      cadence. Silent (no baseline yet) until /reconcile has run once.
+#  15. Board <-> reality coherence (contract:board-coherence): the board can
+#      drift from demonstrable reality while passing the Stop hook (which
+#      checks state files were TOUCHED, not truthful). Flags the drift class
+#      /board-heal restores — tasks in Verify with no verify seed (when opted
+#      into the Console; a task still queued in Ready-for-Test has no seed by
+#      design), orphan seeds, a base ID spanning
+#      >1 lifecycle column, and a Ready-for-Review pile-up (NAG). DETECT-only:
+#      never mutates TASKS.md or the seeds. (Check 13 gained a companion flag
+#      for SUFFIXED sub-IDs, which board tools drop/mis-parse.)
 #
 # Exit codes:
 #   0 — all checks pass OR findings written to flag file (cold start continues)
@@ -568,6 +577,19 @@ check_state_structure() {
       add_finding "WARNING" "state-structure" "TASKS.md has $bare_n task/bug entries with BARE IDs (e.g. \`$bare_eg\`) — the canonical board form is bracketed \`#### [TASK-N]\` / \`#### [BUG-N]\`. Downstream board tools WRITE bracketed IDs (flag-as-bug), so a bare board goes mixed once a bug is flagged. Fix: bracket the IDs."
     fi
 
+    # Suffixed sub-IDs (TASK-111 #4): a `#### [TASK-Na]` / bare `#### TASK-Na`
+    # heading. The canonical board ID is NUMERIC (^(TASK|BUG)-[0-9]+$); a trailing
+    # alpha suffix is an unsanctioned wave-prep improvisation that board tools
+    # MISHANDLE — the Console DROPS a bracketed `[TASK-Na]` (matches neither ID
+    # regex) and MIS-PARSES a bare `TASK-Na` into its numeric parent (a collision).
+    # Either way the entry is lost or double-counted. One aggregated finding.
+    local sfx_n sfx_eg
+    sfx_n=$(grep -cE '^####[[:space:]]+\[?(TASK|BUG)-[0-9]+[a-z]+' "$t" || true)
+    if [ "${sfx_n:-0}" -gt 0 ]; then
+      sfx_eg=$(grep -oE '^####[[:space:]]+\[?(TASK|BUG)-[0-9]+[a-z]+' "$t" | grep -oE '(TASK|BUG)-[0-9]+[a-z]+' | head -1 || true)
+      add_finding "WARNING" "state-structure" "TASKS.md has $sfx_n task/bug entries with SUFFIXED IDs (e.g. \`$sfx_eg\`) — the canonical board ID is numeric \`(TASK|BUG)-[0-9]+\`. Board tools mishandle a trailing alpha suffix: the Console DROPS a bracketed \`[$sfx_eg]\` (matches neither ID regex) and MIS-PARSES a bare \`$sfx_eg\` into its numeric parent (collision). Fix: run \`/board-heal\` to renumber them to distinct numeric IDs, or allocate numeric IDs for sub-tasks up front."
+    fi
+
     # Verify-stage section in the FEATURE lane specifically: the canonical
     # lifecycle is `… Ready for Test → Verify → Done`; board writeback that moves
     # a task to Verify needs the section to exist (else target_missing).
@@ -746,6 +768,124 @@ check_reconcile_due() {
   add_finding "NAG" "reconcile" "reconcile due ($new_count tasks entered Done since the last /reconcile pass, threshold $threshold). The horizontal auditor (duplicate/seam/contract/convention drift) hasn't run since \`.claude/telemetry/.last-reconcile\` was last written. Fix: run \`/reconcile\` (defaults to scoped mode since that watermark)."
 }
 
+# --- Check 15: Board <-> reality coherence (contract:board-coherence) -
+# DETECT-ONLY. The board (TASKS.md) can drift from demonstrable reality while
+# passing the Stop hook (which checks state files were TOUCHED, not truthful).
+# Flags the drift class /board-heal restores: Verify tasks with no verify seed
+# (when opted into the Console), orphan seeds, a base ID in two
+# lifecycle columns, and a Ready-for-Review pile-up. Never writes TASKS.md or the
+# seeds. Comment-aware (a commented-out task block never counts). Bash-4 assoc
+# arrays are guaranteed by the top-of-file bash>=4 guard.
+check_board_coherence() {
+  local tasks="$PROJECT_ROOT/.claude/TASKS.md"
+  [ -f "$tasks" ] || return 0
+  local console_dir="$PROJECT_ROOT/.claude/console"
+  local verify_dir="$console_dir/verify"
+  local threshold="${RFR_STALL_THRESHOLD:-8}"
+
+  local t; t=$(mktemp 2>/dev/null) || t="$PROJECT_ROOT/.claude/.doctor-bc.$$"
+  # Multi-line-comment-aware strip (same technique as check_state_structure).
+  awk '
+    { s=$0; out=""
+      if (inc) { i=index(s,"-->"); if(i){ s=substr(s,i+3); inc=0 } else { next } }
+      while ((o=index(s,"<!--"))>0) {
+        out=out substr(s,1,o-1); s=substr(s,o+4)
+        i=index(s,"-->"); if(i){ s=substr(s,i+3) } else { inc=1; s=""; break }
+      }
+      print out s
+    }
+  ' "$tasks" > "$t"
+
+  # One awk pass -> "lane<TAB>status<TAB>fullId" per task/bug heading (suffix kept).
+  # status normalised: `### Ready for Test (foo)` -> `Ready for Test`.
+  local rows
+  rows=$(awk '
+    /^##[[:space:]]+[Ff]eature[[:space:]]+[Ll]ane/                 { lane="feature"; status=""; next }
+    /^##[[:space:]]+[Bb]ug[-[:space:]]+[Ff]ix[[:space:]]+[Ll]ane/ { lane="bug";     status=""; next }
+    /^###[[:space:]]/ {
+      status=$0; sub(/^###[[:space:]]+/,"",status)
+      # Strip trailing parenthetical group(s) only — parity with the Console
+      # parser (tasks-parser.ts normaliseStatus: /(\s*\([^)]*\))+\s*$/). A
+      # strip-from-first-paren would diverge on a mid-string paren heading.
+      while (status ~ /\([^)]*\)[[:space:]]*$/) sub(/[[:space:]]*\([^)]*\)[[:space:]]*$/,"",status)
+      sub(/[[:space:]]+$/,"",status); next
+    }
+    /^####[[:space:]]+\[?(TASK|BUG)-[0-9]+[a-z]*/ {
+      if (match($0,/(TASK|BUG)-[0-9]+[a-z]*/))
+        print lane "\t" status "\t" substr($0,RSTART,RLENGTH)
+    }
+  ' "$t")
+  rm -f "$t"
+
+  # --- Invariant 5: Ready-for-Review pile-up (NAG) ---
+  # Feature lane only ($1=="feature") — the pile-up symptom is a Feature-lane
+  # build that never walked the lifecycle; a customised Bug-Fix lane column of
+  # the same name must not inflate the count.
+  local rfr_count
+  rfr_count=$(printf '%s\n' "$rows" | awk -F'\t' '$1=="feature" && tolower($2)=="ready for review"{n++} END{print n+0}')
+  if [ "${rfr_count:-0}" -ge "$threshold" ]; then
+    add_finding "NAG" "board-coherence" "TASKS.md has $rfr_count tasks stalled in Ready for Review (threshold $threshold, RFR_STALL_THRESHOLD) — an autonomous/batch build that never walked the per-task review->test->Verify lifecycle looks exactly like this. Fix: run \`/board-heal\` to advance each to its truthful status (evidence-driven) and backfill verify seeds."
+  fi
+
+  # --- Invariant 4: same base ID in >1 lifecycle column ---
+  # base = full id minus any trailing alpha suffix (TASK-007a -> TASK-007). Flag
+  # only when a base has >1 DISTINCT full id AND >1 distinct column (the suffix-
+  # fold case); an exact-duplicate id is Check 7's job, not this one.
+  local lane status id base
+  declare -A _bc_cols _bc_fulls
+  while IFS=$'\t' read -r lane status id; do
+    [ -n "$id" ] || continue
+    base=$(printf '%s' "$id" | sed -E 's/[a-z]+$//')
+    case "|${_bc_cols[$base]:-}|"  in *"|$status|"*) : ;; *) _bc_cols[$base]="${_bc_cols[$base]:+${_bc_cols[$base]}|}$status" ;; esac
+    case "|${_bc_fulls[$base]:-}|" in *"|$id|"*)     : ;; *) _bc_fulls[$base]="${_bc_fulls[$base]:+${_bc_fulls[$base]}|}$id" ;; esac
+  done <<< "$rows"
+  local b ncols nfull
+  for b in "${!_bc_cols[@]}"; do
+    ncols=$(printf '%s' "${_bc_cols[$b]}"  | awk -F'|' '{print NF}')
+    nfull=$(printf '%s' "${_bc_fulls[$b]}" | awk -F'|' '{print NF}')
+    if [ "${ncols:-0}" -gt 1 ] && [ "${nfull:-0}" -gt 1 ]; then
+      add_finding "WARNING" "board-coherence" "TASKS.md: base task ID \`$b\` spans multiple lifecycle columns — entries [$(printf '%s' "${_bc_fulls[$b]}" | tr '|' ' ')] across [$(printf '%s' "${_bc_cols[$b]}" | tr '|' '/')]. A task can't be in two columns, and a suffixed sub-ID (\`${b}a\`) collides with its numeric parent in board tools. Fix: \`/board-heal\` renumbers suffixed IDs to distinct numeric IDs."
+    fi
+  done
+
+  # --- Invariant 1: Verify tasks missing a seed (opt-in gated) ---
+  # VERIFY ONLY — a task still queued in Ready-for-Test has NO seed by design:
+  # the Tester emits the seed AND moves the task to Verify atomically, only on
+  # PASS (commands/test.md, agents/framework/tester.md). Including Ready-for-Test
+  # here false-positives on every healthy board AND would make /board-heal write
+  # a premature approximated seed that, being WRITE-ONCE, permanently locks out
+  # the Tester's authoritative one.
+  if [ -d "$console_dir" ]; then
+    local missing_seeds="" slc
+    while IFS=$'\t' read -r lane status id; do
+      [ -n "$id" ] || continue
+      [ "$lane" = "feature" ] || continue
+      slc=$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')
+      case "$slc" in verify) ;; *) continue ;; esac
+      # Only a numeric-canonical id can have a seed file (contract:verify-handback).
+      printf '%s' "$id" | grep -qE '^(TASK|BUG)-[0-9]+$' || continue
+      [ -f "$verify_dir/$id.json" ] || missing_seeds="${missing_seeds:+$missing_seeds, }$id"
+    done <<< "$rows"
+    if [ -n "$missing_seeds" ]; then
+      add_finding "WARNING" "board-coherence" "TASKS.md has Verify tasks with NO verify seed in .claude/console/verify/ — the Console renders the Verify tab from these seeds, so those stories are invisible there: $missing_seeds. Fix: run \`/board-heal\` to backfill a write-once seed per task."
+    fi
+
+    # --- Invariant 2: orphan seeds (seed with no board entry) ---
+    if [ -d "$verify_dir" ]; then
+      local board_ids orphans="" f sid
+      board_ids=$(printf '%s\n' "$rows" | awk -F'\t' '$3!=""{print $3}')
+      for f in "$verify_dir"/*.json; do
+        [ -f "$f" ] || continue
+        sid=$(basename "$f" .json)
+        printf '%s\n' "$board_ids" | grep -qxF "$sid" || orphans="${orphans:+$orphans, }$sid"
+      done
+      if [ -n "$orphans" ]; then
+        add_finding "WARNING" "board-coherence" "Verify seeds exist in .claude/console/verify/ with no matching board entry in TASKS.md (a renamed/renumbered/deleted task leaves a stale story in the Verify tab): $orphans. Fix: run \`/board-heal\` to reconcile, or remove the stale seed."
+      fi
+    fi
+  fi
+}
+
 # --- Run all checks --------------------------------------------------
 check_hooks
 check_cross_refs
@@ -759,6 +899,7 @@ check_gnu_toolchain
 check_state_file_leak
 check_state_structure
 check_reconcile_due
+check_board_coherence
 
 # --- Write flag file if any findings ---------------------------------
 if [ ${#findings[@]} -eq 0 ]; then

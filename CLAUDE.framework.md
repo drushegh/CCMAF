@@ -54,6 +54,18 @@ are loaded into the session context on cold start.
    (Skills are separate from the framework update above — a different
    upstream, different pin.)
 
+   Then run `bash .claude/framework/update/console-check.sh` (usually silent).
+   If `.claude/.console-suggestion.md` exists afterwards (the project has NOT
+   opted into the Console and the suggestion throttle has elapsed), read it and
+   ask via AskUserQuestion: *set up the Console now* (create
+   `.claude/.console-version` per the flag's "To set up" section —
+   `echo latest > .claude/.console-version` — COMMIT it, then run
+   `node tools/console.mjs start`; delete the flag) / *not now* (delete the flag;
+   re-suggested after `CONSOLE_SUGGEST_INTERVAL_DAYS`, default 14) / *never for
+   this project* (create + COMMIT `.claude/.console-declined`, delete the flag).
+   Silent when the project is already opted in. (The Console ships via npm,
+   decoupled from the framework update above — this is only a discovery nudge.)
+
    1.5 **CI workflow setup (once — the shipped `.github/` scaffold)** — If
    `.github/workflows/codeql.yml` exists AND `.claude/.ci-configured` is absent
    (a fresh clone that inherited the framework's CI scaffold), ask the user via
@@ -248,7 +260,7 @@ Hooks honour two environment variables (resolved by `.claude/hooks/lib/hook-comm
   - **strict** — standard plus any hooks declared at the `strict` tier (reserved for future opt-in extra-strict checks).
 - `CLAUDE_DISABLED_HOOKS="format,lint"` — comma/space-separated list of stable hook IDs to turn off regardless of profile. An explicit disable always wins, even for safety-tier hooks.
 
-Stable hook IDs: `block-dangerous` (safety), `enforce-state`, `filter-test-output`, `drift-guard`, `format`, `lint`, `verify-deps`, `suggest-compact`, `cost-tracker`, `reanchor`, `precompact-snapshot`, `postcompact-archive`, `checkpoint-watermark`, `console-heartbeat`, `guard-interpreter-check`, `session-start-marker` (`reanchor`/`precompact-snapshot`/`postcompact-archive`/`checkpoint-watermark` are the TASK-052 session-lifecycle hooks; see "Session Lifecycle" below and `contract:session-lifecycle`. `console-heartbeat` is the TASK-066 Console-integration hook — fires on UserPromptSubmit + PostToolUse to refresh this project's Console registry-entry mtime so the tray Hub never reaps a live session; instant no-op unless the project is opted in to the Console via `.console-version`/`.console-enabled`. `guard-interpreter-check` is a SessionStart guard-monitor that reports if `block-dangerous` has lost its Python interpreter; `session-start-marker` records HEAD at session start for re-anchor/diff).
+Stable hook IDs: `block-dangerous` (safety), `enforce-state`, `filter-test-output`, `drift-guard`, `format`, `lint`, `verify-deps`, `suggest-compact`, `cost-tracker`, `reanchor`, `precompact-snapshot`, `postcompact-archive`, `checkpoint-watermark`, `console-heartbeat`, `console-autostart`, `guard-interpreter-check`, `session-start-marker` (`reanchor`/`precompact-snapshot`/`postcompact-archive`/`checkpoint-watermark` are the TASK-052 session-lifecycle hooks; see "Session Lifecycle" below and `contract:session-lifecycle`. `console-heartbeat` is the TASK-066 Console-integration hook — fires on UserPromptSubmit + PostToolUse to refresh this project's Console registry-entry mtime so the tray Hub never reaps a live session; instant no-op unless the project is opted in to the Console via `.console-version`/`.console-enabled`. `guard-interpreter-check` is a SessionStart guard-monitor that reports if `block-dangerous` has lost its Python interpreter; `session-start-marker` records HEAD at session start for re-anchor/diff. `console-autostart` is a SessionStart hook (TASK-115) that fire-and-forget starts a Console-opted-in project's console via `node tools/console.mjs start` so it comes up on cold boot without depending on the model executing step 10.5 — instant no-op unless opted in (`.console-version`/`.console-enabled`), fires only on `source∈{startup,resume}`, and never blocks session start).
 
 Legacy per-hook opt-outs still work and compose with the above: `CLAUDE_DEP_VERIFY=0` (skip dependency registry checks), `CLAUDE_DOTNET_FORMAT=1` / `CLAUDE_DOTNET_LINT=1` (opt into slow .NET tooling), `CLAUDE_SUGGEST_COMPACT_TURNS=N` (compaction-nudge cadence). Session-lifecycle knobs: `CLAUDE_CONTEXT_WINDOW_TOKENS=N` (window size for the watermark % estimate; default 200000 — **set 1000000 on a [1m]-context session** or the checkpoint nudge fires immediately), `CLAUDE_CHECKPOINT_WATERMARK_PCT=N` (nudge threshold %, default 75).
 

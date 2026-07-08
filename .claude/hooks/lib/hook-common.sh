@@ -21,6 +21,7 @@
 #   reanchor, precompact-snapshot, postcompact-archive, checkpoint-watermark
 #     (these four = TASK-052 session-lifecycle hooks)
 #   console-heartbeat   (TASK-066 Console-integration hook)
+#   console-autostart   (TASK-115 — SessionStart auto-start of an opted-in Console)
 #   guard-interpreter-check (safety tier — reports on block-dangerous's own
 #     health; Audtor 2026-07-02 M1-residual fix)
 #   session-start-marker   (records the session-scoping watermark that

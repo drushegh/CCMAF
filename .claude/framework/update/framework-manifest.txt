@@ -39,6 +39,7 @@
 # those and leave project commands (healthcheck.md, project/brand.md,
 # etc.) untouched on update.
 .claude/commands/analyse.md
+.claude/commands/board-heal.md
 .claude/commands/bug.md
 .claude/commands/build.md
 .claude/commands/council.md
@@ -59,6 +60,7 @@
 .claude/hooks/auto-lint.sh
 .claude/hooks/block-dangerous-commands.py
 .claude/hooks/checkpoint-watermark.sh
+.claude/hooks/console-autostart.sh
 .claude/hooks/console-heartbeat.sh
 .claude/hooks/enforce-state-update.sh
 .claude/hooks/filter-test-output.sh

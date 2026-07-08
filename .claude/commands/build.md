@@ -90,3 +90,17 @@ Then:
      per feature for the human to accept or flag-as-bug.
    Skipping this leaves the human a pile of code with no per-feature acceptance surface
    — the exact failure this step prevents.
+9. **Batch-completion coherence gate (autonomous / parallel-wave builds — the HARD trigger).**
+   Step 8 is the intent; this is the enforcement. A batch build MUST NOT end with the board
+   drifted from what it delivered (the TASK-111 failure: an overnight build shipped, deployed,
+   pushed — and left ~30 tasks frozen in Ready for Review with zero verify seeds). After step 8,
+   run `bash .claude/framework/doctor/doctor.sh` and read its `board-coherence` (Check 15) +
+   suffixed-ID (Check 13) findings:
+   - **Ready-for-Review pile-up** (≥ `RFR_STALL_THRESHOLD` tasks stalled), **suffixed IDs**, or
+     **Verify/Ready-for-Test tasks with no seed** → this batch left drift behind. Do NOT end the
+     build with the flag unresolved. Clear it one of two ways: walk each delivered task through
+     `/review` → `/test` → Verify (step 8), OR run **`/board-heal`** (evidence-driven advance +
+     seed backfill + suffixed-ID renumber) — pick per how the wave was built. A parallel-wave /
+     overnight build that produced many tasks at once is the `/board-heal` case.
+   - Re-run doctor to confirm the board-coherence findings are gone before reporting the build
+     complete. Ending a batch with these findings open is itself the defect this gate prevents.

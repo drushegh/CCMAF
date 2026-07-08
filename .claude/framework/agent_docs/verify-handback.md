@@ -74,6 +74,13 @@ The pass-file is FRAMEWORK-owned and versioned: the framework defines the shape,
 consumer's verify UI conforms. `.claude/console/` itself stays consumer/UI-owned — the
 framework writes only the seed.
 
+**Coherence (`contract:board-coherence`).** doctor Check 15 flags a Feature-lane **Verify** task
+that has no seed here (opt-in gated on `.claude/console/`), and `/board-heal` backfills one —
+**write-once**, never clobbering a recorded verdict, and **Verify-only** (a task still in Ready
+for Test is seedless *by design* — the Tester seeds it on PASS as it moves to Verify, per this
+doc). That detect→restore loop is what keeps this seed↔board mapping honest over a project's life;
+see the `contract:board-coherence` block in `.claude/ECOSYSTEM.md`.
+
 ## Forward path (new work) — the default
 
 1. **`/analyse`** captures user stories + acceptance criteria into a spec.
