@@ -39,8 +39,9 @@ Verify story.
 
 ## Step 1 — Renumber suffixed sub-IDs → distinct numeric IDs
 Doctor lists them (`[TASK-Na]` bracketed, or bare `TASK-Na`). The canonical ID is numeric; a
-trailing alpha suffix is unsanctioned and board tools mishandle it (the Console DROPS a bracketed
-`[TASK-017b]` and MIS-PARSES a bare `TASK-017b` into TASK-017). For each, in ascending board order:
+trailing alpha suffix is unsanctioned and NON-CANONICAL (current Console builds, ccmaf-console
+0.2.3+, surface it flagged; older builds dropped a bracketed `[TASK-017b]` / mis-parsed a bare
+`TASK-017b` into TASK-017). For each, in ascending board order:
 - Allocate the next free numeric id.
 - Rewrite the heading (`#### [TASK-017b] Title` → `#### [TASK-<new>] Title`) and add a body line
   `- **Was:** TASK-017b (renumbered by /board-heal <YYYY-MM-DD>)` — past commits reference the old

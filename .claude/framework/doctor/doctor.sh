@@ -51,7 +51,7 @@
 #      design), orphan seeds, a base ID spanning
 #      >1 lifecycle column, and a Ready-for-Review pile-up (NAG). DETECT-only:
 #      never mutates TASKS.md or the seeds. (Check 13 gained a companion flag
-#      for SUFFIXED sub-IDs, which board tools drop/mis-parse.)
+#      for NON-CANONICAL suffixed sub-IDs, which older board tools drop/mis-parse.)
 #
 # Exit codes:
 #   0 — all checks pass OR findings written to flag file (cold start continues)
@@ -579,15 +579,15 @@ check_state_structure() {
 
     # Suffixed sub-IDs (TASK-111 #4): a `#### [TASK-Na]` / bare `#### TASK-Na`
     # heading. The canonical board ID is NUMERIC (^(TASK|BUG)-[0-9]+$); a trailing
-    # alpha suffix is an unsanctioned wave-prep improvisation that board tools
-    # MISHANDLE — the Console DROPS a bracketed `[TASK-Na]` (matches neither ID
-    # regex) and MIS-PARSES a bare `TASK-Na` into its numeric parent (a collision).
-    # Either way the entry is lost or double-counted. One aggregated finding.
+    # alpha suffix is an unsanctioned wave-prep improvisation and NON-CANONICAL.
+    # Current Console builds (ccmaf-console 0.2.3+, TASK-117) surface it flagged;
+    # older builds dropped a bracketed `[TASK-Na]` / folded a bare `TASK-Na` into
+    # its numeric parent (collision). Either way it's off-grammar. One aggregated finding.
     local sfx_n sfx_eg
     sfx_n=$(grep -cE '^####[[:space:]]+\[?(TASK|BUG)-[0-9]+[a-z]+' "$t" || true)
     if [ "${sfx_n:-0}" -gt 0 ]; then
       sfx_eg=$(grep -oE '^####[[:space:]]+\[?(TASK|BUG)-[0-9]+[a-z]+' "$t" | grep -oE '(TASK|BUG)-[0-9]+[a-z]+' | head -1 || true)
-      add_finding "WARNING" "state-structure" "TASKS.md has $sfx_n task/bug entries with SUFFIXED IDs (e.g. \`$sfx_eg\`) — the canonical board ID is numeric \`(TASK|BUG)-[0-9]+\`. Board tools mishandle a trailing alpha suffix: the Console DROPS a bracketed \`[$sfx_eg]\` (matches neither ID regex) and MIS-PARSES a bare \`$sfx_eg\` into its numeric parent (collision). Fix: run \`/board-heal\` to renumber them to distinct numeric IDs, or allocate numeric IDs for sub-tasks up front."
+      add_finding "WARNING" "state-structure" "TASKS.md has $sfx_n task/bug entries with SUFFIXED IDs (e.g. \`$sfx_eg\`) — the canonical board ID is numeric \`(TASK|BUG)-[0-9]+\`. A trailing alpha suffix is NON-CANONICAL: current Console builds (ccmaf-console 0.2.3+) surface it flagged, older builds dropped/mis-parsed it — either way it's off-grammar. Fix: run \`/board-heal\` to renumber them to distinct numeric IDs, or allocate numeric IDs for sub-tasks up front."
     fi
 
     # Verify-stage section in the FEATURE lane specifically: the canonical
