@@ -29,6 +29,7 @@
 .claude/framework/agent_docs/
 .claude/framework/audit/
 .claude/framework/doctor/
+.claude/framework/fable/
 .claude/framework/insights/
 .claude/framework/tests/
 .claude/framework/update/
@@ -43,6 +44,7 @@
 .claude/commands/bug.md
 .claude/commands/build.md
 .claude/commands/council.md
+.claude/commands/fable.md
 .claude/commands/healthcheck.md
 .claude/commands/housekeeping.md
 .claude/commands/plan.md
