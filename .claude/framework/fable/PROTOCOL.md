@@ -39,9 +39,12 @@ this file is the reference it instantiates alongside `verify-turn.sh`.
 ## Mandatory guard clause (paste into every spawn prompt)
 
 > This is NOT a project task. Do NOT run the Cold Start sequence. Do NOT read, write, or
-> edit anything under `.claude/`, `CLAUDE.md`, or any state / board file — you are a pure
-> advisor. Read only what this prompt points you at; write ONLY the single response file
-> named below. Echo this nonce verbatim on your first line: `<NONCE>`.
+> edit any project STATE / BOARD file — nothing under `.claude/TASKS.md`, `.claude/STATUS.md`,
+> `.claude/DECISIONS.md`, `.claude/claude-progress.txt`, `.claude/ECOSYSTEM.md`,
+> `.claude/GOTCHAS.md`, `.claude/console/`, or `CLAUDE.md` / `CLAUDE.framework.md`. You ARE
+> free to use the Skill tool — skills live under `.claude/skills/`, and consulting them is
+> encouraged. Make NO file changes anywhere except the single response file named below.
+> Echo this nonce verbatim on your first line: `<NONCE>`.
 
 (Without this clause, CLAUDE.md's gravity makes the subagent run the cold start and edit
 state files.)

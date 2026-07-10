@@ -41,8 +41,8 @@ earlier turns — the fresh agent has no memory of them.
 
 ## Step 3 — Run one turn (FRESH spawn)
 Spawn a FRESH Fable agent (`model: fable`) with a prompt that:
-- pastes the **mandatory guard clause** from `_fable/PROTOCOL.md` (skip cold start; touch
-  nothing under `.claude/` or `CLAUDE.md`; write ONLY the one response file; echo the nonce),
+- pastes the **mandatory guard clause** from `_fable/PROTOCOL.md` (skip cold start; make no
+  STATE/BOARD edits — but DO use the Skill tool; write ONLY the one response file; echo the nonce),
 - points it at `_fable/<topic>/conversation.md`,
 - names its output `_fable/<topic>/turns/<NNN>-response.md` (zero-padded next N),
 - embeds a fresh NONCE.
