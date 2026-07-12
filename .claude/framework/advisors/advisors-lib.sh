@@ -117,9 +117,9 @@ mode_watcher_advisor() {
 
 # List the mode names defined in the registry (the [modes.<name>] sections). Used by /mode to
 # validate a requested mode before switching. "normal" is always implicitly valid (no section).
+# (Always reads the live registry; tests override advisors_registry_path rather than pass a file.)
 registry_modes() {
-  local file="${1:-}"
-  [[ -n "$file" ]] || file="$(advisors_registry_path)"
+  local file; file="$(advisors_registry_path)"
   [[ -f "$file" ]] || return 0
   awk '
     { sub(/\r$/, "") }   # CRLF-proof
