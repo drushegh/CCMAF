@@ -9,6 +9,16 @@ Then:
    touched by commits for this task (excludes framework bookkeeping paths so the
    reviewer gets code changes, not state-file updates).
 
+   **Watcher mode (open-model cross-check — TASK-132).** If a `watcher-*` mode is active
+   (`.claude/advisors.toml` `[modes] active`), an open (codex) model cross-checks the Claude
+   reviewer. Launch it NOW, in the BACKGROUND (Bash `run_in_background: true`) so it runs
+   concurrently and its own timeout — not the Bash 600s cap — bounds it:
+   `bash .claude/framework/advisors/watcher.sh reviewer TASK-XXX`.
+   It is a silent no-op in `normal` mode (prints `WATCHER reviewer - NONE`, exit 0), so this line
+   is safe to run unconditionally — skip it only if you already know the mode is `normal`. Collect
+   its result in step 5. (See `.claude/framework/advisors/PROTOCOL.md` "Watcher mode": augment,
+   never replace; advisory roles only; evidence-verifier fail-closed; client-attested.)
+
 4. Delegate review to the reviewer subagent using the Task tool:
    "Review [TASK-XXX]: [description].
    Files changed: [list the specific files from the git log above]
@@ -30,6 +40,16 @@ Then:
      lost at session end (2026-06-12 cross-project review finding). Prepend
      WITHOUT reading or deduping against existing sections (anchoring,
      BUG-001); /healthcheck rotation and /housekeeping handle growth.
+   - **Watcher cross-check (watcher mode only):** if you launched a reviewer-watcher in
+     step 3, read `_advisors/watch-<task>-reviewer/RESULT.md` once the background job finishes.
+     - **PASS** (a finding): compile a CROSS-CHECK against the Claude findings — mark each issue
+       `[both]` (Claude + codex both flagged it → high confidence), `[claude-only]`, or
+       `[codex-only]`. Persist the watcher finding + the cross-check under the SAME dated section,
+       labelled with the advisor + `client-attested`. A `[codex-only]` P0/P1 is a **claim to
+       VERIFY** (feed it into the verify step below), NOT an auto task-mover — the Claude reviewer
+       + hooks stay the enforcement plane.
+     - **DEGRADED / NONE:** note it in one line ("reviewer-watcher degraded: <reason>" / "normal
+       mode") and proceed on the Claude reviewer alone. Augment adds signal; it never blocks.
    - **SECOND, verify before acting (P0/P1 findings):** delegate the
      P0/P1 findings as claims to the **verifier** subagent (fresh
      context — never the reviewer that produced them; the agent that
@@ -40,6 +60,13 @@ Then:
      no bugs (keep them in the findings file with the refutation —
      they calibrate the Reviewer). P2/P3 findings may be acted on
      unverified but are marked `[UNVERIFIED]` wherever persisted.
+     - **Watcher mode:** if the active mode also assigns a `verifier` watcher, write the P0/P1
+       claims (including any `[codex-only]` findings from the cross-check) to a temp file and run,
+       in the BACKGROUND, `bash .claude/framework/advisors/watcher.sh verifier TASK-XXX <claims-file>`.
+       Record its CONFIRMED/REFUTED/UNVERIFIABLE verdicts alongside the Claude verifier's. Where
+       they AGREE, confidence is high; where they DISAGREE, surface it — do NOT auto-resolve, and
+       the **Claude verifier's verdict governs the task move** (the codex verifier is client-attested
+       and evidence-bounded — a cross-check, not the gate).
    - Update TASKS.md: move to Ready for Test if approved, back to In Progress if issues found
    - Update STATUS.md with review status
    - If critical issues, create new bug entries in the Bug-Fix Lane of TASKS.md

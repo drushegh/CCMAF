@@ -1,0 +1,84 @@
+# advisors.template.toml — SHIPPED TEMPLATE for the advisor workbench (TASK-131).
+#
+# This file is framework-owned (in framework-manifest.txt) and is OVERWRITTEN on update.
+# On first use, it is copied to the CONSUMER-OWNED live registry at `.claude/advisors.toml`
+# (NOT in the manifest, so your edits survive framework updates — the `.console-version`
+# pattern). Edit the LIVE file, never this template.
+#
+# The registry defines the advisors reachable via /fable and the codex commands
+# (/sol, /terra, /luna). Each advisor = one row: provider + model + a per-advisor
+# default effort. This is the one place you tune "which model, at what effort".
+#
+# Portable vs machine-local (Fable amendment): only PORTABLE, reviewable facts live here
+# (model, effort, version pin). MACHINE-LOCAL facts do NOT — the codex binary path comes
+# from the `CODEX_BIN` env var (A3), never a committed field.
+
+# RESERVED: `panel` is not a valid advisor id (it names the /consult divergence-map report).
+[providers.codex]
+# A4 — pin the verified `codex --version` string; the preflight fails CLOSED on a mismatch.
+# Blank until you run `codex-preflight.sh` once and record the version (the preflight WARNs).
+version_pin = ""
+# A1 — kill policy (minutes) for the backgrounded `codex exec` consult, so a hang is not
+# mistaken for long thinking.
+timeout_min = 20
+
+# ── Advisors ────────────────────────────────────────────────────────────────────────────
+# provider: "claude-agent" (in-process harness subagent) | "codex" (external ChatGPT-sub CLI)
+# model:    the exact model id the provider must run (verification fails loud on a fallback)
+# effort:   PROVIDER-NATIVE vocabulary, passed through verbatim — NOT a unified scale.
+#           claude-agent → Agent effort tier; codex → `-c model_reasoning_effort=<effort>`.
+
+[advisors.fable]
+provider = "claude-agent"
+model    = "claude-fable-5"
+effort   = "high"
+
+[advisors.sol]
+provider = "codex"
+model    = "gpt-5.6-sol"
+effort   = "xhigh"
+
+[advisors.terra]
+provider = "codex"
+model    = "gpt-5.6-terra"
+effort   = "medium"
+
+[advisors.luna]
+provider = "codex"
+model    = "gpt-5.6-luna"
+effort   = "low"
+
+# ── Modes (TASK-132): "watcher mode" — open models AUGMENT review + verify ────────────────
+# `active` selects the mode. "normal" (default) = every role is a Claude subagent, nothing
+# added — the framework exactly as shipped. A `watcher-*` mode ADDS (augments, never replaces)
+# a codex reviewer and/or verifier that CROSS-CHECKS the Claude one: a different-provider
+# second opinion on the same evidence. The Claude reviewer/verifier stays the source of truth
+# that moves tasks (Claude + the hooks remain the enforcement plane); the codex watcher is an
+# extra signal — a codex-only finding becomes a claim to VERIFY, never an auto task-mover.
+#
+# Only `reviewer` and `verifier` slots are honoured — both ADVISORY roles (they judge, they
+# never write files). A codex seat can NEVER be a doer (developer/tester): the resolver has no
+# doer role to route to, so `developer = "<codex>"` is impossible by construction, not by a
+# late check. That is the deliberate first-cut boundary (codex-as-doer is a separate, gated,
+# patch-emission project — see TASK-132).
+#
+# The tiers are cost/rigour dials (low → high spend), not independence dials:
+#   watcher-low    = terra reviews, terra verifies   (cheapest)
+#   watcher-medium = sol reviews,   terra verifies
+#   watcher-high   = sol reviews,   sol verifies      (strongest)
+# Any [modes.<name>] is legal — add your own; `luna` (or any advisor row) may fill either slot.
+# Switch with `/mode <name>` (validates before writing) or edit `active` here.
+[modes]
+active = "normal"
+
+[modes.watcher-low]
+reviewer = "terra"
+verifier = "terra"
+
+[modes.watcher-medium]
+reviewer = "sol"
+verifier = "terra"
+
+[modes.watcher-high]
+reviewer = "sol"
+verifier = "sol"

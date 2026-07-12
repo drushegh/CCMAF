@@ -1,0 +1,50 @@
+Show or switch the framework **mode** — which model family fills the advisory review + verify
+roles ("watcher mode", TASK-132). Modes live in the consumer-owned registry
+`.claude/advisors.toml` under `[modes]`; this command reads/sets the `active` pointer, validating
+fail-closed before it writes. See `.claude/framework/advisors/PROTOCOL.md` "Watcher mode" for the
+model + the four load-bearing rules (augment-never-replace · advisory-roles-only · evidence-
+verifier-fail-closed · client-attested-degrade-loudly).
+
+`$ARGUMENTS` = an optional mode name (`normal`, `watcher-low`, `watcher-medium`, `watcher-high`, or
+any `[modes.<name>]` you have defined). No argument → SHOW.
+
+## No argument — SHOW the current mode
+1. `bash -c '. .claude/framework/advisors/advisors-lib.sh; mode_active'` → the active mode.
+2. `bash -c '. .claude/framework/advisors/advisors-lib.sh; registry_modes'` → the defined modes
+   (plus the always-valid implicit `normal`).
+3. For the active mode, report what it maps. For `normal`: "every role is a Claude subagent —
+   nothing added." For a `watcher-*` mode, read `[modes.<active>].reviewer` / `.verifier` and each
+   named advisor's `model` (via `registry_get`), then say e.g.:
+   > **mode: watcher-medium** — reviewer = `sol` (gpt-5.6-sol) · verifier = `terra` (gpt-5.6-terra),
+   > AUGMENTing the Claude reviewer/verifier (a client-attested cross-check, not the gate).
+4. If a watcher tier is active, remind the user it spends codex plan quota — one caged consult per
+   watched role, per `/review` (and per `/build` review step).
+
+## With a mode name — SWITCH
+1. Normalise the requested name (trim, lowercase).
+2. **VALIDATE fail-closed BEFORE writing:**
+   `bash -c '. .claude/framework/advisors/advisors-lib.sh; mode_validate "<name>"'`.
+   - exit 0 → valid, continue.
+   - exit 1 → unknown mode: STOP, show the `registry_modes` list + `normal`, do not switch.
+   - exit 3 → a slot names an unknown or non-codex advisor (config error): STOP, relay the stderr
+     reason, do not switch. (Fix the `[modes.<name>]` slot or the advisor row first.)
+3. **If switching to a watcher tier** (any codex seat), surface the A5 gate ONCE before you commit
+   the switch: real code diffs get staged to codex on each review, so the ChatGPT training opt-out
+   should be confirmed — check for `.claude/.codex-training-optout-confirmed` (the
+   `codex-preflight.sh` A5 marker). If absent, tell the user and let them decide to proceed anyway
+   or set it first; do not create the marker for them.
+4. On valid: set the mode by editing the SINGLE `active = "..."` line in `.claude/advisors.toml`
+   (the LIVE registry — NEVER the shipped template `advisors.template.toml`). Use Edit; change only
+   that line.
+5. Confirm the new mapping (as in SHOW) and note: it takes effect on the **next `/review`** (and
+   `/build`'s review step) — read fresh each time, no restart. `normal` = the safe default (all-
+   Claude, zero codex spend); a watcher tier is a spend decision.
+
+## Guards
+- Edit ONLY the live `.claude/advisors.toml`; the template is framework-owned and overwritten on
+  update.
+- Watcher modes touch ONLY the reviewer + verifier (advisory roles). A codex seat can never be a
+  doer — the resolver has no doer role to route to (PROTOCOL.md "Watcher mode"). Do not attempt to
+  add a `developer`/`tester` slot to a mode; it is not honoured and is a category error.
+- Never present an unverified watcher opinion as a review verdict — `/review` verifies it fail-
+  closed and the Claude reviewer/verifier remains the gate.

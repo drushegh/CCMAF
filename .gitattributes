@@ -14,6 +14,7 @@
 *.txt   text eol=lf
 *.md     text eol=lf
 *.conf  text eol=lf
+*.toml  text eol=lf
 
 # Extensionless version-pin files the update scripts `source` line-by-line.
 # Without an eol rule these check out CRLF under core.autocrlf=true (Windows

@@ -26,6 +26,7 @@
 # --- Framework-owned directories (dir mirror) ------------------------
 .claude/agents/framework/
 .claude/agents/council/
+.claude/framework/advisors/
 .claude/framework/agent_docs/
 .claude/framework/audit/
 .claude/framework/doctor/
@@ -44,7 +45,12 @@
 .claude/commands/bug.md
 .claude/commands/build.md
 .claude/commands/council.md
+.claude/commands/consult.md
 .claude/commands/fable.md
+.claude/commands/sol.md
+.claude/commands/terra.md
+.claude/commands/luna.md
+.claude/commands/mode.md
 .claude/commands/healthcheck.md
 .claude/commands/housekeeping.md
 .claude/commands/plan.md
