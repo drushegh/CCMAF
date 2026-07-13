@@ -48,7 +48,7 @@ if [ -z "${CLAUDE_POSTEDIT_ROOT+x}" ]; then
 fi
 
 _log_event() {
-  local outcome="$1"
+  local outcome="$1" reason="${2:-}"
   local root
   if [ -n "${CLAUDE_POSTEDIT_ROOT:-}" ]; then
     root="$CLAUDE_POSTEDIT_ROOT"
@@ -59,11 +59,23 @@ _log_event() {
   # absent → no event; telemetry is best-effort, formatting never is.
   command -v telemetry_emit >/dev/null 2>&1 || return 0
   local class="ok"; [ "$outcome" = "skipped" ] && class="skipped"
-  telemetry_emit "$root" "format" "$outcome" "$class"
+  # Optional skip-reason token (OPT r2 Phase 1') — see auto-lint.sh for the vocabulary.
+  local extra=""
+  [ -n "$reason" ] && extra=",\"reason\":\"$reason\""
+  telemetry_emit "$root" "format" "$outcome" "$class" "$extra"
 }
 
 # Skip if no file path
-if [ -z "$file" ]; then _log_event "skipped"; exit 0; fi
+if [ -z "$file" ]; then _log_event "skipped" "tool-ineligible"; exit 0; fi
+
+# Deliberately-non-formattable file types → skip as `ext` (healthy content-based
+# floor, not a missing-tool signal). Classification only — these already skipped
+# by falling through to the catch-all; behaviour is unchanged. This repo edits
+# many .md state files, so tagging them keeps the format skip% honest for the
+# hook-admission-budget check.
+case "$file" in
+  *.md|*.txt|*.lock|*.toml) _log_event "skipped" "ext"; exit 0 ;;
+esac
 
 case "$file" in
   # TypeScript / JavaScript / web assets — prettier (only if this file sits
@@ -125,5 +137,5 @@ case "$file" in
 esac
 
 # No formatter matched the file type / tooling unavailable
-_log_event "skipped"
+_log_event "skipped" "no-tool"
 exit 0

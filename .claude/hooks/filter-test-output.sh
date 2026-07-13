@@ -25,11 +25,16 @@ fi
 # Schema-v2 emit via hook-common.sh (contract:telemetry-schema). Lib
 # absent → no event; telemetry is best-effort, the filter never is.
 _log_event() {
-  local outcome="$1"
+  local outcome="$1" reason="${2:-}"
   local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
   command -v telemetry_emit >/dev/null 2>&1 || return 0
   local class="ok"; [ "$outcome" = "passthrough" ] && class="skipped"
-  telemetry_emit "$root" "test-filter" "$outcome" "$class"
+  # Optional skip-reason token (OPT r2 Phase 1') — see auto-lint.sh for the
+  # vocabulary. test-filter's skip is irreducibly content-based (this Bash
+  # command isn't a test command); a tool-name matcher cannot see it.
+  local extra=""
+  [ -n "$reason" ] && extra=",\"reason\":\"$reason\""
+  telemetry_emit "$root" "test-filter" "$outcome" "$class" "$extra"
 }
 
 # Only rewrite (and auto-`allow`) when the WHOLE command is composed of `cd`
@@ -116,5 +121,5 @@ if [ "$_all_safe" = "1" ] && [ "$_has_test" = "1" ]; then
   _log_event "filtered"
 else
   echo "{}"
-  _log_event "passthrough"
+  _log_event "passthrough" "not-test-cmd"
 fi

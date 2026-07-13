@@ -142,23 +142,27 @@ check_hooks() {
     mapfile -t on_disk < <(
       find "$PROJECT_ROOT/.claude/hooks" -maxdepth 1 -type f \( -name '*.sh' -o -name '*.py' \) -printf '.claude/hooks/%f\n' | sort -u
     )
+    # O(1) membership set for the "directly referenced?" test — replaces a
+    # `printf | grep -qxF` spawn per on-disk hook.
+    local -A _ref_set=()
+    for r in "${referenced_paths[@]}"; do _ref_set["$r"]=1; done
+    # Existing registered-hook files, gathered ONCE — the dispatcher-indirect
+    # check greps ALL of them in a single spawn per candidate rather than
+    # looping (and recomputing basename) per referenced path.
+    local ref_files=()
+    for r in "${referenced_paths[@]}"; do
+      [ -f "$PROJECT_ROOT/$r" ] && ref_files+=("$PROJECT_ROOT/$r")
+    done
     for p in "${on_disk[@]}"; do
-      if ! printf '%s\n' "${referenced_paths[@]}" | grep -qxF "$p"; then
-        # Dispatcher-driven hooks (TASK-035): a hook invoked by a hook
-        # that IS registered (post-edit-dispatch.sh runs auto-format /
-        # auto-lint / verify-deps) is wired, just indirectly. Treat
-        # "basename appears in a registered hook's file" as referenced.
-        indirect=0
-        for r in "${referenced_paths[@]}"; do
-          [ -f "$PROJECT_ROOT/$r" ] || continue
-          if grep -qF "$(basename "$p")" "$PROJECT_ROOT/$r" 2>/dev/null; then
-            indirect=1
-            break
-          fi
-        done
-        [ "$indirect" = 1 ] && continue
-        add_finding "WARNING" "hooks" "\`$p\` exists on disk but isn't referenced in \`.claude/settings.json\` (directly, or via a registered dispatcher hook). Either wire it up or delete the file (dead code)."
+      [ -n "${_ref_set[$p]:-}" ] && continue   # directly referenced
+      # Dispatcher-driven hooks (TASK-035): a hook invoked by a hook that IS
+      # registered (post-edit-dispatch.sh runs auto-format / auto-lint /
+      # verify-deps) is wired, just indirectly. Treat "basename appears in a
+      # registered hook's file" as referenced. One multi-file grep, not a loop.
+      if [ ${#ref_files[@]} -gt 0 ] && grep -qF "${p##*/}" "${ref_files[@]}" 2>/dev/null; then
+        continue
       fi
+      add_finding "WARNING" "hooks" "\`$p\` exists on disk but isn't referenced in \`.claude/settings.json\` (directly, or via a registered dispatcher hook). Either wire it up or delete the file (dead code)."
     done
   fi
 }
@@ -179,9 +183,12 @@ check_cross_refs() {
 
   for f in "${scan_files[@]}"; do
     local f_dir
-    f_dir=$(dirname "$f")
-    # Extract markdown link targets: [...](path)
+    f_dir="${f%/*}"   # dirname (all scan_files are absolute paths) — no spawn
+    # Extract markdown link targets: [...](path). grep emits the whole `](path)`
+    # match; strip the `](` prefix and `)` suffix in-shell instead of piping
+    # each file's matches through a per-file `sed` (16 files ≈ 16 saved spawns).
     while IFS= read -r target; do
+      target="${target#](}"; target="${target%)}"
       # Skip external URLs, mailto, pure anchors, code-block paths.
       case "$target" in
         http://*|https://*|mailto:*|'#'*|'') continue ;;
@@ -215,7 +222,7 @@ check_cross_refs() {
         local rel_f="${f#$PROJECT_ROOT/}"
         add_finding "WARNING" "cross-refs" "\`$rel_f\` links to \`$clean_target\` but the target doesn't exist. Fix: restore the file, update the link, or remove the reference."
       fi
-    done < <(grep -oE '\]\([^)]+\)' "$f" | sed 's/^](\(.*\))$/\1/')
+    done < <(grep -oE '\]\([^)]+\)' "$f")
   done
 }
 
@@ -373,20 +380,28 @@ check_detector_consumers() {
     | sort -u | grep -v '^$' || true)
   [ -z "$recently_changed" ] && return
 
-  local suspect_files=()
+  # Collect existing, non-known-consumer candidates (pure-bash filter — no
+  # per-item basename/grep spawns; the old loop spawned basename + up to two
+  # greps PER changed file, ~29 files ≈ 3.9s on Windows). `${f##*/}` is basename.
+  local candidates=()
   while IFS= read -r f; do
     [ -z "$f" ] && continue
-    [ ! -f "$PROJECT_ROOT/$f" ] && continue
-    # Skip known legitimate consumers
-    case "$(basename "$f")" in
-      "$known_consumers") continue ;;
-    esac
-    # Does the file READ review-findings? Grep for read-like patterns.
-    if grep -qE '(cat|head|tail|jq|grep|awk|sed)[[:space:]][^|]*review-findings' "$PROJECT_ROOT/$f" 2>/dev/null \
-       || grep -qE '<[[:space:]]*[^|<>]*review-findings' "$PROJECT_ROOT/$f" 2>/dev/null; then
-      suspect_files+=("$f")
-    fi
+    [ -f "$PROJECT_ROOT/$f" ] || continue
+    case "${f##*/}" in "$known_consumers") continue ;; esac
+    candidates+=("$PROJECT_ROOT/$f")
   done <<<"$recently_changed"
+
+  # Does the file READ review-findings? One multi-file `grep -l` over ALL
+  # candidates in a SINGLE spawn (both read-like patterns alternated), instead
+  # of two greps per file. `grep -l` prints the (absolute) paths that matched;
+  # strip the root prefix back to the relative form the rest of the check uses.
+  local suspect_files=()
+  if [ ${#candidates[@]} -gt 0 ]; then
+    while IFS= read -r hit; do
+      [ -z "$hit" ] && continue
+      suspect_files+=("${hit#"$PROJECT_ROOT"/}")
+    done < <(grep -lE '(cat|head|tail|jq|grep|awk|sed)[[:space:]][^|]*review-findings|<[[:space:]]*[^|<>]*review-findings' "${candidates[@]}" 2>/dev/null || true)
+  fi
 
   [ ${#suspect_files[@]} -eq 0 ] && return
 

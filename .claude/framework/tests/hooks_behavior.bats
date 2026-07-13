@@ -480,6 +480,63 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+# --- Phase 1' skip-reason tagging (OPT r2, TASK-133) -----------------
+# Each skip carries a reason token so a later hook-admission-budget check can
+# ROUTE on WHY (tool-ineligible = routing defect; no-tool = coverage-gap or
+# disable; ext = healthy content floor) instead of alarming on raw skip%.
+
+@test "auto-lint: markdown skip carries reason=ext" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/auto-lint.sh" '{"tool_input":{"file_path":"README.md"}}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"lint".*"reason":"ext"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "auto-lint: no file path skip carries reason=tool-ineligible" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/auto-lint.sh" '{}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"lint".*"reason":"tool-ineligible"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "auto-lint: unhandled extension skip carries reason=no-tool" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/auto-lint.sh" '{"tool_input":{"file_path":"src/app.xyz"}}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"lint".*"reason":"no-tool"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "auto-lint: a .sh edit runs ShellCheck — coverage gap closed (no longer a no-tool skip)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  command -v shellcheck >/dev/null 2>&1 || skip "shellcheck not available"
+  printf 'x=1\necho "$x"\n' > "$REPO/probe.sh"
+  run hookrun "$HOOKS/auto-lint.sh" '{"tool_input":{"file_path":"probe.sh"}}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"lint","outcome":"ran"' "$REPO/.claude/telemetry/events.jsonl"
+  ! grep -q '"reason":"no-tool"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "auto-format: no file path skip carries reason=tool-ineligible" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/auto-format.sh" '{}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"format".*"reason":"tool-ineligible"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "auto-format: markdown skip carries reason=ext" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/auto-format.sh" '{"tool_input":{"file_path":"README.md"}}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"format".*"reason":"ext"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
+@test "filter-test-output: a non-test command passes through with reason=not-test-cmd" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  run hookrun "$HOOKS/filter-test-output.sh" '{"tool_input":{"command":"ls -la"}}'
+  [ "$status" -eq 0 ]
+  grep -q '"hook":"test-filter".*"reason":"not-test-cmd"' "$REPO/.claude/telemetry/events.jsonl"
+}
+
 # --- post-edit-dispatch.sh (PostToolUse, TASK-035) --------------------
 # The dispatcher reads the event once and runs format/lint/verify-deps
 # with precomputed env (CLAUDE_POSTEDIT_FILE/_ROOT). The three hooks'

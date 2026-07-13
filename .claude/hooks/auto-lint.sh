@@ -46,7 +46,7 @@ if [ -z "${CLAUDE_POSTEDIT_ROOT+x}" ]; then
 fi
 
 _log_event() {
-  local outcome="$1"
+  local outcome="$1" reason="${2:-}"
   local root
   if [ -n "${CLAUDE_POSTEDIT_ROOT:-}" ]; then
     root="$CLAUDE_POSTEDIT_ROOT"
@@ -57,13 +57,19 @@ _log_event() {
   # absent → no event; telemetry is best-effort, linting never is.
   command -v telemetry_emit >/dev/null 2>&1 || return 0
   local class="ok"; [ "$outcome" = "skipped" ] && class="skipped"
-  telemetry_emit "$root" "lint" "$outcome" "$class"
+  # Optional skip-reason token (OPT r2 Phase 1'): passed through telemetry_emit's
+  # extra-json param. Lets a later hook-admission-budget check route on WHY a
+  # skip happened (tool-ineligible = routing defect; no-tool = coverage-gap or
+  # disable; ext = healthy content-based floor) instead of alarming on raw skip%.
+  local extra=""
+  [ -n "$reason" ] && extra=",\"reason\":\"$reason\""
+  telemetry_emit "$root" "lint" "$outcome" "$class" "$extra"
 }
 
 # Skip if no file path or if it's a non-code file
-if [ -z "$file" ]; then _log_event "skipped"; exit 0; fi
+if [ -z "$file" ]; then _log_event "skipped" "tool-ineligible"; exit 0; fi
 case "$file" in
-  *.md|*.txt|*.json|*.yml|*.yaml|*.toml|*.lock|*.css) _log_event "skipped"; exit 0 ;;
+  *.md|*.txt|*.json|*.yml|*.yaml|*.toml|*.lock|*.css) _log_event "skipped" "ext"; exit 0 ;;
 esac
 
 case "$file" in
@@ -118,8 +124,19 @@ case "$file" in
       _log_event "ran"; exit 0
     fi
     ;;
+  # Shell — ShellCheck. This framework (and any shell-heavy consumer) is
+  # exactly the stack this hook must cover: shellcheck is load-bearing in CI,
+  # yet before this arm every .sh/.bash edit fell through to the catch-all skip
+  # (the 100%-skip "coverage gap", not "dead weight" — OPT r2 Phase 1' finding).
+  # Informational, like the other arms (PostToolUse output never blocks an edit).
+  *.sh|*.bash)
+    if command -v shellcheck &>/dev/null; then
+      shellcheck -S warning "$file" 2>/dev/null | head -20
+      _log_event "ran"; exit 0
+    fi
+    ;;
 esac
 
 # No linter matched the file type / tooling unavailable
-_log_event "skipped"
+_log_event "skipped" "no-tool"
 exit 0
