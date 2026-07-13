@@ -24,9 +24,10 @@ CCMAF fixes that by putting the **source of truth on disk**, not in the volatile
 context window. Every session cold-starts from the same state files, every
 feature is one reviewable story, every contract is machine-readable, and a set
 of hooks enforces the discipline so it doesn't rely on goodwill. The agent plays
-defined **roles** (architect, developer, tester, reviewer), hands off through a
-two-lane **board**, and flushes its working memory to disk at every session
-boundary.
+defined **roles** (architect, developer, tester, reviewer, and a supporting cast
+of verifier, researcher, designers, and a cross-module reconciler), hands off
+through a two-lane **board**, and flushes its working memory to disk at every
+session boundary.
 
 It is designed for **Claude Code**, and works with any compatible agent runtime
 that reads a `CLAUDE.md`.
@@ -143,7 +144,8 @@ rather than papering over it.
 
 ### Roles — the writer doesn't grade its own work
 
-The agent operates as four specialists, and the separation is enforced:
+The agent operates as a **team of specialists**, and the separation is enforced —
+the throughline is that **the agent that produces a claim never grades it**:
 
 | Role | Does | Never does |
 | ---- | ---- | ---------- |
@@ -151,12 +153,47 @@ The agent operates as four specialists, and the separation is enforced:
 | **Developer** | Implements features and fixes | Reviews its own code |
 | **Tester** | Validates against contracts, writes tests, emits verify-handback seeds | Writes production code |
 | **Reviewer** | Contract compliance, security, quality | Modifies files |
+| **Verifier** | Adversarially confirms or refutes another agent's claims before they're acted on | Grades a claim it produced |
+| **Researcher** | Gathers cited evidence — external docs/APIs + internal git archaeology | Modifies files |
+| **UI-designer** | Builds user-facing UI from explicit design tokens | Ships unrendered work as "done" |
+| **UX-critic** | Adversarial UX + visual critique — cognitive walkthroughs, scored rubric | Modifies files |
+| **Reconciler** | Audits *across* modules for duplicate / seam / contract / convention drift | Runs in the inner build loop, or fixes files |
+
+The first four are the build-loop roles; the rest step in when the work calls for
+it — and every skill pack a role needs is loaded on handoff, so the agent brings
+senior-level standards to the task, not just the model's priors.
 
 For genuinely hard decisions there's a **[/council](.claude/commands/council.md)** —
 a panel of independent advisors (contrarian, first-principles, executor,
 expansionist, outsider) plus peer review, synthesised into one verdict.
 
 <img src=".github/assets/council.webp" alt="Council" width="100%" />
+
+### External advisors & watcher mode *(optional)*
+
+Some decisions are worth a second brain from *outside* the current agent. The
+framework can escalate to an external model — with the integrity guarantee that
+you always know which model actually answered.
+
+- **Advisory consults.** [`/fable`](.claude/commands/fable.md) asks a Claude
+  **Fable** sub-model; [`/sol`](.claude/commands/sol.md) ·
+  [`/terra`](.claude/commands/terra.md) · [`/luna`](.claude/commands/luna.md) ask
+  OpenAI's **GPT-5.6** through *your own* codex CLI and ChatGPT subscription.
+  Every consult runs on a **fresh spawn** and is **transcript/attestation-verified**
+  — a model's own "which model are you?" is never trusted — and is strictly
+  **advisory**: it critiques and designs, it never touches your code or state.
+  [`/consult`](.claude/commands/consult.md) runs several advisors over one
+  identical brief and compiles an **extractive divergence map** (disagreements
+  first, attributed, each seat verified before a word of it is read).
+- **Watcher mode.** [`/mode`](.claude/commands/mode.md) switches on a
+  `watcher-{low,medium,high}` tier where an open model **augments — never
+  replaces —** the Claude reviewer and verifier: a different-provider cross-check
+  on the same evidence, where the Claude verdict still governs what moves on the
+  board.
+
+These lanes are **opt-in and bring-your-own-model** — they need your own codex
+CLI and ChatGPT subscription (and access to the Fable model). The framework's
+full workflow runs without any of them.
 
 ### Hooks — discipline that doesn't depend on goodwill
 
@@ -211,9 +248,14 @@ Four named moments keep disk close to working memory:
 | [`/test`](.claude/commands/test.md) | Validate against contracts; emit verify-handback seeds |
 | [`/review`](.claude/commands/review.md) | Contract / security / quality review |
 | [`/reconcile`](.claude/commands/reconcile.md) | Horizontal reconciliation — duplicate/seam/contract/convention drift; scoped default, `--advisory` / `--full` |
+| [`/board-heal`](.claude/commands/board-heal.md) | Reconcile the board with demonstrable reality (batch-build drift, orphan verify seeds, suffixed IDs) |
 | [`/bug`](.claude/commands/bug.md) | Log and triage a bug |
 | [`/security`](.claude/commands/security.md) | Security + config-surface audit |
-| [`/council`](.claude/commands/council.md) | Multi-advisor decision panel |
+| [`/council`](.claude/commands/council.md) | Multi-advisor decision panel (internal Claude sub-personas) |
+| [`/fable`](.claude/commands/fable.md) | Advisory design/architecture second opinion from a Claude **Fable** sub-model (fresh-spawn + transcript-verified, advisory-only) |
+| [`/sol`](.claude/commands/sol.md) · [`/terra`](.claude/commands/terra.md) · [`/luna`](.claude/commands/luna.md) | Advisory consults from OpenAI **GPT-5.6**, via *your own* codex CLI + ChatGPT subscription |
+| [`/consult`](.claude/commands/consult.md) | Run several advisors over one identical brief → extractive divergence map |
+| [`/mode`](.claude/commands/mode.md) | Switch **watcher mode** — an open model augments the Claude reviewer/verifier |
 | [`/healthcheck`](.claude/commands/healthcheck.md) | Deep framework + project audit |
 | [`/housekeeping`](.claude/commands/housekeeping.md) | Archive and distil aging state |
 | [`/pre-compact`](.claude/commands/pre-compact.md) · [`/post-compact`](.claude/commands/post-compact.md) | Manual-compaction flush + rehydrate |
