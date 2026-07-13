@@ -83,8 +83,31 @@ case "$WIN" in ''|*[!0-9]*) WIN=200000 ;; esac
 WM="${CLAUDE_CHECKPOINT_WATERMARK_PCT:-75}"; WM="${WM%$'\r'}"
 case "$WM" in ''|*[!0-9]*) WM=75 ;; esac
 
+# --- prefer the REAL context signal persisted by statusline.sh (TASK-134) -----
+# statusline caches context_window.used_percentage (+ a 1M-derived window) to
+# .claude/telemetry/.context-pct; a fresh cache lets this hook use the true %
+# instead of estimating against a guessed window. An explicit
+# CLAUDE_CONTEXT_WINDOW_TOKENS still wins the estimate path.
+PCT_REAL=""
+PCTF=""; [ -n "$ROOT" ] && PCTF="$ROOT/.claude/telemetry/.context-pct"
+if [ -n "$PCTF" ] && [ -f "$PCTF" ]; then
+  P_PCT=$(sed -n 's/^PCT=//p' "$PCTF" 2>/dev/null | tail -1); P_PCT="${P_PCT%$'\r'}"
+  P_WIN=$(sed -n 's/^WIN=//p' "$PCTF" 2>/dev/null | tail -1); P_WIN="${P_WIN%$'\r'}"
+  P_TS=$(sed -n  's/^TS=//p'  "$PCTF" 2>/dev/null | tail -1); P_TS="${P_TS%$'\r'}"
+  case "$P_TS" in ''|*[!0-9]*) P_TS=0 ;; esac
+  NOW_E=$(date +%s 2>/dev/null || echo 0)
+  if [ $((NOW_E - P_TS)) -lt 600 ]; then     # fresh (<10 min) → trust it
+    case "$P_PCT" in ''|-|*[!0-9.]*) : ;; *) PCT_REAL="${P_PCT%%.*}" ;; esac
+    if [ -z "${CLAUDE_CONTEXT_WINDOW_TOKENS:-}" ]; then
+      case "$P_WIN" in ''|-|*[!0-9]*) : ;; *) WIN="$P_WIN" ;; esac
+    fi
+  fi
+fi
+
 PCT=""
-if [ -n "$TPATH" ] && [ -f "$TPATH" ] && [ "$WIN" -gt 0 ] 2>/dev/null; then
+if [ -n "$PCT_REAL" ]; then
+  PCT="$PCT_REAL"
+elif [ -n "$TPATH" ] && [ -f "$TPATH" ] && [ "$WIN" -gt 0 ] 2>/dev/null; then
   # Read only the tail — the last assistant usage is near the end, so this is
   # bounded regardless of transcript size. The leading quote in the pattern
   # anchors "input_tokens" so it does NOT match cache_*_input_tokens. The three

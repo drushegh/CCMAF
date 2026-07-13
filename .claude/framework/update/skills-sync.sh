@@ -151,9 +151,57 @@ suggest_skills() {
   return 0
 }
 
+# --- List the LIVE upstream catalogue (TASK-135) ----------------------
+# Ground truth for "what skills exist", decoupled from the hardcoded suggest
+# map above — so a newly-added upstream skill is DISCOVERABLE without editing
+# this script or knowing its dir name in advance (the reported "it says the
+# skill doesn't exist" symptom: discovery only ever consulted the suggest map
+# or the locally-synced dirs, never the live repo).
+list_catalogue() {
+  local url="" branch="main" d err tmp bundled
+  if [ -f "$VERSION_FILE" ]; then
+    # shellcheck disable=SC1090
+    source <(tr -d '\r' < "$VERSION_FILE") 2>/dev/null || true
+    url="${SKILLS_UPSTREAM_URL:-}"
+    branch="${SKILLS_UPSTREAM_BRANCH:-main}"
+  fi
+  bundled="$PROJECT_ROOT/skills"
+  if [ -z "$url" ] && [ -d "$bundled" ] && compgen -G "$bundled/*/" >/dev/null 2>&1; then
+    echo "skills-sync: catalogue (bundled skills/):" >&2
+    for d in "$bundled"/*/; do [ -d "$d" ] && echo "$(basename "$d")"; done
+    return 0
+  fi
+  [ -z "$url" ] && url="${SKILLS_DEFAULT_UPSTREAM_URL:-https://github.com/drushegh/CCMAF---Skills.git}"
+  echo "skills-sync: live catalogue from $url ($branch):" >&2
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+  # Partial (blob:none) shallow clone: fetches the tree, not the file contents —
+  # enough to list skill dir names cheaply. Falls back to a plain shallow clone
+  # if the remote/host doesn't support partial clone.
+  if ! err="$(git clone --quiet --depth 1 --filter=blob:none --branch "$branch" "$url" "$tmp" 2>&1 >/dev/null)"; then
+    if ! err="$(git clone --quiet --depth 1 --branch "$branch" "$url" "$tmp" 2>&1 >/dev/null)"; then
+      echo "skills-sync: could not reach $url (network/auth/branch?). Nothing listed." >&2
+      case "$err" in
+        *"Permission denied (publickey)"*)
+          echo "skills-sync: SSH auth denied — on a multi-account machine set SKILLS_UPSTREAM_URL" >&2
+          echo "            to your SSH host alias (e.g. git@github.com-personal:you/skills.git)." >&2
+          ;;
+      esac
+      return 3
+    fi
+  fi
+  # Top-level directories are skills; drop dotdirs (.git/.github). Names print to
+  # stdout (pipeable); status/notes go to stderr.
+  git -C "$tmp" ls-tree -d --name-only HEAD 2>/dev/null | grep -v '^\.' | sort
+}
+
 if [ "${1:-}" = "--suggest" ]; then
   suggest_skills
   exit 0
+fi
+if [ "${1:-}" = "--list" ] || [ "${1:-}" = "--catalogue" ]; then
+  list_catalogue
+  exit $?
 fi
 
 # --- Setup / config ----------------------------------------------------
@@ -166,7 +214,7 @@ To opt in, create .claude/.skills-version listing the skills you want:
   SKILLS_SELECTED="python-development rust-development"
 
 then re-run: bash .claude/framework/update/skills-sync.sh
-(Tip: `--suggest` lists skills matching this project's detected stack.)
+(Tip: `--list` prints the full live catalogue; `--suggest` lists skills matching this project's detected stack.)
 (By default skills come from the official public catalogue over HTTPS — no auth
 needed. To track your own skills repo instead, add SKILLS_UPSTREAM_URL=<url> +
 SKILLS_UPSTREAM_BRANCH. Multi-account machine? use your SSH host alias in the

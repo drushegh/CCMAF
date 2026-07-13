@@ -52,6 +52,11 @@
 #      >1 lifecycle column, and a Ready-for-Review pile-up (NAG). DETECT-only:
 #      never mutates TASKS.md or the seeds. (Check 13 gained a companion flag
 #      for NON-CANONICAL suffixed sub-IDs, which older board tools drop/mis-parse.)
+#  16. State-file size budgets (OPT P3): each live state file vs a ceiling in
+#      framework/doctor/state-budgets.conf (or .claude/state-budgets.local.conf).
+#      >=80% -> WARNING, >=100% -> CRITICAL; finding names rotate-state.sh. This
+#      is the missing half of the enforcement asymmetry (Stop defends freshness;
+#      nothing defended bounds). Never blocks — enforce at boot, remediate at will.
 #
 # Exit codes:
 #   0 — all checks pass OR findings written to flag file (cold start continues)
@@ -886,6 +891,34 @@ check_board_coherence() {
   fi
 }
 
+# --- Check 16: State-file size budgets (OPT P3, TASK-139) ------------
+# The missing half of the enforcement asymmetry: the Stop hook defends state
+# FRESHNESS, but nothing defended state SIZE — so files grew unbounded until
+# TASKS.md became "too large to include". This warns before that, never blocks.
+check_state_budgets() {
+  local conf="$PROJECT_ROOT/.claude/framework/doctor/state-budgets.conf"
+  local override="$PROJECT_ROOT/.claude/state-budgets.local.conf"
+  [ -f "$override" ] && conf="$override"
+  [ -f "$conf" ] || return 0
+  local line rel budget path sz pct
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "$line" in ''|'#'*) continue ;; esac
+    rel="${line%%=*}"; budget="${line##*=}"
+    case "$budget" in ''|*[!0-9]*) continue ;; esac
+    [ "$budget" -gt 0 ] || continue
+    path="$PROJECT_ROOT/$rel"
+    [ -f "$path" ] || continue
+    sz=$(wc -c < "$path" 2>/dev/null | tr -d ' '); case "$sz" in ''|*[!0-9]*) continue ;; esac
+    pct=$(( sz * 100 / budget ))
+    if [ "$pct" -ge 100 ]; then
+      add_finding "CRITICAL" "state-budget" "\`$rel\` is ${sz}B, OVER its ${budget}B budget (${pct}%) — boot reads and board loading are at risk. Fix: run /housekeeping (\`bash .claude/framework/housekeeping/rotate-state.sh\`) to archive old entries."
+    elif [ "$pct" -ge 80 ]; then
+      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, ${pct}% of its ${budget}B budget — approaching the ceiling. Fix: run /housekeeping soon (\`bash .claude/framework/housekeeping/rotate-state.sh\`)."
+    fi
+  done < "$conf"
+}
+
 # --- Run all checks --------------------------------------------------
 check_hooks
 check_cross_refs
@@ -900,6 +933,7 @@ check_state_file_leak
 check_state_structure
 check_reconcile_due
 check_board_coherence
+check_state_budgets
 
 # --- Write flag file if any findings ---------------------------------
 if [ ${#findings[@]} -eq 0 ]; then

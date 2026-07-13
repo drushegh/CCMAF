@@ -815,3 +815,60 @@ EOF
   [ "$status" -eq 0 ]
   jq -se 'length >= 1' "$REPO/.claude/telemetry/events.jsonl"
 }
+
+# --- checkpoint-watermark: real-% via the statusline cache (TASK-134) -----
+# statusline.sh persists the true .context_window.used_percentage to
+# .claude/telemetry/.context-pct; checkpoint-watermark prefers that over its
+# token estimate, so a nudge fires at the real % regardless of window size.
+@test "checkpoint-watermark: fresh real % over watermark → nudge names the %" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  printf 'PCT=88\nWIN=-\nTS=%s\n' "$(date +%s)" > "$REPO/.claude/telemetry/.context-pct"
+  run hookrun "$HOOKS/checkpoint-watermark.sh" '{"hook_event_name":"UserPromptSubmit","session_id":"ckpt-134-a","transcript_path":""}'
+  [ "$status" -eq 0 ]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext | test("88%")'
+}
+
+@test "checkpoint-watermark: fresh real % under watermark → quiet {}" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  printf 'PCT=50\nWIN=-\nTS=%s\n' "$(date +%s)" > "$REPO/.claude/telemetry/.context-pct"
+  run hookrun "$HOOKS/checkpoint-watermark.sh" '{"hook_event_name":"UserPromptSubmit","session_id":"ckpt-134-b","transcript_path":""}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+@test "checkpoint-watermark: stale .context-pct is ignored (no transcript → quiet)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  printf 'PCT=95\nWIN=-\nTS=%s\n' "$(( $(date +%s) - 1200 ))" > "$REPO/.claude/telemetry/.context-pct"
+  run hookrun "$HOOKS/checkpoint-watermark.sh" '{"hook_event_name":"UserPromptSubmit","session_id":"ckpt-134-c","transcript_path":""}'
+  [ "$status" -eq 0 ]
+  [ "$output" = "{}" ]
+}
+
+# --- drift-guard: staleness-gated check-in (P6, TASK-140) -----------------
+# The periodic "Framework check-in" must fire on measured board STALENESS
+# (N turns since a state-file write), not a fixed per-turn cadence — so it is
+# SILENT during active board work and only nags when the board goes untouched.
+@test "drift-guard: check-in silent while the board is fresh, fires once it is stale" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  # In Progress task present → Indicator 3 (no-task-claimed) stays quiet.
+  printf '# Task Board\n## Feature Lane\n### In Progress\n#### [TASK-1] active\nx\n' > "$REPO/.claude/TASKS.md"
+  fired=0
+  for t in 1 2 3 4 5 6 7 8; do
+    out=$(hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}')
+    echo "$out" | grep -q "Framework check-in" && fired=1
+  done
+  [ "$fired" -eq 0 ]                       # 8 fresh turns → never fired
+  out=$(hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}')
+  echo "$out" | grep -q "Framework check-in"   # turn 9 → stale → fires
+}
+
+@test "drift-guard: a board write resets staleness (check-in suppressed)" {
+  command -v jq >/dev/null 2>&1 || skip "jq not available"
+  printf '# Task Board\n## Feature Lane\n### In Progress\n#### [TASK-1] active\nx\n' > "$REPO/.claude/TASKS.md"
+  for t in 1 2 3 4 5 6 7 8; do
+    hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}' >/dev/null
+  done
+  touch -d "@$(( $(date +%s) + 120 ))" "$REPO/.claude/TASKS.md"   # a board write
+  out=$(hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}')
+  ! echo "$out" | grep -q "Framework check-in"
+}

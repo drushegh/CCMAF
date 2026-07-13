@@ -15,6 +15,25 @@ load update_helpers
   grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"
 }
 
+@test "skills-sync --list: prints the live upstream catalogue, not just selected (TASK-135)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  run skills_sync --list
+  [ "$status" -eq 0 ]
+  # Both upstream skills appear — including rust, which is NOT in SKILLS_SELECTED:
+  # --list is ground truth, decoupled from selection and from the suggest map.
+  [[ "$output" == *"python"* ]]
+  [[ "$output" == *"rust"* ]]
+}
+
+@test "skills-sync --catalogue: alias of --list (TASK-135)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  run skills_sync --catalogue
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"rust"* ]]
+}
+
 @test "skills-sync: unselected upstream skill is NOT copied" {
   build_skills_upstream
   build_skills_consumer "python"

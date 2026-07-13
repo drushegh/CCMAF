@@ -188,8 +188,9 @@ This re-syncs the skills named in \`SKILLS_SELECTED\` (in
 selected are untouched; local skill dirs are never touched.
 
 To add a skill that's new upstream, add its dir name to \`SKILLS_SELECTED\`
-first (\`skills-sync.sh --suggest\` lists names matching this project's stack),
-then run the sync.
+first — \`skills-sync.sh --list\` prints the FULL live catalogue (ground truth;
+\`--suggest\` only lists names matching this project's detected stack) — then run
+the sync.
 
 ## To skip
 

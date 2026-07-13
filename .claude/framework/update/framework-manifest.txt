@@ -29,9 +29,12 @@
 .claude/framework/advisors/
 .claude/framework/agent_docs/
 .claude/framework/audit/
+.claude/framework/boot/
 .claude/framework/doctor/
 .claude/framework/fable/
+.claude/framework/housekeeping/
 .claude/framework/insights/
+.claude/framework/telemetry/
 .claude/framework/tests/
 .claude/framework/update/
 

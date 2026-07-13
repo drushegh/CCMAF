@@ -80,6 +80,9 @@ LAST_REMINDER=$(jq -r '.last_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "
 LAST_SUGGESTIONS_REMINDER=$(jq -r '.last_suggestions_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_COMPACT_REMINDER=$(jq -r '.last_compact_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_SESSION_ID=$(jq -r '.session_id // empty' "$DRIFT_STATE" 2>/dev/null || true)
+# P6 (TASK-140): board-write tracking for staleness-gated (not cadence) reminders.
+LAST_STATE_ACTIVITY=$(jq -r '.last_state_activity // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
+PREV_STATE_MTIME=$(jq -r '.state_mtime // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 
 # Per-session counter reset. Without this, .drift-state accumulated for the
 # project's LIFETIME: "every 8 prompts" nudges measured across sessions and
@@ -91,8 +94,39 @@ if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "$LAST_SESSION_ID" ]; then
   LAST_REMINDER=0
   LAST_SUGGESTIONS_REMINDER=0
   LAST_COMPACT_REMINDER=0
+  LAST_STATE_ACTIVITY=0
+  PREV_STATE_MTIME=0
 fi
 PROMPT_COUNT=$((PROMPT_COUNT + 1))
+
+# --- Board-write detection (P6, TASK-140) ----------------------------
+# last_state_activity = the prompt at which a state file was last WRITTEN.
+# Detected by an mtime advance on any state file (catches committed AND
+# uncommitted writes, unlike git-diff). The periodic check-in (Indicator 2)
+# and the suggestions nudge (Indicator 4) then fire on measured STALENESS
+# (N turns since a board write) instead of a fixed per-turn cadence — so
+# during active board work they stay SILENT (no wallpaper), and only nag
+# when the board has genuinely gone untouched. Tunable:
+# CLAUDE_DRIFT_BOARD_STALE_TURNS (default 8).
+_newest_state_mtime() {
+  local f m best=0
+  for f in TASKS.md STATUS.md DECISIONS.md claude-progress.txt GOTCHAS.md ECOSYSTEM.md; do
+    [ -f "$STATE_ROOT/$f" ] || continue
+    m=$(stat -c %Y "$STATE_ROOT/$f" 2>/dev/null || stat -f %m "$STATE_ROOT/$f" 2>/dev/null || echo 0)
+    case "$m" in ''|*[!0-9]*) m=0 ;; esac
+    [ "$m" -gt "$best" ] && best=$m
+  done
+  printf '%s' "$best"
+}
+case "$PREV_STATE_MTIME" in ''|*[!0-9]*) PREV_STATE_MTIME=0 ;; esac
+case "$LAST_STATE_ACTIVITY" in ''|*[!0-9]*) LAST_STATE_ACTIVITY=0 ;; esac
+CUR_STATE_MTIME=$(_newest_state_mtime)
+if [ "$CUR_STATE_MTIME" -gt "$PREV_STATE_MTIME" ]; then
+  LAST_STATE_ACTIVITY=$PROMPT_COUNT     # a state file was written since last turn
+fi
+BOARD_STALE_TURNS_CFG="${CLAUDE_DRIFT_BOARD_STALE_TURNS:-8}"; BOARD_STALE_TURNS_CFG="${BOARD_STALE_TURNS_CFG%$'\r'}"
+case "$BOARD_STALE_TURNS_CFG" in ''|*[!0-9]*) BOARD_STALE_TURNS_CFG=8 ;; esac
+BOARD_STALE=$((PROMPT_COUNT - LAST_STATE_ACTIVITY))
 
 # Check for drift indicators
 REMINDERS=""
@@ -118,9 +152,12 @@ if [ "$PROJECT_CHANGES" -gt 3 ] && [ "$STATE_CHANGES" -eq 0 ]; then
   _set_primary "stale-state"
 fi
 
-# Indicator 2: Many prompts since last reminder (every 8 prompts)
+# Indicator 2: the board has gone STALE — N turns since any state file was
+# written (P6: measured drift, not a fixed cadence). SINCE_REMINDER throttles
+# re-firing so it nags at most every N turns while stale, and stays SILENT
+# entirely during active board work (BOARD_STALE < N).
 SINCE_REMINDER=$((PROMPT_COUNT - LAST_REMINDER))
-if [ "$SINCE_REMINDER" -ge 8 ]; then
+if [ "$BOARD_STALE" -ge "$BOARD_STALE_TURNS_CFG" ] && [ "$SINCE_REMINDER" -ge "$BOARD_STALE_TURNS_CFG" ]; then
   REMINDERS="${REMINDERS}📋 Framework check-in: Are you following the framework? Update TASKS.md when task status changes. Review contracts before changing interfaces. Record significant decisions per your project's decision-logging convention.\n"
   DRIFT_DETECTED=true
   _set_primary "periodic-checkin"
@@ -146,10 +183,12 @@ if [ -f "$STATE_ROOT/TASKS.md" ]; then
   fi
 fi
 
-# Indicator 4: Periodic reminder about framework suggestions and GOTCHAS review
-# Fires every 15 prompts (less frequent than the general check-in).
+# Indicator 4: framework-suggestions / GOTCHAS-review nudge. Standing guidance
+# already lives in CLAUDE.framework.md (Framework Feedback), so this fires only
+# during a board LULL (P6: staleness-gated at ~2x the check-in threshold), never
+# as per-turn wallpaper during active work.
 SINCE_SUGGESTIONS=$((PROMPT_COUNT - LAST_SUGGESTIONS_REMINDER))
-if [ "$SINCE_SUGGESTIONS" -ge 15 ]; then
+if [ "$BOARD_STALE" -ge "$((BOARD_STALE_TURNS_CFG * 2))" ] && [ "$SINCE_SUGGESTIONS" -ge "$((BOARD_STALE_TURNS_CFG * 2))" ]; then
   REMINDERS="${REMINDERS}💡 Framework improvement check: If you encountered and fixed an issue this session that the framework itself could have prevented (missing guardrails, unclear instructions, structural gaps), log it in FRAMEWORK-SUGGESTIONS.md. Also review GOTCHAS.md — if any entry describes a broadly useful pattern (not project-specific) that would help future projects, promote it to a framework suggestion.\n"
   DRIFT_DETECTED=true
   SUGGESTIONS_REMINDED=true
@@ -221,8 +260,10 @@ jq -n --argjson count "$PROMPT_COUNT" \
       --argjson reminder "$NEW_LAST_REMINDER" \
       --argjson suggestions "$NEW_LAST_SUGGESTIONS" \
       --argjson compact "$NEW_LAST_COMPACT" \
+      --argjson activity "${LAST_STATE_ACTIVITY:-0}" \
+      --argjson smtime "${CUR_STATE_MTIME:-0}" \
       --arg session "${SESSION_ID:-$LAST_SESSION_ID}" \
-  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, session_id: $session}' > "$_dtmp" \
+  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, last_state_activity: $activity, state_mtime: $smtime, session_id: $session}' > "$_dtmp" \
   && mv -f "$_dtmp" "$DRIFT_STATE" 2>/dev/null || rm -f "$_dtmp" 2>/dev/null
 # tmp+mv (DA-H6): a direct truncate-write left partial JSON behind on an
 # interrupted write or concurrent UserPromptSubmit fire — the next read
