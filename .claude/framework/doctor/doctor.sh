@@ -90,6 +90,20 @@ rm -f "$FLAG_FILE"
 findings=()
 add_finding() { findings+=("$1|$2|$3"); }
 
+# --- Per-check profiling (OPT round-2 P0): `doctor.sh --profile` times each
+# check to stderr and exits 0. Measurement-first, per both advisors — pin down
+# which checks own the cold-start wall time before repairing (round-2 P2).
+DOCTOR_PROFILE=0; [ "${1:-}" = "--profile" ] && DOCTOR_PROFILE=1
+_dnow_ms() { date +%s%3N 2>/dev/null | grep -qE '^[0-9]+$' && date +%s%3N || echo 0; }
+_run() {
+  if [ "$DOCTOR_PROFILE" = 1 ]; then
+    local s e; s=$(_dnow_ms); "$1"; e=$(_dnow_ms)
+    printf 'PROFILE %-26s %6s ms\n' "$1" "$((e - s))" >&2
+  else
+    "$1"
+  fi
+}
+
 # --- Check 1: Hook ↔ settings.json consistency -----------------------
 check_hooks() {
   if [ ! -f "$SETTINGS_FILE" ]; then
@@ -840,14 +854,17 @@ check_board_coherence() {
   declare -A _bc_cols _bc_fulls
   while IFS=$'\t' read -r lane status id; do
     [ -n "$id" ] || continue
-    base=$(printf '%s' "$id" | sed -E 's/[a-z]+$//')
+    base="$id"; while [[ "$base" == *[a-z] ]]; do base="${base%?}"; done   # strip suffix (pure bash — was sed/row, OPT r2-P2)
     case "|${_bc_cols[$base]:-}|"  in *"|$status|"*) : ;; *) _bc_cols[$base]="${_bc_cols[$base]:+${_bc_cols[$base]}|}$status" ;; esac
     case "|${_bc_fulls[$base]:-}|" in *"|$id|"*)     : ;; *) _bc_fulls[$base]="${_bc_fulls[$base]:+${_bc_fulls[$base]}|}$id" ;; esac
   done <<< "$rows"
-  local b ncols nfull
+  local b ncols nfull _s
   for b in "${!_bc_cols[@]}"; do
-    ncols=$(printf '%s' "${_bc_cols[$b]}"  | awk -F'|' '{print NF}')
-    nfull=$(printf '%s' "${_bc_fulls[$b]}" | awk -F'|' '{print NF}')
+    # Count |-separated fields in pure bash (was 2 awk spawns/base ID — the
+    # dominant ~26s pathology on a large board, OPT r2-P2): strip non-pipes,
+    # field count = pipe count + 1.
+    _s="${_bc_cols[$b]//[^|]/}";  ncols=$(( ${#_s} + 1 ))
+    _s="${_bc_fulls[$b]//[^|]/}"; nfull=$(( ${#_s} + 1 ))
     if [ "${ncols:-0}" -gt 1 ] && [ "${nfull:-0}" -gt 1 ]; then
       add_finding "WARNING" "board-coherence" "TASKS.md: base task ID \`$b\` spans multiple lifecycle columns — entries [$(printf '%s' "${_bc_fulls[$b]}" | tr '|' ' ')] across [$(printf '%s' "${_bc_cols[$b]}" | tr '|' '/')]. A task can't be in two columns, and a suffixed sub-ID (\`${b}a\`) collides with its numeric parent in board tools. Fix: \`/board-heal\` renumbers suffixed IDs to distinct numeric IDs."
     fi
@@ -865,10 +882,10 @@ check_board_coherence() {
     while IFS=$'\t' read -r lane status id; do
       [ -n "$id" ] || continue
       [ "$lane" = "feature" ] || continue
-      slc=$(printf '%s' "$status" | tr '[:upper:]' '[:lower:]')
+      slc="${status,,}"                                # bash lowercase (was tr/row)
       case "$slc" in verify) ;; *) continue ;; esac
       # Only a numeric-canonical id can have a seed file (contract:verify-handback).
-      printf '%s' "$id" | grep -qE '^(TASK|BUG)-[0-9]+$' || continue
+      [[ "$id" =~ ^(TASK|BUG)-[0-9]+$ ]] || continue   # bash regex (was grep/row)
       [ -f "$verify_dir/$id.json" ] || missing_seeds="${missing_seeds:+$missing_seeds, }$id"
     done <<< "$rows"
     if [ -n "$missing_seeds" ]; then
@@ -879,10 +896,11 @@ check_board_coherence() {
     if [ -d "$verify_dir" ]; then
       local board_ids orphans="" f sid
       board_ids=$(printf '%s\n' "$rows" | awk -F'\t' '$3!=""{print $3}')
+      local _bids=$'\n'"$board_ids"$'\n'
       for f in "$verify_dir"/*.json; do
         [ -f "$f" ] || continue
-        sid=$(basename "$f" .json)
-        printf '%s\n' "$board_ids" | grep -qxF "$sid" || orphans="${orphans:+$orphans, }$sid"
+        sid="${f##*/}"; sid="${sid%.json}"                       # pure-bash basename (was basename/seed)
+        case "$_bids" in *$'\n'"$sid"$'\n'*) : ;; *) orphans="${orphans:+$orphans, }$sid" ;; esac  # membership (was grep/seed)
       done
       if [ -n "$orphans" ]; then
         add_finding "WARNING" "board-coherence" "Verify seeds exist in .claude/console/verify/ with no matching board entry in TASKS.md (a renamed/renumbered/deleted task leaves a stale story in the Verify tab): $orphans. Fix: run \`/board-heal\` to reconcile, or remove the stale seed."
@@ -920,20 +938,26 @@ check_state_budgets() {
 }
 
 # --- Run all checks --------------------------------------------------
-check_hooks
-check_cross_refs
-check_claude_include
-check_manifest_paths
-check_framework_version
-check_task_duplicates
-check_detector_consumers
-check_statusline
-check_gnu_toolchain
-check_state_file_leak
-check_state_structure
-check_reconcile_due
-check_board_coherence
-check_state_budgets
+_DOCTOR_START=$(_dnow_ms)
+_run check_hooks
+_run check_cross_refs
+_run check_claude_include
+_run check_manifest_paths
+_run check_framework_version
+_run check_task_duplicates
+_run check_detector_consumers
+_run check_statusline
+_run check_gnu_toolchain
+_run check_state_file_leak
+_run check_state_structure
+_run check_reconcile_due
+_run check_board_coherence
+_run check_state_budgets
+
+if [ "$DOCTOR_PROFILE" = 1 ]; then
+  printf 'PROFILE %-26s %6s ms (total)\n' "ALL-CHECKS" "$(( $(_dnow_ms) - _DOCTOR_START ))" >&2
+  exit 0
+fi
 
 # --- Write flag file if any findings ---------------------------------
 if [ ${#findings[@]} -eq 0 ]; then
