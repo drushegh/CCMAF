@@ -53,6 +53,7 @@
 .claude/commands/sol.md
 .claude/commands/terra.md
 .claude/commands/luna.md
+.claude/commands/image.md
 .claude/commands/mode.md
 .claude/commands/healthcheck.md
 .claude/commands/housekeeping.md

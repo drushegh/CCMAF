@@ -17,6 +17,23 @@ advisor: `provider` · `model` · `effort` (provider-native vocabulary — no un
 | `claude-agent` (fable) | in-process `Agent(model, effort)` | `verify-turn.sh` — transcript `.message.model` | **server**-attested |
 | `codex` (sol/terra/luna) | external `codex exec` (ChatGPT sub, not API) | `verify-sol.sh` — session-log model + version pin | **client**-attested |
 
+## Two codex surfaces — keep them separate
+
+The codex provider has **two** distinct runners; they must never be conflated (one is read-only
+and pure, the other writes to the workspace):
+
+| surface | runner | command | sandbox | CODEX_HOME | output |
+| --- | --- | --- | --- | --- | --- |
+| **advisory text** | `codex-run.sh` | `/sol` `/terra` `/luna` `/consult` | `read-only` | **ephemeral** (scrubbed; token copy) | promoted `last.txt` (text) |
+| **image gen** | `codex-image-run.sh` | `/image` | `workspace-write` (scoped to `<outdir>`) | **real** `~/.codex` (the `imagegen` skill lives there) | the saved image path |
+
+Both run on the ChatGPT **subscription** (zero metered spend) and pin the model per-invocation
+from the same registry rows. But image gen needs the REAL codex home (skill discovery), write
+access (to save the asset), and a long backgrounded run with a **tree-scoped** straggler reap
+(gen takes ~1.5–3 min); the advisory path stays read-only, text-only, empty-world. Do NOT try to
+image-gen through `codex-run.sh`, and do NOT relax `codex-run.sh` toward workspace-write. `/image`
+defaults to **terra**; `fable` cannot image-gen (no `image_gen` tool — Claude text advisor only).
+
 ## The seven pillars (shared)
 
 1. **Workbench** — `_advisors/<topic>/conversation.md` (staged brief) + `turns/NNN-<advisor>.md`
