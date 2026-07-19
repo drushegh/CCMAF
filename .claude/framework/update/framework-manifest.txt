@@ -49,6 +49,7 @@
 .claude/commands/build.md
 .claude/commands/council.md
 .claude/commands/consult.md
+.claude/commands/crossbench.md
 .claude/commands/fable.md
 .claude/commands/sol.md
 .claude/commands/terra.md

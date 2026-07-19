@@ -24,7 +24,7 @@ and pure, the other writes to the workspace):
 
 | surface | runner | command | sandbox | CODEX_HOME | output |
 | --- | --- | --- | --- | --- | --- |
-| **advisory text** | `codex-run.sh` | `/sol` `/terra` `/luna` `/consult` | `read-only` | **ephemeral** (scrubbed; token copy) | promoted `last.txt` (text) |
+| **advisory text** | `codex-run.sh` | `/sol` `/terra` `/luna` `/consult` `/crossbench` | `read-only` | **ephemeral** (scrubbed; token copy) | promoted `last.txt` (text) |
 | **image gen** | `codex-image-run.sh` | `/image` | `workspace-write` (scoped to `<outdir>`) | **real** `~/.codex` (the `imagegen` skill lives there) | the saved image path |
 
 Both run on the ChatGPT **subscription** (zero metered spend) and pin the model per-invocation
@@ -132,6 +132,26 @@ but is often not neutral about the design under review — so it argues under it
 <attestation footnote, verbatim>
 Raw turns: turns/NNN-sol.md · turns/NNN-fable.md · …
 ```
+
+## Cross-review consultation — the `/crossbench` three-stage panel
+
+`/crossbench [<advisors>] <task>` extends `/consult` from one round into three: **Diverge** (Stage 1
+IS a `/consult` run — independent, verified answers), **Cross** (each advisor cross-reviews the
+others' answers — a fresh reviewer seat per pairing, staged with the subject's answer embedded so a
+codex reviewer's empty world still sees it), and **Converge** (a fresh `fable` synthesizer folds
+every turn into ONE buildable document). Default roster `fable,sol` — a Claude seat + a codex seat,
+so the cross-review is a true cross-MODEL check, not one model wearing two hats. Same non-negotiables
+as the panel: **verify-before-read at EVERY stage**, fresh spawn/run per seat, quarantine the
+unverified unread. It reuses the existing drivers — Stage 1 is `/consult`, the fable seats are
+`/fable` Steps 3-4 — so nothing is restated and the drivers never drift. Cost scales
+multiplicatively: a 2-seat crossbench is 5 seats (2 + 2 + 1).
+
+**Why `/crossbench` may SYNTHESIZE when the `/consult` panel must not.** The panel bans free-form
+synthesis because it launders the independent signal *before it has been tested*. `/crossbench` earns
+the synthesis: Converge runs only AFTER Cross has each model adversarially stress-test the other's
+positions, so the synthesizer consolidates claims that already survived cross-examination — not raw
+divergence. Rule of thumb: `/consult` when you want a divergence map to decide from yourself;
+`/crossbench` when you want a single consolidated design to ACT on.
 
 ## Watcher mode — open models AUGMENT review + verify (TASK-132)
 
