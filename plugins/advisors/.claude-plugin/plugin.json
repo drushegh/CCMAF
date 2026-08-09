@@ -1,0 +1,6 @@
+{
+  "name": "advisors",
+  "description": "Multi-model advisory workbench: /advisors:fable /advisors:sol /advisors:terra /advisors:luna /advisors:consult /advisors:crossbench /advisors:mode - staged consultations with fail-closed model attestation. Claude-only works out of the box; codex CLI adds the OpenAI seats.",
+  "version": "0.1.0",
+  "author": { "name": "drushegh" }
+}

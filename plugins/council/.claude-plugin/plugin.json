@@ -1,0 +1,6 @@
+{
+  "name": "council",
+  "description": "Council of Agents: five adversarial advisor perspectives + anonymised peer review + a chairman verdict with transcript and HTML report. Pure Claude, no external dependencies.",
+  "version": "0.1.0",
+  "author": { "name": "drushegh" }
+}

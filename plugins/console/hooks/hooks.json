@@ -1,0 +1,34 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-autostart.sh\"; }'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
+          }
+        ]
+      }
+    ]
+  }
+}

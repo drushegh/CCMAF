@@ -1,0 +1,21 @@
+# Publish-only Manifest
+#
+# Same grammar as framework-manifest.txt (dir entries end with /, file
+# entries don't), but a DIFFERENT audience: paths listed here are
+# repo-level artifacts of the public CCMAF repo itself — served FROM the
+# repo (plugin marketplace), never scaffolded INTO consumer projects.
+#
+#   - tools/publish.sh reads BOTH manifests (dev repo -> public clone).
+#   - apply-update.sh reads ONLY framework-manifest.txt (public ->
+#     consumer project), so nothing listed here can reach a consumer
+#     project's working tree.
+#
+# First instance of the tier-aware manifest split (TASK-151 may
+# generalise this into explicit tier classes).
+
+# The Tier 0 kernel plugin (and future ccmaf-* plugins), served via the repo's plugin marketplace.
+plugins/
+
+# The marketplace file that makes the public repo installable via
+# `claude plugin marketplace add drushegh/CCMAF`.
+.claude-plugin/marketplace.json

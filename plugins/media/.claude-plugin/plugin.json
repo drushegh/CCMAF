@@ -1,0 +1,6 @@
+{
+  "name": "media",
+  "description": "Media generation via the codex CLI ChatGPT-sub built-ins (zero metered spend): /media:image renders images through gpt-image. Roadmap: /diagram + /media router from the media-studio design.",
+  "version": "0.1.0",
+  "author": { "name": "drushegh" }
+}

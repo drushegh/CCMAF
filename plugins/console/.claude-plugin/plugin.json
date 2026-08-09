@@ -1,0 +1,6 @@
+{
+  "name": "console",
+  "description": "Claude-side bridge to the ccmaf-console web dashboard (npm: ccmaf-console): session autostart + heartbeat hooks and the launcher driver. Active only in projects opted in via .claude/.console-version.",
+  "version": "0.1.0",
+  "author": { "name": "drushegh" }
+}

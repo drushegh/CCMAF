@@ -1,0 +1,38 @@
+{
+  "name": "ccmaf",
+  "owner": {
+    "name": "drushegh"
+  },
+  "plugins": [
+    {
+      "name": "ccmaf-kernel",
+      "source": "./plugins/ccmaf-kernel",
+      "description": "CCMAF Tier 0 kernel: dangerous-command guard, tool-call budget, done-criterion + receipt discipline. Zero per-project files."
+    },
+    {
+      "name": "advisors",
+      "source": "./plugins/advisors",
+      "description": "Multi-model advisory workbench: /advisors:fable /sol /terra /luna /consult /crossbench /mode — staged consultations with fail-closed model attestation."
+    },
+    {
+      "name": "council",
+      "source": "./plugins/council",
+      "description": "Council of Agents: five adversarial advisor perspectives + anonymised peer review + a chairman verdict with transcript and HTML report."
+    },
+    {
+      "name": "media",
+      "source": "./plugins/media",
+      "description": "Media generation via the codex CLI ChatGPT-sub built-ins (zero metered spend): /media:image renders images through gpt-image."
+    },
+    {
+      "name": "devhooks",
+      "source": "./plugins/devhooks",
+      "description": "Stack-aware dev QoL hooks for any repo: format-on-edit, lint-on-edit, dependency verification, noisy-test-output filtering."
+    },
+    {
+      "name": "console",
+      "source": "./plugins/console",
+      "description": "Claude-side bridge to the ccmaf-console web dashboard (npm): session autostart + heartbeat hooks and the launcher driver."
+    }
+  ]
+}
