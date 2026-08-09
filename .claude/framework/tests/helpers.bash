@@ -21,6 +21,14 @@ init_repo() {
   git -C "$REPO" config user.name test
 }
 
+# Mark the fixture repo as a CCMAF project (the update-system pin every real
+# consumer carries). The canonical guard's telemetry gate keys on this marker
+# (2026-08-10) — call this in tests that assert telemetry WRITES. Tests that
+# need a non-CCMAF repo (kernel plugin deference/budget) simply don't call it.
+mark_ccmaf() {
+  touch "$REPO/.claude/.framework-version"
+}
+
 # Run a bash hook: hookrun <abs-script> <json-stdin>
 hookrun() {
   printf '%s' "$2" > "$REPO/event.json"

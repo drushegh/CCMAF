@@ -848,6 +848,7 @@ EOF
 
 @test "telemetry v2: bash-guard block carries session_id and outcome_class blocked" {
   [ -n "$PYTHON" ] || skip "python not available"
+  mark_ccmaf
   run pyrun "$HOOKS/block-dangerous-commands.py" '{"session_id":"sess-py","tool_input":{"command":"rm -rf /"}}'
   [ "$status" -eq 2 ]
   grep -E '"session_id": ?"sess-py"' "$REPO/.claude/telemetry/events.jsonl" \
