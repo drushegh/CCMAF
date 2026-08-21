@@ -5,6 +5,11 @@
   },
   "plugins": [
     {
+      "name": "ccmaf",
+      "source": "./plugins/ccmaf",
+      "description": "CCMAF v2 core: the full framework as a plugin — board/lifecycle machinery, /ccmaf:init scaffolding, fat-plan/thin-build workflow, doctor, per-task budgets, unattended safety profile. Requires ccmaf-kernel; activates only on v2-marked projects."
+    },
+    {
       "name": "ccmaf-kernel",
       "source": "./plugins/ccmaf-kernel",
       "description": "CCMAF Tier 0 kernel: dangerous-command guard, tool-call budget, done-criterion + receipt discipline. Zero per-project files."

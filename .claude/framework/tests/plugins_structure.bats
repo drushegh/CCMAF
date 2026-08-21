@@ -36,6 +36,8 @@ setup() {
   local p name src
   for p in "$PLUGINS_DIR"/*/; do
     name="$(jq -r '.name' "$p/.claude-plugin/plugin.json")"
+    # (v2.0, 2026-08-21: the core plugin's UNRELEASED exception is gone —
+    # every plugin dir, core included, must be marketplace-listed.)
     run jq -e --arg n "$name" '.plugins[] | select(.name == $n)' "$mp"
     [ "$status" -eq 0 ]
   done

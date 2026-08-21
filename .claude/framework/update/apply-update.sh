@@ -37,6 +37,9 @@
 #        back to HEAD when git is available; left as-is under --no-git).
 #   4  — user declined the confirmation prompt (or a non-interactive session
 #        lacked --yes); nothing was changed.
+#   6  — v2 migration-ladder refusal: upstream is a drop release (marked, or
+#        detected structurally via the guard entry vanishing) and this
+#        project has not completed migrate-v2.sh; nothing was changed.
 
 set -euo pipefail
 
@@ -357,6 +360,47 @@ if [ -f "$UPSTREAM_MANIFEST" ]; then
   done < "$UPSTREAM_MANIFEST"
 fi
 
+# --- v2 migration ladder: refuse the drop release on un-migrated projects.
+# v2.1+ ("drop") releases declare themselves in the upstream manifest header
+# (# FRAMEWORK-RELEASE-LINE: drop). Applying one to a project that has not
+# run migrate-v2.sh would PRUNE every retired bundled path — including the
+# dangerous-command guard — before any plugin replacement exists.
+# The gate requires BOTH v2 markers (panel finding, fable S2 + sol B2 —
+# the v2 line alone is hand-writable/forgeable):
+#   1. the tombstone (.claude/.migrate-v2-tombstone) — the MIGRATION marker,
+#      created when migrate-v2.sh begins deleting;
+#   2. FRAMEWORK_LINE=v2 (anchored — `v20` must not pass) — the ACTIVATION
+#      marker, written after deletions.
+# A v2 line without a tombstone is always illegitimate on a tree still
+# running this bundled updater. (TASK-166; DESIGN.md "two-release ladder".)
+MIGRATE_TOMBSTONE="$PROJECT_ROOT/.claude/.migrate-v2-tombstone"
+_v2_migrated() {
+  [ -f "$MIGRATE_TOMBSTONE" ] \
+    && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2[[:space:]]*$' "$PROJECT_ROOT/.claude/.framework-version" 2>/dev/null
+}
+_refuse_drop() {
+  echo "apply-update: REFUSING — $1" >&2
+  echo "              Applying it would delete the bundled hooks (including the" >&2
+  echo "              dangerous-command guard) with no plugin replacement." >&2
+  echo "              Run the migration first:  bash .claude/framework/update/migrate-v2.sh" >&2
+  echo "              (Un-migrated projects can stay on their current version harmlessly.)" >&2
+  exit 6
+}
+if [ -f "$UPSTREAM_MANIFEST" ] \
+  && grep -Eq '^#[[:space:]]*FRAMEWORK-RELEASE-LINE:[[:space:]]*drop' "$UPSTREAM_MANIFEST" \
+  && ! _v2_migrated; then
+  _refuse_drop "upstream is a v2 DROP release, but this project has not completed the v2 migration."
+fi
+# Structural backstop (panel finding, sol B3 — a mis-authored drop release
+# could omit the marker): if the GUARD's manifest entry vanished upstream
+# while this project is un-migrated, that is a drop release regardless of
+# what the header says. Safety-tier paths never silently prune.
+if [ -f "$UPSTREAM_MANIFEST" ] && ! _v2_migrated \
+  && [ -n "${local_manifest_type[.claude/hooks/block-dangerous-commands.py]:-}" ] \
+  && [ -z "${upstream_manifest_type[.claude/hooks/block-dangerous-commands.py]:-}" ]; then
+  _refuse_drop "upstream's manifest no longer lists the dangerous-command guard (a v2 drop release, marked or not), and this project has not completed the v2 migration."
+fi
+
 # Build final set of (path → type) to process:
 # - All upstream entries (authoritative for current framework layout).
 # - Plus local entries that are NOT in upstream AND NOT superseded by
@@ -416,6 +460,43 @@ for p in "${!final_type[@]}"; do
     d="$nd"
   done
 done
+
+# --- v2 migration tombstone: never resurrect, never re-prune (TASK-166).
+# migrate-v2.sh records every retired path in .claude/.migrate-v2-tombstone
+# (each entry written BEFORE its deletion, so even a crashed migration
+# leaves accurate tombstones). Excluding those paths here means a
+# bridge-window update can neither re-mirror a retired copy back into the
+# project nor double-process a half-migrated path. Entries use manifest
+# grammar; unsafe entries are SKIPPED (never trusted — the file lives in
+# the consumer tree); a tombstoned DIRECTORY also suppresses any manifest
+# entry nested under it (future file-level granularity cannot resurrect
+# content inside a retired dir).
+if [ -f "$MIGRATE_TOMBSTONE" ]; then
+  tombstoned_count=0
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
+    if _is_unsafe_manifest_path "${line%/}"; then
+      echo "apply-update: WARNING — ignoring unsafe tombstone entry: '$line'" >&2
+      continue
+    fi
+    t="${line%/}"
+    if [ -n "${final_type[$t]:-}" ]; then
+      unset 'final_type[$t]'
+      tombstoned_count=$((tombstoned_count + 1))
+    fi
+    if [[ "$line" == */ ]]; then
+      for fp in "${!final_type[@]}"; do
+        if [[ "$fp" == "$t"/* ]]; then
+          unset 'final_type[$fp]'
+          tombstoned_count=$((tombstoned_count + 1))
+        fi
+      done
+    fi
+  done < "$MIGRATE_TOMBSTONE"
+  [ "$tombstoned_count" -gt 0 ] \
+    && echo "apply-update: skipping $tombstoned_count tombstoned path(s) (.claude/.migrate-v2-tombstone — retired by the v2 migration)."
+fi
 
 # Deterministic, sorted list of every path this run will touch. This is
 # the FINAL set — a strict superset of the local manifest, since it also

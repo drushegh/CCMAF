@@ -1,0 +1,13 @@
+# CCMAF project marker + pins. PRESENCE of this file marks a CCMAF project
+# (kernel/devhooks defer on presence); the FRAMEWORK_LINE=v2 CONTENT line is
+# the ccmaf core plugin's activation key (CORE-DESIGN §0) — v1 projects have
+# a version of this file WITHOUT that line, which keeps core inert there.
+FRAMEWORK_LINE=v2
+# Scaffold revision: /ccmaf:update applies scaffold deltas when this falls
+# behind the plugin's shipped revision. Code updates ride `claude plugin
+# update`, never this file. The value below is a FALLBACK ONLY — /ccmaf:init
+# stamps this line from templates/.scaffold-rev at write time (single source
+# of truth; round-2 review caught the two files diverging).
+SCAFFOLD_REV=2
+# Upstream reference (migration provenance + where to file feedback).
+FRAMEWORK_UPSTREAM_URL=https://github.com/drushegh/CCMAF

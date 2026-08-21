@@ -1,0 +1,90 @@
+## Context check
+
+This command runs only in a **CCMAF v2** project. Check
+`.claude/.framework-version` before doing anything else:
+
+- **Missing** → say so in one line ("no `.claude/.framework-version` — this
+  isn't a CCMAF-scaffolded project") and stop.
+- **Present without `FRAMEWORK_LINE=v2`** → say "this is a v1-line CCMAF
+  project — use the bundled /analyse or migrate" and stop.
+- **Present with `FRAMEWORK_LINE=v2`** → continue.
+
+---
+
+Cold start runs automatically via the core plugin's SessionStart hook
+(`core-context.sh`) — CLAUDE.framework.md is retired in v2; the always-on rules now
+live in `${CLAUDE_PLUGIN_ROOT}/DIGEST.md`, with cross-cutting reference detail in
+`${CLAUDE_PLUGIN_ROOT}/agent_docs/OPERATIONS.md`.
+
+Then, acting as the project architect:
+
+1. Do the pre-task context check. If projected >= 90%, ask user.
+2. Read all documents in `docs/requirements/`
+   - If there are many documents or they are large, use subagents to read
+     and summarise them. Only bring the summaries into main context.
+3. For EXISTING projects with code already in place:
+   - Use subagents to explore the codebase and understand what exists
+   - Identify relevant existing modules, endpoints, models, and patterns
+
+   Every reading/exploration subagent brief (steps 2 and 3) includes:
+   - **Census rule:** "here is the file list I expect you to cover —
+     verify it against the folder yourself and report anything the list
+     missed" (orchestrator-supplied lists go stale; the agent at the
+     folder is the one who can see what's actually there)
+   - **Capped, typed return:** "RETURN: ~N words covering [A, B, C].
+     Your return is data for this session, not a user-facing message."
+   - **Markers:** [GAP]/[ASSUMED]/[INFERRED] per behavioral-principles.md
+     §4 for anything not established from the documents themselves
+
+4. **Structured Interview** — Use the AskUserQuestion tool to fill gaps.
+   Do NOT free-form interview. Structure questions into focused batches
+   of 1-4 questions each, using the tool's option format so the user
+   picks from concrete choices (with "Other" always available for
+   free-text). This produces cleaner, more consistent input for the spec.
+
+   Run the following interview phases in order. Skip any phase where
+   the requirements documents already provide clear answers.
+
+   **Phase A — Scope & User Stories:**
+   - Who are the primary users/actors?
+   - What are the core user stories? (present candidates from requirements,
+     ask user to confirm, add, or remove)
+   - What is explicitly OUT of scope for this iteration?
+
+   **Phase B — Functional Requirements:**
+   - For each user story: what are the acceptance criteria?
+   - What are the key business rules and constraints?
+   - What are the edge cases? (present the ones you identified from
+     requirements, ask if there are others)
+
+   **Phase C — Non-Functional Requirements:**
+   - Performance targets (response times, throughput)
+   - Security requirements (auth, rate limiting, data sensitivity)
+   - Scalability expectations
+
+   **Phase D — Integration & Dependencies:**
+   - External systems or APIs to integrate with?
+   - Existing codebase constraints or patterns to follow?
+   - Any hard deadlines or phasing requirements?
+
+   For each phase, batch related questions into a single AskUserQuestion
+   call (up to 4 questions). Use multiSelect when choices aren't
+   mutually exclusive. Put your recommended option first with
+   "(Recommended)" in the label. Use preview blocks when presenting
+   concrete artifacts like API shapes or data models for the user
+   to compare.
+
+   Keep iterating until you have enough to write the spec. If a user's
+   answer raises new questions, ask follow-ups in the next batch.
+
+5. Write a spec to `docs/specs/SPEC-[name].md`
+   - For existing projects: include a Gap Analysis section
+     (what exists, what's needed, what needs modification)
+   - Each acceptance criterion in the spec should trace back to a
+     specific user answer from the interview
+6. Record any decisions made during analysis in DECISIONS.md (or per-file `decisions/`, per project CLAUDE.md)
+7. Update STATUS.md and claude-progress.txt when done
+
+The interview and spec writing stay in main context (interactive).
+Document reading and codebase exploration may use subagents to save context.
+After this, run /plan to turn the spec into contracts and tasks.

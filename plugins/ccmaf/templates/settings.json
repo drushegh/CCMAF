@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Bash",
+      "Grep",
+      "Glob",
+      "Agent"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/.ssh/**)",
+      "Read(**/.aws/credentials)",
+      "Read(**/id_rsa*)",
+      "Read(**/id_ed25519*)",
+      "Read(**/id_ecdsa*)",
+      "Read(**/*secret*)",
+      "Read(**/*credential*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(**/.env)",
+      "Edit(**/.env.*)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.aws/**)",
+      "Edit(**/.ssh/**)",
+      "Edit(**/.aws/credentials)",
+      "Edit(**/id_rsa*)",
+      "Edit(**/id_ed25519*)",
+      "Edit(**/id_ecdsa*)",
+      "Edit(**/*secret*)",
+      "Edit(**/*credential*)",
+      "Read(**/.claude/.precompact-snapshot/**)",
+      "Read(**/.claude/.compaction-archive/**)",
+      "Read(**/.claude/.last-compaction)",
+      "Read(**/.claude/.checkpoint-state)"
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash .claude/statusline.sh'",
+    "refreshInterval": 5
+  }
+}

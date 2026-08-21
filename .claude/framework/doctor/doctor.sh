@@ -952,8 +952,37 @@ check_state_budgets() {
   done < "$conf"
 }
 
+# --- Check: v2 migration state (legacy-layout, TASK-166) --------------
+# Signal-only: flags the two BROKEN half-migrated states. A healthy v1
+# project stays silent (the CLAUDE.framework.md cold-start step 0 owns the
+# migration OFFER; doctor only owns broken state).
+check_legacy_layout() {
+  local fv="$PROJECT_ROOT/.claude/.framework-version"
+  local ts="$PROJECT_ROOT/.claude/.migrate-v2-tombstone"
+  local v2=0
+  [ -f "$fv" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2[[:space:]]*$' "$fv" 2>/dev/null && v2=1
+
+  # Half-migrated A: deletions happened (tombstone exists) but the v2
+  # activation line was never written — the crash window of migrate-v2.sh.
+  if [ -f "$ts" ] && [ "$v2" = 0 ]; then
+    add_finding "CRITICAL" "legacy-layout" "A v2 migration tombstone exists (.claude/.migrate-v2-tombstone) but .framework-version has no FRAMEWORK_LINE=v2 — the migration was interrupted after deletions began. Retired bundled pieces may already be gone while the v2 plugins are not yet activated. ANY other CRITICAL/WARNING findings in this scan (missing manifest paths, cross-refs, CLAUDE-include) are EXPECTED FALLOUT of this state — do not fix them individually. Fix: if it still exists, re-run \`bash .claude/framework/update/migrate-v2.sh\` to completion (tombstone-aware, resumes safely); if update/ was already deleted, restore the pre-migration state with \`git restore --source=HEAD -- .\` after preserving any wanted edits, then re-run the migration from a fresh v2.0 update."
+    return
+  fi
+
+  # Half-migrated B: the v2 line is active yet THIS bundled v1 doctor is
+  # still running — retired v1 copies were never deleted (hand-written v2
+  # line, or a migration that died before its deletion phase).
+  if [ "$v2" = 1 ]; then
+    add_finding "WARNING" "legacy-layout" "FRAMEWORK_LINE=v2 is set but the bundled v1 framework is still present (this bundled doctor is running — it is itself a retired path). The v2 core plugin and the v1 copies are BOTH active: duplicate hooks/commands are likely. Fix: run \`bash .claude/framework/update/migrate-v2.sh\` (remove the v2 line first if it was added by hand) so the retired copies are deleted and tombstoned."
+  fi
+}
+
 # --- Run all checks --------------------------------------------------
+# legacy-layout runs FIRST: in a half-migrated tree the manifest/cross-ref
+# checks below fire a wall of per-path CRITICALs whose remedies ("restore
+# the path") fight the migration — the one correct diagnosis must lead.
 _DOCTOR_START=$(_dnow_ms)
+_run check_legacy_layout
 _run check_hooks
 _run check_cross_refs
 _run check_claude_include

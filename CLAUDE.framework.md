@@ -26,6 +26,19 @@ are loaded into the session context on cold start.
      Steps 1-4 emit session-varying output and sit first for a different
      reason: broken state must surface before any content is read. -->
 
+0. **v2 migration (one-time, when offered)** — If `.claude/framework/update/migrate-v2.sh`
+   exists AND `.claude/.framework-version` has no `FRAMEWORK_LINE=v2` line AND this is
+   not the framework dev repo (no `.claude/.framework-dev-repo` marker): CCMAF v2 is
+   available — the framework now ships as plugins (ccmaf-kernel safety floor + ccmaf
+   core + optional siblings) and this project can cross over once. Tell the user, then
+   AskUserQuestion: *migrate now* / *not now* (re-offered each cold start; staying on
+   v1 is harmless) / *show the plan* (run `bash .claude/framework/update/migrate-v2.sh
+   --dry-run` and present it). On *migrate now*: the script refuses until the plugin
+   floor is installed — run the `claude plugin` commands it prints, have the user
+   restart the session, then run `bash .claude/framework/update/migrate-v2.sh --yes`
+   and follow its next-steps output (restart → `/ccmaf:init`). After a successful
+   migration this file no longer exists — the plugin owns cold start from then on.
+
 1. **Framework update check** — Run `bash .claude/framework/update/check-updates.sh`
    (silent if up-to-date). If `.claude/.framework-update-available.md` exists
    afterwards, read it, summarise the new commits to the user via
@@ -285,8 +298,7 @@ Add an `ask` array alongside `allow`/`deny` in `.claude/settings.json`:
         "Bash(git push --force:*)",
         "Bash(git push --force-with-lease:*)",
         "Bash(rm -rf:*)",
-        "Edit(**/migrations/**)",
-        "Write(**/migrations/**)"
+        "Edit(**/migrations/**)"
       ],
       "deny": [ ... ]
     }

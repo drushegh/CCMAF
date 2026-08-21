@@ -1,0 +1,110 @@
+# Retired paths — the v2 migration deletion list (TASK-166)
+#
+# Read by migrate-v2.sh: every path here is DELETED from the consumer
+# project during the v1 → v2 migration, then recorded in the tombstone
+# (.claude/.migrate-v2-tombstone) so the v2 updater never resurrects or
+# re-prunes it. At v2.1 (the drop release) these entries also leave
+# framework-manifest.txt upstream.
+#
+# Grammar = framework-manifest.txt's: trailing slash marks a directory
+# (deleted recursively), no slash marks a single file. Comment lines and
+# blanks are ignored. Every path is validated project-root-relative before
+# use (same escape guard as the updater).
+#
+# Derivation: CORE-DESIGN.md §1 "Retired at v2.1 / dev-repo-only" +
+# framework-manifest.txt. Replacements: capability plugins (advisors,
+# council, media, devhooks, console) + the ccmaf core plugin + the
+# ccmaf-kernel guard (D1-a).
+#
+# ⚠ v2.1 AUTHORING RULE (panel finding, sol B1 — protects consumers who
+# skip v2.0 entirely): the drop release removes these paths' manifest
+# ENTRIES but MUST KEEP THE FILES in the upstream repo. A pre-bridge (v1)
+# updater that jumps straight to v2.1 processes the retired paths as
+# local-only manifest entries — with the files still present upstream it
+# MIRRORS them (harmless, stays v1); with the files deleted it would PRUNE
+# them, guard included, with no plugin replacement and no refusal gate in
+# its old code. Physical deletion of the files upstream is deferred until
+# the v1 fleet is confirmed gone (a v3-era decision).
+#
+# NOT listed (deliberately):
+#   - .claude/hooks/statusline.sh — MOVED (not deleted) by migrate-v2.sh to
+#     .claude/statusline.sh (consumer scaffold; CORE-DESIGN §1), then
+#     tombstoned by the script itself.
+#   - .gitattributes, docs/README.md, docs/*/.gitkeep — ownership transfers
+#     to the consumer at v2.1 (dropped from the manifest, never deleted).
+#   - .claude/framework/docs/requirements|specs|archives|plans — consumer
+#     project content; only the two framework files below are removed.
+
+# --- Framework-owned directories -------------------------------------
+.claude/agents/framework/
+.claude/agents/council/
+.claude/framework/advisors/
+.claude/framework/agent_docs/
+.claude/framework/audit/
+.claude/framework/boot/
+.claude/framework/doctor/
+.claude/framework/fable/
+.claude/framework/housekeeping/
+.claude/framework/insights/
+.claude/framework/telemetry/
+.claude/framework/tests/
+# The update system itself — deleted LAST by migrate-v2.sh (self-delete;
+# ordering mirrors apply-update.sh's process-self-last insurance).
+.claude/framework/update/
+
+# --- Framework top-level files ---------------------------------------
+.claude/framework/init.sh
+.claude/framework/healthcheck.conf.template
+.claude/framework/docs/RETRO-AUDIT.md
+.claude/framework/docs/ADOPTED-FEEDBACK.md
+CLAUDE.framework.md
+.claude/claude-code-dev-framework.md
+tools/console.sh
+tools/console.mjs
+
+# --- Framework commands (replaced by /ccmaf:* + scaffolded aliases) ---
+.claude/commands/analyse.md
+.claude/commands/board-heal.md
+.claude/commands/bug.md
+.claude/commands/build.md
+.claude/commands/council.md
+.claude/commands/consult.md
+.claude/commands/crossbench.md
+.claude/commands/fable.md
+.claude/commands/sol.md
+.claude/commands/terra.md
+.claude/commands/luna.md
+.claude/commands/image.md
+.claude/commands/mode.md
+.claude/commands/healthcheck.md
+.claude/commands/housekeeping.md
+.claude/commands/plan.md
+.claude/commands/post-compact.md
+.claude/commands/pre-compact.md
+.claude/commands/reconcile.md
+.claude/commands/review.md
+.claude/commands/security.md
+.claude/commands/test.md
+.claude/commands/wrapup.md
+
+# --- Framework hooks (replaced by plugin-carried hooks) ---------------
+# block-dangerous-commands.py is the guard: migrate-v2.sh refuses to run
+# deletions at all until the ccmaf-kernel plugin (which carries the guard,
+# D1-a) is verified installed + enabled.
+.claude/hooks/auto-format.sh
+.claude/hooks/auto-lint.sh
+.claude/hooks/block-dangerous-commands.py
+.claude/hooks/checkpoint-watermark.sh
+.claude/hooks/console-autostart.sh
+.claude/hooks/console-heartbeat.sh
+.claude/hooks/enforce-state-update.sh
+.claude/hooks/filter-test-output.sh
+.claude/hooks/framework-drift-guard.sh
+.claude/hooks/guard-interpreter-check.sh
+.claude/hooks/post-edit-dispatch.sh
+.claude/hooks/postcompact-archive.sh
+.claude/hooks/precompact-snapshot.sh
+.claude/hooks/session-reanchor.sh
+.claude/hooks/session-start-marker.sh
+.claude/hooks/verify-deps.sh
+.claude/hooks/lib/hook-common.sh

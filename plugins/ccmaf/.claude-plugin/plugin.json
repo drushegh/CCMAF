@@ -1,0 +1,5 @@
+{
+  "name": "ccmaf",
+  "description": "CCMAF core — the full board/lifecycle framework as a plugin (v2 line). Requires ccmaf-kernel (the safety floor). Inert everywhere except projects whose .claude/.framework-version carries FRAMEWORK_LINE=v2; scaffold a project with /ccmaf:init.",
+  "version": "2.0.0"
+}

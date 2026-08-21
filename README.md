@@ -71,6 +71,38 @@ loop depends on them.
 
 ## Quick start
 
+Since **v2.0** the framework ships as Claude Code **plugins** from this repo's own
+marketplace. Install is two layers: plugins once per machine, a scaffold once per project.
+
+**Once per machine:**
+
+```bash
+claude plugin marketplace add drushegh/CCMAF
+claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor — required first
+claude plugin install ccmaf@ccmaf --scope user          # the core framework
+```
+
+**Once per project** — open any git repo in Claude Code and run:
+
+```
+/ccmaf:init
+```
+
+It verifies the kernel, asks one batched question about optional features (Console,
+watcher mode, skills sync, CI), and writes the project scaffold with the v2 marker last.
+That is the entire install: no clone, no copied files. Code updates arrive via
+`claude plugin update`; scaffold deltas via `/ccmaf:update`.
+
+À la carte siblings, each useful on its own: `ccmaf-advisors`, `ccmaf-council`,
+`ccmaf-media`, `ccmaf-devhooks`, `ccmaf-console`.
+
+**Already on v1?** Your next framework update delivers a one-shot migration — accept the
+offer at session start and follow the prompts. Details, revert path, and what changes:
+[MIGRATING.md](MIGRATING.md). Staying on v1 is harmless; the offer just repeats.
+
+<details>
+<summary><b>v1 classic install (copy-in — still works, still supported)</b></summary>
+
 ```bash
 # 1. Get the framework into your project
 git clone https://github.com/drushegh/CCMAF
@@ -84,11 +116,13 @@ cp -r CCMAF/.claude CCMAF/CLAUDE.framework.md  your-project/
 #    The Cold Start Sequence runs itself: update check, doctor, state read, task pick.
 ```
 
+</details>
+
 **Console (opt-in)** — the localhost cockpit ([Part VI](#project-console-opt-in)):
 
 ```bash
 echo latest > .claude/.console-version   # presence marks the opt-in; commit it
-node tools/console.mjs start             # prints http://127.0.0.1:<port>
+node tools/console.mjs start             # v1 projects; on v2 the ccmaf-console plugin carries the driver
 ```
 
 **Skills (opt-in)** — standards packs for your stack ([Part VI](#skills-library-opt-in)).

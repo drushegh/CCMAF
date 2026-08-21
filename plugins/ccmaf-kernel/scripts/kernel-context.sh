@@ -28,6 +28,24 @@ if [ "$src" = "resume" ]; then
 fi
 
 if [ -f "${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version" ]; then
+  root="${CLAUDE_PROJECT_DIR:-.}"
+  # v2 adaptation (CORE-DESIGN §0/§5, D1-a): post-scaffold liveness marker —
+  # the core plugin's doctor keys its kernel-absent CRITICAL check on this.
+  # Touch only where the scaffold already exists; never create .claude/.
+  [ -d "$root/.claude/telemetry" ] && touch "$root/.claude/telemetry/.kernel-present" 2>/dev/null
+  # v2 adaptation (CORE-DESIGN §0): coverage-blackout warning. A v2-line
+  # project whose ccmaf core plugin isn't emitting its liveness marker has
+  # silently lost budgets, the session digest, and Stop enforcement — and
+  # this deference branch would otherwise stay mute about it. Grace: skip
+  # while .framework-version itself is <1 day old (a fresh migration's first
+  # session may run before core's marker lands).
+  if grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$root/.claude/.framework-version" 2>/dev/null; then
+    m="$root/.claude/telemetry/.core-present"
+    fresh_version=$(find "$root/.claude/.framework-version" -mtime -1 2>/dev/null)
+    if [ -z "$fresh_version" ] && { [ ! -f "$m" ] || [ -n "$(find "$m" -mtime +7 2>/dev/null)" ]; }; then
+      printf 'WARNING (ccmaf-kernel): this is a CCMAF v2 project but the ccmaf core plugin shows no recent activity — per-task budgets, the session digest, and Stop-hook state enforcement may be OFF. Check `claude plugin list` and install/enable the ccmaf plugin.\n'
+    fi
+  fi
   exit 0
 fi
 

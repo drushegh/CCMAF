@@ -1,5 +1,16 @@
 # Framework Manifest
 #
+# FRAMEWORK-RELEASE-LINE: bridge
+#   ^ v2 migration ladder marker (TASK-166). "bridge" = v2.0: every retired
+#   path is still listed below (the old updater deletes nothing) while the
+#   v2 pieces (migrate-v2.sh, retired-paths.txt, the tombstone-aware
+#   updater) ride in via the update/ dir-mirror. The v2.1 "drop" release
+#   flips this to `drop` AND removes the retired ENTRIES — but MUST keep
+#   the retired FILES in the repo (see retired-paths.txt's v2.1 authoring
+#   rule: a pre-bridge updater jumping straight to v2.1 then mirrors
+#   instead of pruning). The v2 updater refuses to apply a drop release to
+#   any project without BOTH v2 markers (tombstone + FRAMEWORK_LINE=v2).
+#
 # Paths listed here are framework-owned — they're overwritten on every
 # update. Paths NOT listed are project-owned and never touched.
 #

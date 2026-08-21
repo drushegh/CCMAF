@@ -13,8 +13,18 @@
 # First instance of the tier-aware manifest split (TASK-151 may
 # generalise this into explicit tier classes).
 
-# The Tier 0 kernel plugin (and future ccmaf-* plugins), served via the repo's plugin marketplace.
-plugins/
+# The SHIPPED plugins, served via the repo's plugin marketplace.
+# Listed individually (not `plugins/`) so an in-development plugin can
+# never leak into a publish before its release gate. plugins/ccmaf/ was
+# added 2026-08-21 with the v2.0 release (TASK-166 bridge accepted +
+# TASK-167 consumer-sim passed).
+plugins/ccmaf/
+plugins/ccmaf-kernel/
+plugins/advisors/
+plugins/council/
+plugins/media/
+plugins/devhooks/
+plugins/console/
 
 # The marketplace file that makes the public repo installable via
 # `claude plugin marketplace add drushegh/CCMAF`.

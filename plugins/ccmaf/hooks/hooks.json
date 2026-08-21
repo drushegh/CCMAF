@@ -1,0 +1,96 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/core-context.sh\"'",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-reanchor.sh\"'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start-marker.sh\"'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-interpreter-check.sh\"'"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/framework-drift-guard.sh\"'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/checkpoint-watermark.sh\"'"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/unattended-guard.sh\"'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/checkpoint-watermark.sh\"'"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/task-budget-counter.sh\"'"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/precompact-snapshot.sh\"'"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/postcompact-archive.sh\"'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && bash \"${CLAUDE_PLUGIN_ROOT}/hooks/enforce-state-update.sh\"'"
+          }
+        ]
+      }
+    ]
+  }
+}

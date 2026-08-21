@@ -29,6 +29,13 @@ mark_ccmaf() {
   touch "$REPO/.claude/.framework-version"
 }
 
+# Mark the fixture repo as a CCMAF **v2** project (the core plugin's
+# activation key is the FRAMEWORK_LINE=v2 CONTENT line — CORE-DESIGN §0).
+# mark_ccmaf above stays the v1 shape (bare presence, no v2 line).
+mark_ccmaf_v2() {
+  printf 'FRAMEWORK_LINE=v2\nSCAFFOLD_REV=1\n' > "$REPO/.claude/.framework-version"
+}
+
 # Run a bash hook: hookrun <abs-script> <json-stdin>
 hookrun() {
   printf '%s' "$2" > "$REPO/event.json"
