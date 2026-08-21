@@ -260,11 +260,19 @@ old_version_file() { touch -t 202601010000 "$REPO/.claude/.framework-version"; }
   mark_ccmaf_v2
   printf '# Framework Doctor — Issues Detected\n\n**Scan time:** old\n**Findings:** 3 CRITICAL, 0 WARNING, 0 INFO, 0 NAG\nSENTINEL-OLD-VERDICT\n' \
     > "$REPO/.claude/.framework-doctor-findings.md"
-  # Kill doctor almost immediately — with the delete-first lifecycle this
-  # left the flag ABSENT (fail-open); completion-gated must leave it intact.
-  ( cd "$REPO" && CLAUDE_PLUGIN_ROOT="$CORE" timeout 0.2 bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
+  # Kill doctor DETERMINISTICALLY mid-run — a bare `timeout 0.2` was a race
+  # the doctor started WINNING on fast CI runners (tiny fixture repo →
+  # completed + legitimately replaced the flag before the kill; the flake
+  # shipped in the v2.0 release CI). A PATH-shimmed `grep` that blocks
+  # guarantees the run is still in flight when the timeout fires; with the
+  # old delete-first lifecycle the flag would already be ABSENT (fail-open);
+  # completion-gated must leave it intact.
+  mkdir -p "$REPO/slowbin"
+  printf '#!/usr/bin/env bash\nsleep 5\nexit 1\n' > "$REPO/slowbin/grep"
+  chmod +x "$REPO/slowbin/grep"
+  ( cd "$REPO" && PATH="$REPO/slowbin:$PATH" CLAUDE_PLUGIN_ROOT="$CORE" timeout 0.5 bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
   [ -f "$REPO/.claude/.framework-doctor-findings.md" ]
-  grep -q 'SENTINEL-OLD-VERDICT' "$REPO/.claude/.framework-doctor-findings.md"
+  command grep -q 'SENTINEL-OLD-VERDICT' "$REPO/.claude/.framework-doctor-findings.md"
 }
 
 @test "doctor: a COMPLETED findings run atomically replaces the old flag" {
