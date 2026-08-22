@@ -31,13 +31,20 @@ are loaded into the session context on cold start.
    not the framework dev repo (no `.claude/.framework-dev-repo` marker): CCMAF v2 is
    available — the framework now ships as plugins (ccmaf-kernel safety floor + ccmaf
    core + optional siblings) and this project can cross over once. Tell the user, then
-   AskUserQuestion: *migrate now* / *not now* (re-offered each cold start; staying on
-   v1 is harmless) / *show the plan* (run `bash .claude/framework/update/migrate-v2.sh
-   --dry-run` and present it). On *migrate now*: the script refuses until the plugin
-   floor is installed — run the `claude plugin` commands it prints, have the user
-   restart the session, then run `bash .claude/framework/update/migrate-v2.sh --yes`
-   and follow its next-steps output (restart → `/ccmaf:init`). After a successful
-   migration this file no longer exists — the plugin owns cold start from then on.
+   AskUserQuestion: *show the plan* (Recommended — run `bash
+   .claude/framework/update/migrate-v2.sh --dry-run` and present it) / *migrate now* /
+   *not now* (re-offered each cold start; staying on v1 is harmless). After presenting
+   a clean dry run, re-ask with **migrate now as the Recommended option** — the plan
+   just showed the move is safe and one revertible commit; the only cost is a session
+   restart. On *migrate now*: the script refuses until the plugin floor is installed —
+   run the `claude plugin` commands it prints, then tell the user to CLOSE AND REOPEN
+   their IDE/terminal (that is what "restart the session" means — VS Code window,
+   terminal, whatever hosts Claude Code) and say they're back; in the fresh session run
+   `bash .claude/framework/update/migrate-v2.sh --yes` and follow its next-steps
+   output. Post-migration, `/ccmaf:init` is run BY CLAUDE in the new session — never
+   ask the user to run it themselves; they only close/reopen and say they're back.
+   After a successful migration this file no longer exists — the plugin owns cold
+   start from then on.
 
 1. **Framework update check** — Run `bash .claude/framework/update/check-updates.sh`
    (silent if up-to-date). If `.claude/.framework-update-available.md` exists

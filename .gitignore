@@ -78,3 +78,6 @@ console/dist-server/
 # workflow. Only the rotated archive directory is ignored. Don't "fix"
 # this by ignoring the flat file.
 .claude/review-findings/
+
+# /image + advisor run scratch (never ship working files)
+_advisors/

@@ -159,7 +159,9 @@ migrate() { ( cd "$CONSUMER" && bash .claude/framework/update/migrate-v2.sh "$@"
   # settings.json: retired refs stripped, consumer entries kept, valid JSON.
   # bash opens the file (MSYS-path-aware); python reads stdin — a
   # Windows-native python cannot open /tmp/... MSYS paths itself.
-  python -c "
+  # python3-first: bare `python` doesn't exist on every distro (WSL Ubuntu).
+  pybin=python3; command -v python3 >/dev/null 2>&1 || pybin=python
+  "$pybin" -c "
 import json, sys
 s = json.load(sys.stdin)
 cmds = [h['command'] for g in s.get('hooks', {}).get('PostToolUse', []) for h in g['hooks']]
@@ -381,6 +383,33 @@ EOF
       return 1
     fi
   done < "$retired"
+}
+
+@test "every plugin id migrate-v2.sh tells users to install exists in the REAL marketplace" {
+  # FS-005: the script once suggested ccmaf-devhooks@ccmaf etc. — the
+  # marketplace publishes siblings UNPREFIXED, so every printed install
+  # command failed. Statically cross-check the script's ids against
+  # marketplace.json so a rename on either side breaks this test.
+  marketplace="$FW_REPO_ROOT/.claude-plugin/marketplace.json"
+  # Publish-only artifact: present in the dev repo and the public canonical
+  # (where CI runs), absent in consumer checkouts — skip there, don't fail.
+  [ -f "$marketplace" ] || skip "no marketplace.json (consumer checkout)"
+  ids="$(grep -oE 'plugin install [A-Za-z0-9._-]+@ccmaf' "$UPDATE_SRC/migrate-v2.sh" | awk '{print $3}' | cut -d@ -f1 | sort -u)"
+  [ -n "$ids" ]
+  names="$(python3 -c "
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8'))
+print('\n'.join(p['name'] for p in d['plugins']))" "$marketplace" 2>/dev/null \
+    || python -c "
+import json,sys
+d=json.load(open(sys.argv[1],encoding='utf-8'))
+print('\n'.join(p['name'] for p in d['plugins']))" "$marketplace")"
+  for id in $ids; do
+    if ! printf '%s\n' "$names" | grep -qxF "$id"; then
+      echo "migrate-v2.sh suggests installing '$id@ccmaf' but marketplace.json has no plugin named '$id'"
+      return 1
+    fi
+  done
 }
 
 # --- doctor: legacy-layout (the two broken states) ---------------------

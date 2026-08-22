@@ -30,9 +30,10 @@ Everything below is what the prompts do, for the record.
    claude plugin install ccmaf@ccmaf --scope user          # the core
    ```
 
-   Restart the session after installing. The migration script refuses to run
-   until both are verified — the bundled dangerous-command guard is never
-   deleted before its plugin replacement is active.
+   Restart the session after installing — close and reopen your IDE or
+   terminal (plugins only load at session start). The migration script
+   refuses to run until both are verified — the bundled dangerous-command
+   guard is never deleted before its plugin replacement is active.
 3. **Run the migration** (the session does this when you accept the offer):
 
    ```bash
@@ -44,10 +45,24 @@ Everything below is what the prompts do, for the record.
    status line) → moves `statusline.sh` to `.claude/statusline.sh` → deletes
    the bundled framework copies, recording each in
    `.claude/.migrate-v2-tombstone` → writes `FRAMEWORK_LINE=v2` → commits.
-4. **Restart, then run `/ccmaf:init`.** Its missing-piece flow scaffolds the
-   bare command aliases (`/build`, `/plan`, …) and anything else absent. It
-   also suggests sibling plugins matching what your project actually uses
-   (e.g. `ccmaf-console` if you were Console-opted-in).
+4. **Close and reopen your IDE or terminal, then tell Claude you're back.**
+   That close-and-reopen *is* the "restart" — nothing else is. In the fresh
+   session Claude runs `/ccmaf:init` itself (it's a plugin command Claude can
+   invoke); its missing-piece flow scaffolds the bare command aliases
+   (`/build`, `/plan`, …) and anything else absent. You never run it by hand.
+5. **Optionally install the sibling plugins — one paste, any terminal:**
+
+   ```bash
+   claude plugin install devhooks@ccmaf --scope user   # format/lint/test-QoL hooks v1 always ran (recommended)
+   claude plugin install advisors@ccmaf --scope user   # cross-model advisor workbench (needs the codex CLI)
+   claude plugin install council@ccmaf --scope user    # /council five-advisor deliberations
+   claude plugin install media@ccmaf --scope user      # /image generation (needs the codex CLI)
+   claude plugin install console@ccmaf --scope user    # bridge to the ccmaf-console dashboard (if Console-opted-in)
+   ```
+
+   Installs are user-scope (machine-level) and inert until used, so taking
+   the lot is safe; the migration output flags the ones this project was
+   detected using. Restart once afterwards to load them.
 
 ## Good to know
 

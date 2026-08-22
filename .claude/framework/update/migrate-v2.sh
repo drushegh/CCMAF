@@ -92,6 +92,30 @@ _tombstone_add() {
   grep -qxF "$1" "$TOMBSTONE" 2>/dev/null || echo "$1" >> "$TOMBSTONE"
 }
 
+# Optional sibling plugins — ONE paste-able block, never auto-installed.
+# Ids MUST match marketplace.json plugin names: siblings are UNPREFIXED
+# (only ccmaf / ccmaf-kernel carry the prefix) — FS-005. Installs are
+# user-scope (machine-level) and inert until used, so pasting the whole
+# block is safe; the notes flag what THIS project was detected using.
+print_sibling_block() {
+  local adv_note="fable/sol/terra/luna advisor workbench (needs the codex CLI)"
+  local con_note="bridge to the ccmaf-console web dashboard (npm server, project opt-in)"
+  if [ -f "$PROJECT_ROOT/.claude/advisors.toml" ]; then
+    adv_note="DETECTED IN USE: this project has an advisor registry (.claude/advisors.toml)"
+  fi
+  if [ -f "$PROJECT_ROOT/.claude/.console-version" ] || [ -f "$PROJECT_ROOT/.claude/.console-enabled" ]; then
+    con_note="DETECTED IN USE: this project is Console-opted-in; tools/console.mjs is being retired"
+  fi
+  echo ""
+  say "optional sibling plugins — paste the whole block in any terminal (user-scope; unused ones stay inert):"
+  echo "    claude plugin install devhooks@ccmaf --scope user   # format/lint/test-QoL hooks v1 always ran (recommended)"
+  echo "    claude plugin install advisors@ccmaf --scope user   # $adv_note"
+  echo "    claude plugin install council@ccmaf --scope user    # /council five-advisor deliberations"
+  echo "    claude plugin install media@ccmaf --scope user      # /image generation (needs the codex CLI)"
+  echo "    claude plugin install console@ccmaf --scope user    # $con_note"
+  echo ""
+}
+
 # --- Step 0: preflight ------------------------------------------------
 [ -f "$PROJECT_ROOT/.claude/.framework-dev-repo" ] \
   && fail "this is the framework's own dev repo — it never migrates (it IS the upstream)."
@@ -247,23 +271,8 @@ PYEOF
   fi
   say "plugin floor verified: ccmaf-kernel + ccmaf active."
 
-  # Usage-detected sibling suggestions (printed, never auto-installed).
-  # id and reason kept separate — no whitespace-mangled commands.
-  suggest_ids=(); suggest_why=()
-  if [ -f "$PROJECT_ROOT/.claude/.console-version" ] || [ -f "$PROJECT_ROOT/.claude/.console-enabled" ]; then
-    suggest_ids+=("ccmaf-console");  suggest_why+=("this project is Console-opted-in; tools/console.mjs is being retired")
-  fi
-  if [ -f "$PROJECT_ROOT/.claude/advisors.toml" ]; then
-    suggest_ids+=("ccmaf-advisors"); suggest_why+=("this project has an advisor registry (.claude/advisors.toml)")
-  fi
-  suggest_ids+=("ccmaf-devhooks"); suggest_why+=("v1 always ran format/lint/test-QoL hooks; this restores them")
-  echo ""
-  say "recommended sibling plugins for THIS project (install per taste):"
-  for i in "${!suggest_ids[@]}"; do
-    echo "    claude plugin install ${suggest_ids[$i]}@ccmaf --scope user   # ${suggest_why[$i]}"
-  done
-  echo "    (also available: ccmaf-council, ccmaf-media)"
-  echo ""
+  print_sibling_block
+
 
   # Ignored/untracked content under retired dirs is OUTSIDE git's undo
   # reach — surface it before the human confirms. (Framework-owned dirs
@@ -478,12 +487,16 @@ fi
 
 echo ""
 say "DONE. Next steps:"
-echo "  1. RESTART the Claude Code session NOW. ⚠ In THIS session, further Bash"
-echo "     calls may be DENIED by the stale guard-hook registration (it points at"
-echo "     a deleted file and fails closed). That is expected — do NOT try to fix"
-echo "     or revert it; just restart."
-echo "  2. After restart, run /ccmaf:init — its missing-piece flow scaffolds the"
-echo "     bare command aliases (/build, /plan, …) and any other absent pieces."
-echo "  3. Install the sibling plugins suggested above as needed."
+echo "  1. CLOSE AND REOPEN whatever hosts this Claude Code session — the VS Code"
+echo "     window, the terminal, the app. That IS the 'restart'; nothing else is."
+echo "     ⚠ Until then, further Bash calls in THIS session may be DENIED by the"
+echo "     stale guard-hook registration (it points at a deleted file and fails"
+echo "     closed). Expected — do NOT try to fix or revert it; just close and reopen."
+echo "  2. In the new session, tell Claude: 'migration done — finish the setup'."
+echo "     Claude runs /ccmaf:init ITSELF (it is a plugin command Claude can invoke);"
+echo "     its missing-piece flow scaffolds the bare command aliases (/build, /plan,"
+echo "     …) and anything else absent. You never run /ccmaf:init by hand."
+echo "  3. Optional: paste the sibling-plugin block below (any terminal, any time)."
 echo "  4. Deleted v1 files (including any you had customised) remain in git"
 echo "     history: git show '<commit>^:<path>' recovers any of them."
+print_sibling_block

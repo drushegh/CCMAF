@@ -112,8 +112,16 @@ settings, bare command aliases so `/build` and friends work unprefixed — with 
 written last. That is the entire install: no clone, no copied files. Code updates arrive via
 `claude plugin update`; scaffold deltas via `/ccmaf:update`.
 
-À la carte siblings, each useful on its own: `advisors`, `council`, `media`, `devhooks`,
-`console` — install any of them the same way (`claude plugin install <name>@ccmaf --scope user`).
+À la carte siblings, each useful on its own — or paste the whole block once (installs are
+user-scope and inert until used):
+
+```bash
+claude plugin install devhooks@ccmaf --scope user   # format/lint/test-QoL hooks (recommended)
+claude plugin install advisors@ccmaf --scope user   # cross-model advisor workbench (needs the codex CLI)
+claude plugin install council@ccmaf --scope user    # /council five-advisor deliberations
+claude plugin install media@ccmaf --scope user      # /image generation (needs the codex CLI)
+claude plugin install console@ccmaf --scope user    # bridge to the ccmaf-console web dashboard
+```
 
 <img src=".github/assets/v2/img16.webp" alt="Isometric diagram of the two v2 layers: a machine pedestal holding the kernel and core plugin cubes with five optional satellites, feeding two project boards — a new project scaffolded by /ccmaf:init, and an existing v1 project crossing a three-step migration lane with a revertible-commit loop" width="100%" />
 *Plugins once per machine, a scaffold once per project — and the same migration lane for every v1 board.*
@@ -129,8 +137,9 @@ refuses to run until the kernel and core plugins are verified installed, so the
 destructive-command guard is never deleted before its replacement is active; the crossover
 itself lands as **one revertible commit** — retired bundled copies deleted and tombstoned,
 your `settings.json` cleaned but never clobbered, your board, decisions, contracts, and
-skills byte-untouched. Restart, run `/ccmaf:init`, and its missing-piece flow finishes the
-aliases.
+skills byte-untouched. Then close and reopen your IDE or terminal (that's the "restart"),
+tell Claude you're back, and it runs `/ccmaf:init` itself — the missing-piece flow finishes
+the aliases; you never run it by hand.
 
 The full walk, the revert path, recovering customised files, and every edge case:
 **[MIGRATING.md](MIGRATING.md)**. Staying on v1 is harmless — the offer just repeats, and
