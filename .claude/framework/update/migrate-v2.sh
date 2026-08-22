@@ -263,10 +263,17 @@ PYEOF
     echo "  (If they ARE installed, the probe itself failed — check that the \`claude\`" >&2
     echo "  CLI runs and that \`claude plugin list --json\` works in this shell.)" >&2
     echo "" >&2
-    echo "  Install them, restart the session, then re-run this script:" >&2
+    echo "  Install them (one paste), close and reopen your IDE/terminal — that IS" >&2
+    echo "  the 'restart'; plugins load at session start — then re-run this script:" >&2
     echo "    claude plugin marketplace add drushegh/CCMAF" >&2
-    echo "    claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor" >&2
-    echo "    claude plugin install ccmaf@ccmaf --scope user          # the core" >&2
+    echo "    claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor — required" >&2
+    echo "    claude plugin install ccmaf@ccmaf --scope user          # the core — required" >&2
+    echo "    # optional siblings — inert until used; take the lot now and restart ONCE" >&2
+    echo "    claude plugin install devhooks@ccmaf --scope user       # format/lint/test-QoL hooks (recommended)" >&2
+    echo "    claude plugin install advisors@ccmaf --scope user       # advisor workbench (needs the codex CLI)" >&2
+    echo "    claude plugin install council@ccmaf --scope user        # /council deliberations" >&2
+    echo "    claude plugin install media@ccmaf --scope user          # /image generation (needs the codex CLI)" >&2
+    echo "    claude plugin install console@ccmaf --scope user        # ccmaf-console dashboard bridge" >&2
     exit 4
   fi
   say "plugin floor verified: ccmaf-kernel + ccmaf active."

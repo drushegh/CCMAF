@@ -92,13 +92,21 @@ real, supported, and updateable.
 
 Install is two layers: plugins once per **machine**, a scaffold once per **project**.
 
-**Once per machine:**
+**Once per machine — one paste:**
 
 ```bash
 claude plugin marketplace add drushegh/CCMAF
 claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor — required first
 claude plugin install ccmaf@ccmaf --scope user          # the core framework
+# optional siblings — user-scope, inert until used; take the lot or delete any line
+claude plugin install devhooks@ccmaf --scope user       # format/lint/test-QoL hooks (recommended)
+claude plugin install advisors@ccmaf --scope user       # cross-model advisor workbench (needs the codex CLI)
+claude plugin install council@ccmaf --scope user        # /council five-advisor deliberations
+claude plugin install media@ccmaf --scope user          # /image generation (needs the codex CLI)
+claude plugin install console@ccmaf --scope user        # bridge to the ccmaf-console web dashboard
 ```
+
+Restart your IDE or terminal once afterwards — plugins load at session start.
 
 **Once per project** — open any git repo in Claude Code and run:
 
@@ -112,16 +120,8 @@ settings, bare command aliases so `/build` and friends work unprefixed — with 
 written last. That is the entire install: no clone, no copied files. Code updates arrive via
 `claude plugin update`; scaffold deltas via `/ccmaf:update`.
 
-À la carte siblings, each useful on its own — or paste the whole block once (installs are
-user-scope and inert until used):
-
-```bash
-claude plugin install devhooks@ccmaf --scope user   # format/lint/test-QoL hooks (recommended)
-claude plugin install advisors@ccmaf --scope user   # cross-model advisor workbench (needs the codex CLI)
-claude plugin install council@ccmaf --scope user    # /council five-advisor deliberations
-claude plugin install media@ccmaf --scope user      # /image generation (needs the codex CLI)
-claude plugin install console@ccmaf --scope user    # bridge to the ccmaf-console web dashboard
-```
+Every sibling is useful on its own and safe to skip — trim the paste to taste, add one
+later with the same command, or remove one with `claude plugin uninstall <name>`.
 
 <img src=".github/assets/v2/img16.webp" alt="Isometric diagram of the two v2 layers: a machine pedestal holding the kernel and core plugin cubes with five optional satellites, feeding two project boards — a new project scaffolded by /ccmaf:init, and an existing v1 project crossing a three-step migration lane with a revertible-commit loop" width="100%" />
 *Plugins once per machine, a scaffold once per project — and the same migration lane for every v1 board.*

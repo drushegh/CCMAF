@@ -26,8 +26,14 @@ Everything below is what the prompts do, for the record.
 
    ```bash
    claude plugin marketplace add drushegh/CCMAF
-   claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor
-   claude plugin install ccmaf@ccmaf --scope user          # the core
+   claude plugin install ccmaf-kernel@ccmaf --scope user   # the safety floor — required
+   claude plugin install ccmaf@ccmaf --scope user          # the core — required
+   # optional siblings — user-scope, inert until used; take the lot or delete any line
+   claude plugin install devhooks@ccmaf --scope user       # format/lint/test-QoL hooks v1 always ran (recommended)
+   claude plugin install advisors@ccmaf --scope user       # cross-model advisor workbench (needs the codex CLI)
+   claude plugin install council@ccmaf --scope user        # /council five-advisor deliberations
+   claude plugin install media@ccmaf --scope user          # /image generation (needs the codex CLI)
+   claude plugin install console@ccmaf --scope user        # bridge to the ccmaf-console dashboard (if Console-opted-in)
    ```
 
    Restart the session after installing — close and reopen your IDE or
@@ -50,19 +56,10 @@ Everything below is what the prompts do, for the record.
    session Claude runs `/ccmaf:init` itself (it's a plugin command Claude can
    invoke); its missing-piece flow scaffolds the bare command aliases
    (`/build`, `/plan`, …) and anything else absent. You never run it by hand.
-5. **Optionally install the sibling plugins — one paste, any terminal:**
-
-   ```bash
-   claude plugin install devhooks@ccmaf --scope user   # format/lint/test-QoL hooks v1 always ran (recommended)
-   claude plugin install advisors@ccmaf --scope user   # cross-model advisor workbench (needs the codex CLI)
-   claude plugin install council@ccmaf --scope user    # /council five-advisor deliberations
-   claude plugin install media@ccmaf --scope user      # /image generation (needs the codex CLI)
-   claude plugin install console@ccmaf --scope user    # bridge to the ccmaf-console dashboard (if Console-opted-in)
-   ```
-
-   Installs are user-scope (machine-level) and inert until used, so taking
-   the lot is safe; the migration output flags the ones this project was
-   detected using. Restart once afterwards to load them.
+5. **Skipped the optional lines in step 2?** The migration output re-prints
+   the same sibling block, flagging the ones this project was detected using
+   (e.g. `console` if you were Console-opted-in). Paste it in any terminal,
+   any time; restart once afterwards to load them.
 
 ## Good to know
 
