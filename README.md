@@ -5,6 +5,10 @@
 
 **A team that remembers, not a chat that forgets.**
 
+> **v2.0** — the framework now ships as Claude Code **plugins** from this repo's own
+> marketplace. New projects install once and run `/ccmaf:init`; existing v1 projects get a
+> one-shot, one-commit [migration](MIGRATING.md). The v1 copy-in line keeps working.
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![npm: ccmaf-console](https://img.shields.io/npm/v/ccmaf-console?label=ccmaf-console)](https://www.npmjs.com/package/ccmaf-console)
 [![Skills catalogue](https://img.shields.io/badge/skills-CCMAF----Skills-555)](https://github.com/drushegh/CCMAF---Skills)
@@ -20,8 +24,9 @@ verifying it. Contracts agreed on Tuesday are forgotten by Thursday.
 
 CCMAF answers each failure with a mechanism, not a resolution. The source of truth lives on
 disk — a task board, a decision log, machine-readable contracts, a rolling progress file — and
-hooks enforce the discipline so it does not depend on goodwill. It is built for Claude Code and
-works with any agent runtime that reads a `CLAUDE.md`.
+hooks enforce the discipline so it does not depend on goodwill. It is built for Claude Code —
+since v2.0 it ships as Claude Code plugins — and the v1 copy-in line works with any agent
+runtime that reads a `CLAUDE.md`.
 
 <img src=".github/assets/v2/img1.webp" alt="Two horizontal timelines; the top one loses its state at each session boundary, the bottom one keeps a continuous disk band, with four failure-to-mechanism arrows between them" width="100%" />
 *Every failure mode of long agent work has a named mechanism on disk that answers it.*
@@ -30,7 +35,7 @@ works with any agent runtime that reads a `CLAUDE.md`.
 |---|---|
 | a discipline layer for long-running agent work | an agent runtime, a model, or a hosted service |
 | state files on disk, enforced by hooks | memory kept inside the context window |
-| built for Claude Code | locked to it — any runtime that reads `CLAUDE.md` works |
+| built for Claude Code (v2 = plugins) | locked in — the v1 file line works with any runtime that reads `CLAUDE.md` |
 | a core plus opt-ins (Console, skills, advisors) | a bundle you must adopt whole |
 
 ## The system on one page
@@ -60,19 +65,32 @@ Colors mean the same thing in every diagram in this README:
 
 ## What's in the repo
 
-| Component | What it is | How it arrives |
+This repository is two things at once: the framework's published source, and the **plugin
+marketplace** that serves it. `claude plugin marketplace add drushegh/CCMAF` makes every
+plugin below installable.
+
+| Plugin | What it carries | Standing |
 |---|---|---|
-| **Framework** (this repo) | state files, hooks, slash commands, role agents, doctor, update system | clone and copy into your project |
-| **Project Console** | a localhost cockpit that renders your `.claude/` state as a live UI | opt-in; npm package [`ccmaf-console`](https://www.npmjs.com/package/ccmaf-console), fetched on demand |
-| **Skills library** | per-domain engineering standards packs | opt-in; synced from the public [CCMAF---Skills](https://github.com/drushegh/CCMAF---Skills) catalogue |
+| **`ccmaf-kernel`** | the safety floor: destructive-command guard, tool-call budget, receipt discipline — useful in ANY repo, scaffold or not | install first, required by core |
+| **`ccmaf`** (core) | the framework itself: role agents, board/lifecycle commands, `/ccmaf:init` scaffolding, doctor, per-task budgets, the unattended profile | the main event |
+| **`advisors`** | `/fable` `/sol` `/terra` `/luna` `/consult` `/crossbench` `/mode` — multi-model second opinions with fail-closed attestation | optional |
+| **`council`** | the internal five-persona panel + chairman | optional |
+| **`media`** | `/image` — labeled diagrams and art via codex gpt-image, zero metered spend | optional |
+| **`devhooks`** | format-on-edit, lint-on-edit, dependency verification, test-output filtering | optional |
+| **`console`** | the Claude-side bridge to the Project Console | optional |
 
-Adopt just the framework. The other two are opt-in and arrive on demand; nothing in the core
-loop depends on them.
+Two companions live outside the plugins: the **Project Console** (a localhost cockpit over
+your `.claude/` state; npm package [`ccmaf-console`](https://www.npmjs.com/package/ccmaf-console),
+fetched on demand) and the **skills library** (per-domain standards packs synced from the
+public [CCMAF---Skills](https://github.com/drushegh/CCMAF---Skills) catalogue). Both are
+opt-in; nothing in the core loop depends on them.
 
-## Quick start
+The repo also still carries the complete v1 file tree — the copy-in install below remains
+real, supported, and updateable.
 
-Since **v2.0** the framework ships as Claude Code **plugins** from this repo's own
-marketplace. Install is two layers: plugins once per machine, a scaffold once per project.
+## Quick start — new project
+
+Install is two layers: plugins once per **machine**, a scaffold once per **project**.
 
 **Once per machine:**
 
@@ -88,17 +106,35 @@ claude plugin install ccmaf@ccmaf --scope user          # the core framework
 /ccmaf:init
 ```
 
-It verifies the kernel, asks one batched question about optional features (Console,
-watcher mode, skills sync, CI), and writes the project scaffold with the v2 marker last.
-That is the entire install: no clone, no copied files. Code updates arrive via
+It verifies the kernel, asks **one** batched question about optional features (Console,
+watcher mode, skills sync, CI), and writes the project scaffold — your state files, your
+settings, bare command aliases so `/build` and friends work unprefixed — with the v2 marker
+written last. That is the entire install: no clone, no copied files. Code updates arrive via
 `claude plugin update`; scaffold deltas via `/ccmaf:update`.
 
-À la carte siblings, each useful on its own: `ccmaf-advisors`, `ccmaf-council`,
-`ccmaf-media`, `ccmaf-devhooks`, `ccmaf-console`.
+À la carte siblings, each useful on its own: `advisors`, `council`, `media`, `devhooks`,
+`console` — install any of them the same way (`claude plugin install <name>@ccmaf --scope user`).
 
-**Already on v1?** Your next framework update delivers a one-shot migration — accept the
-offer at session start and follow the prompts. Details, revert path, and what changes:
-[MIGRATING.md](MIGRATING.md). Staying on v1 is harmless; the offer just repeats.
+<img src=".github/assets/v2/img16.webp" alt="Isometric diagram of the two v2 layers: a machine pedestal holding the kernel and core plugin cubes with five optional satellites, feeding two project boards — a new project scaffolded by /ccmaf:init, and an existing v1 project crossing a three-step migration lane with a revertible-commit loop" width="100%" />
+*Plugins once per machine, a scaffold once per project — and the same migration lane for every v1 board.*
+
+## Switching an existing v1 project
+
+> Update the framework as usual, then accept the migration offer at your next session start
+> and follow the prompts.
+
+That one sentence is the whole human instruction; the machinery does the rest. Behind it:
+the v2.0 update (additive — it deletes nothing) delivers `migrate-v2.sh`; the migration
+refuses to run until the kernel and core plugins are verified installed, so the
+destructive-command guard is never deleted before its replacement is active; the crossover
+itself lands as **one revertible commit** — retired bundled copies deleted and tombstoned,
+your `settings.json` cleaned but never clobbered, your board, decisions, contracts, and
+skills byte-untouched. Restart, run `/ccmaf:init`, and its missing-piece flow finishes the
+aliases.
+
+The full walk, the revert path, recovering customised files, and every edge case:
+**[MIGRATING.md](MIGRATING.md)**. Staying on v1 is harmless — the offer just repeats, and
+the update system refuses to apply anything destructive to an un-migrated project.
 
 <details>
 <summary><b>v1 classic install (copy-in — still works, still supported)</b></summary>
@@ -126,17 +162,17 @@ node tools/console.mjs start             # v1 projects; on v2 the ccmaf-console 
 ```
 
 **Skills (opt-in)** — standards packs for your stack ([Part VI](#skills-library-opt-in)).
-The cold start offers to set this up when your stack matches the catalogue; accepting creates
-the `.claude/.skills-version` pin and runs the sync. By hand:
-
-```bash
-bash .claude/framework/update/skills-sync.sh   # syncs your selection into .claude/skills/
-```
+On v2, `/ccmaf:init`'s feature question offers this; the cold start also suggests it when
+your stack matches the catalogue. Accepting creates the `.claude/.skills-version` pin and
+runs the sync. By hand: `bash .claude/framework/update/skills-sync.sh` (v1 line; the v2
+plugin carries the same script).
 
 Recommended starting posture: the `standard` hook profile and the Base skills tier. Widen later.
 
-*The authoritative operating manual is [`CLAUDE.framework.md`](CLAUDE.framework.md). This
-README describes; that file instructs.*
+*The authoritative operating manual on v2 is the plugin itself — an always-loaded digest of
+standing rules plus per-command runbooks. On the v1 line it is
+[`CLAUDE.framework.md`](CLAUDE.framework.md). Either way: this README describes; those
+instruct.*
 
 ---
 
@@ -145,10 +181,11 @@ README describes; that file instructs.*
 ### One session, start to finish
 
 You open the project in Claude Code. Before you type anything, the
-[**Cold Start Sequence**](#the-cold-start-sequence) runs: the framework checks whether it is
-behind upstream, the [**doctor**](#the-immune-system) validates the wiring — hooks registered,
-contract anchors intact, board grammar clean — and a `git pull` picks up whatever a previous
-session pushed, possibly from another machine. Then the session reads its memory off disk:
+[**Cold Start Sequence**](#the-cold-start-sequence) runs: on v2 the core plugin injects its
+digest of standing rules and a check table — the [**doctor**](#the-immune-system) has already
+validated the wiring (hooks live, contract anchors intact, board grammar clean), the update
+nudge has compared installed plugin versions, and the opt-in surfaces have had their say — and
+a `git pull` picks up whatever a previous session pushed, possibly from another machine. Then the session reads its memory off disk:
 [contracts](#contracts-that-dont-drift), the last ten decisions, the
 [**task board**](#the-two-lane-board), the status file, the rolling progress log. Nothing is
 reconstructed from chat history, because none of it lives there.
@@ -186,34 +223,40 @@ elaboration, not new plot.
 
 ### The verbs: slash commands
 
-Four families. Every later section links back here instead of re-listing its commands.
+Five families. Every later section links back here instead of re-listing its commands. On v2
+the commands are plugin-namespaced (`/ccmaf:build`), and `/ccmaf:init` scaffolds bare aliases
+so the short names below work in your project either way; the right column names the plugin
+that carries each.
 
-| Command | Purpose | Core / optional |
+| Command | Purpose | Ships in |
 |---|---|---|
+| **Scaffold & update (v2)** | | |
+| `/ccmaf:init` | scaffold a project: kernel check, one feature question, state files + aliases | `ccmaf` core |
+| `/ccmaf:update` | apply scaffold deltas when the plugin's scaffold revision moves ahead | `ccmaf` core |
 | **Build loop** | | |
-| `/analyse` | turn a raw idea or requirement into an analysed spec | core |
-| `/plan` | turn a spec into board tasks — one per user story — and contracts | core |
-| `/build` | run the role loop over a task; UI work routes to the ui-designer | core |
-| `/test` | validate against contracts, write tests, emit the verify seed | core |
-| `/review` | reviewer verdict plus independent verification of the findings | core |
+| `/analyse` | turn a raw idea or requirement into an analysed spec | `ccmaf` core |
+| `/plan` | turn a spec into board tasks — one per user story — and contracts | `ccmaf` core |
+| `/build` | run the role loop over a task; UI work routes to the ui-designer | `ccmaf` core |
+| `/test` | validate against contracts, write tests, emit the verify seed | `ccmaf` core |
+| `/review` | reviewer verdict plus independent verification of the findings | `ccmaf` core |
 | **Quality & audit** | | |
-| `/reconcile` | horizontal audit across modules — duplicates, seams, drift | core |
-| `/board-heal` | repair board grammar and board-vs-reality coherence | core |
-| `/bug` | log an ad-hoc bug straight onto the board from chat | core |
-| `/security` | security sweep: SAST, secret scan, dependency audit | core |
-| `/council` | internal five-persona panel with a chairman synthesis | core |
-| `/healthcheck` | the periodic deep audit | core |
-| `/housekeeping` | archive and distil aging state | core |
+| `/reconcile` | horizontal audit across modules — duplicates, seams, drift | `ccmaf` core |
+| `/board-heal` | repair board grammar and board-vs-reality coherence | `ccmaf` core |
+| `/bug` | log an ad-hoc bug straight onto the board from chat | `ccmaf` core |
+| `/security` | security sweep: SAST, secret scan, dependency audit | `ccmaf` core |
+| `/council` | internal five-persona panel with a chairman synthesis | `council` |
+| `/healthcheck` | the periodic deep audit | `ccmaf` core |
+| `/housekeeping` | archive and distil aging state | `ccmaf` core |
 | **External advisors** | | |
-| `/fable` | advisory consult — a Claude Fable sub-model, server-attested | optional |
-| `/sol` `/terra` `/luna` | advisory consults — GPT-5.6 via your own codex CLI, client-attested | optional |
-| `/consult` | several advisors, one identical brief, one divergence map | optional |
-| `/mode` | show or switch which model family fills the watcher seats | optional |
-| `/image` | labeled diagrams, infographics, or art via codex gpt-image | optional |
+| `/fable` | advisory consult — a Claude Fable sub-model, server-attested | `advisors` |
+| `/sol` `/terra` `/luna` | advisory consults — GPT-5.6 via your own codex CLI, client-attested | `advisors` |
+| `/consult` | several advisors, one identical brief, one divergence map | `advisors` |
+| `/mode` | show or switch which model family fills the watcher seats | `advisors` |
+| `/image` | labeled diagrams, infographics, or art via codex gpt-image | `media` |
 | **Session** | | |
-| `/pre-compact` | deliberate checkpoint before a manual `/compact` | core |
-| `/post-compact` | re-anchor and reconcile after a manual `/compact` | core |
-| `/wrapup` | externalise, commit, push — end the session | core |
+| `/pre-compact` | deliberate checkpoint before a manual `/compact` | `ccmaf` core |
+| `/post-compact` | re-anchor and reconcile after a manual `/compact` | `ccmaf` core |
+| `/wrapup` | externalise, commit, push — end the session | `ccmaf` core |
 
 ---
 
@@ -260,11 +303,14 @@ Decision in flight: per-token, not per-IP — IPs are shared behind the corp pro
 
 ### The Cold Start Sequence
 
-It runs unprompted at every session start. Phase by phase: check (is the framework behind
-upstream? are opt-in surfaces suggesting themselves?), health (the doctor validates the wiring
-before any work starts), sync (`git pull` picks up a handoff from another machine), read state
-(contracts, then decisions, then the board, status, and progress), begin (init, then pick the
-highest-priority unblocked task and check the gotchas for its area).
+It runs unprompted at every session start. On v2 the core plugin fronts it with two compact
+artifacts: a **digest** of the standing rules (always loaded, deliberately small) and a
+**check table** — doctor, plugin-version nudge, skills check, Console check, insights, each
+with its exit code — so the session starts already knowing whether the machinery is intact
+and whether anything is offering itself. Then the same spine as ever: sync (`git pull` picks
+up a handoff from another machine), read state (contracts, then decisions, then the board,
+status, and progress), begin (pick the highest-priority unblocked task and check the gotchas
+for its area).
 
 An empty window means disk is canonical — nothing competes with it.
 
@@ -272,7 +318,7 @@ An empty window means disk is canonical — nothing competes with it.
 *Awareness before operation, health before work, rehydration before work selection.*
 
 <details>
-<summary>Every step, and why the order matters</summary>
+<summary>Every step, and why the order matters (the v1 line runs this same list as prose)</summary>
 
 The ordering is deliberate: update awareness precedes operation (you should know you're behind
 before you act), health precedes work (broken wiring fails silently mid-session), rehydration
@@ -519,9 +565,11 @@ All of this is bring-your-own-model and opt-in. The entire core workflow runs wi
 Everything above describes discipline; hooks are what make it not depend on anyone's mood.
 They fire on session events — start, prompt, before and after each tool call, before
 compaction, at stop — and the Stop hook is the reason a session cannot end with a stale board.
-Hooks run under a profile: `minimal` keeps only the safety tier, `standard` runs everything
-shipped (the default), `strict` reserves room for opt-in extras. Individual hooks can be
-disabled by ID; an explicit disable always wins.
+On v2 the hooks arrive with the plugins — the kernel carries the safety tier, the core
+carries the discipline tier, `devhooks` and `console` carry their own — and none of them are
+files in your repo. They still run under a profile: `minimal` keeps only the safety tier,
+`standard` runs everything shipped (the default), `strict` reserves room for opt-in extras.
+Individual hooks can be disabled by ID; an explicit disable always wins.
 
 > The destructive-command guard (`block-dangerous`) is heuristic defense-in-depth, not a
 > security boundary. It catches the accidents it was written for — an `rm -rf` at the wrong
@@ -529,6 +577,8 @@ disabled by ID; an explicit disable always wins.
 > past it. Treat it as a seatbelt, not a vault door.
 
 The safety tier — the guard and its health monitor — survives even the `minimal` profile.
+On v2 it lives in `ccmaf-kernel`, deliberately separate from the core: one guard copy per
+machine, screening every Bash call in every repo, scaffolded or not.
 
 <img src=".github/assets/v2/img12.webp" alt="Event-column timeline showing which hooks fire at which session events, with safety-tier hooks highlighted in red" width="100%" />
 *Enforcement is positional — each hook guards one moment in the session, and the Stop column is why a session cannot end with a stale board.*
@@ -536,30 +586,45 @@ The safety tier — the guard and its health monitor — survives even the `mini
 <details>
 <summary>Every shipped hook</summary>
 
-| Hook | What it does | Tier |
+| Hook | What it does | Ships in |
 |---|---|---|
-| `block-dangerous` | destructive-command guard (`rm -rf`, force-push, and kin) | safety |
-| `guard-interpreter-check` | reports if the guard has lost its interpreter and is silently off | safety |
-| `enforce-state` | blocks session end until `TASKS.md`, `STATUS.md`, and progress are updated | standard |
-| `filter-test-output` | trims noisy test output before it floods the window | standard |
-| `drift-guard` | flags divergence between claimed state and the working tree mid-session | standard |
-| `format` | auto-format dispatch by detected stack | standard |
-| `lint` | lint dispatch by detected stack | standard |
-| `verify-deps` | checks requested packages against the registry before install | standard |
-| `suggest-compact` | compaction nudge on a turn cadence | standard |
-| `cost-tracker` | records cost and usage telemetry, locally | standard |
-| `session-start-marker` | records HEAD at session start for later re-anchor and diff | standard |
-| `checkpoint-watermark` | nudges a `## WIP` checkpoint as the window fills | standard |
-| `precompact-snapshot` | snapshots working state before a compaction | standard |
-| `reanchor` | injects the reconcile directive after an auto-compaction | standard |
-| `postcompact-archive` | archives the pre-compact snapshot | standard |
-| `console-heartbeat` | keeps the Console registry entry fresh; no-op unless opted in | standard |
-| `console-autostart` | brings an opted-in project's Console up at session start | standard |
+| `block-dangerous` (guard) | destructive-command guard (`rm -rf`, force-push, and kin) | `ccmaf-kernel` (safety) |
+| kernel budget counter | tool-call budget with nags at the half and full marks | `ccmaf-kernel` (safety) |
+| `guard-interpreter-check` | reports if the guard has lost its interpreter and is silently off | `ccmaf-kernel` (safety) |
+| `core-context` | injects the digest + check table at session start (v2 projects only) | `ccmaf` core |
+| `enforce-state` | blocks session end until `TASKS.md`, `STATUS.md`, and progress are updated | `ccmaf` core |
+| `drift-guard` | flags divergence between claimed state and the working tree mid-session | `ccmaf` core |
+| `task-budget-counter` | per-task tool-call budgets, counted by hook — never model-estimated | `ccmaf` core (v2) |
+| `unattended-guard` | under `CLAUDE_UNATTENDED=1`: denies interactive prompts, halts mutating tools on a doctor CRITICAL | `ccmaf` core (v2) |
+| `session-start-marker` | records HEAD at session start for later re-anchor and diff | `ccmaf` core |
+| `checkpoint-watermark` | nudges a `## WIP` checkpoint as the window fills | `ccmaf` core |
+| `precompact-snapshot` | snapshots working state before a compaction | `ccmaf` core |
+| `reanchor` | injects the reconcile directive after an auto-compaction | `ccmaf` core |
+| `postcompact-archive` | archives the pre-compact snapshot | `ccmaf` core |
+| `format` | auto-format dispatch by detected stack | `devhooks` |
+| `lint` | lint dispatch by detected stack | `devhooks` |
+| `verify-deps` | checks requested packages against the registry before install | `devhooks` |
+| `filter-test-output` | trims noisy test output before it floods the window | `devhooks` |
+| `console-heartbeat` | keeps the Console registry entry fresh; no-op unless opted in | `console` |
+| `console-autostart` | brings an opted-in project's Console up at session start | `console` |
+| `suggest-compact` · `cost-tracker` | compaction-cadence nudge · local cost telemetry | v1 line |
+
+On the v1 line the same hooks (minus the v2-only pair) live as files under `.claude/hooks/`,
+exactly as before.
 
 Tuning — profiles, per-hook disables, and the legacy opt-outs — is in the
 [configuration reference](#configuration-reference).
 
 </details>
+
+### Unattended runs (v2)
+
+Set `CLAUDE_UNATTENDED=1` for overnight or scripted sessions and the discipline hardens
+machine-side: interactive prompts are denied instead of hanging the run, and a doctor
+CRITICAL halts every mutating tool — the session can still read and triage, but it cannot
+build on top of broken machinery. The halt writes a supervisor-readable file and clears
+itself on the next clean session start. Halting beats "never stop": an unattended run that
+ploughs past a broken guard is worse than one that stops and says why.
 
 ### The immune system
 
@@ -599,8 +664,10 @@ back as files the agents read next pass. A machine-global tray Hub gives a fleet
 every opted-in project on the machine.
 
 It ships as the npm package `ccmaf-console`, fetched on demand — it is not bundled with the
-framework. Opt in with the two lines in [Quick start](#quick-start); two lifecycle hooks keep
-a running Console fresh while you work and bring it up on cold boot.
+framework. Opt in by answering yes to `/ccmaf:init`'s feature question (or by hand:
+`echo latest > .claude/.console-version`, committed); on v2 install the `console` plugin
+alongside — it carries the driver and the two lifecycle hooks that keep a running Console
+fresh while you work and bring it up on cold boot.
 
 <!-- SHOT: real Console screenshot needed — never generate -->
 *Screenshot pending: the Console dashboard and kanban over a live project's `.claude/` state.*
@@ -629,21 +696,30 @@ installed.
 
 ## Part VII — Living with it
 
-### Self-updating, additively
+### Staying current
 
-Your project pins the framework with a `.framework-version` file. Every cold start checks the
-pin against upstream; if you are behind, the session summarises the new commits and asks
-before applying anything. Updates are additive by design: the framework replaces only its own
-manifest-listed files, merges new hook registrations into your `settings.json` instead of
-clobbering it, and names any collision with a file you customised loudly rather than silently
-overwriting your intent.
+**On v2, code updates are plugin updates.** `claude plugin update` per plugin; the cold
+start's check table nudges when an installed version falls behind. Nothing in your repo is
+framework-owned anymore, so there is nothing for an update to overwrite. The scaffold — alias
+files, templates, gitignore entries — has its own revision (`SCAFFOLD_REV`), and
+`/ccmaf:update` applies scaffold deltas when the plugin moves ahead: collisions reported
+loudly, consumer content never overwritten, deliberate deletions remembered via tombstones
+and never recreated.
 
-| On update | What happens |
+| On a v2 update | What happens |
 |---|---|
-| framework-owned files (hooks, commands, agents, `CLAUDE.framework.md`) | replaced with upstream's; collisions with local edits named loudly |
-| `settings.json` hook registrations | merged — consumer-owned settings survive |
-| your state files, your `CLAUDE.md` | never touched |
+| plugin code (hooks, commands, agents, doctor) | updated in the plugin cache — outside your repo entirely |
+| scaffold pieces (aliases, templates) | `/ccmaf:update` applies deltas; settings changes are printed as suggestions, never auto-merged |
+| your state files, your `CLAUDE.md`, your settings | never touched |
 | `.github/` CI scaffold | not managed — a frozen starting point; CodeQL self-gates to skip on private repos |
+
+**The v1 line keeps its manifest updater.** The project pins upstream with
+`.framework-version`; every cold start compares and asks; updates replace only
+manifest-listed files, merge hook registrations into `settings.json`, and name collisions
+with customised copies loudly. The v2 crossover rides this exact mechanism — v2.0 is an
+ordinary, additive v1 update that happens to carry the migration tooling, and the updater
+refuses to apply any destructive later release to a project that has not migrated
+([MIGRATING.md](MIGRATING.md) has the ladder in full).
 
 <img src=".github/assets/v2/img15.webp" alt="Linear update flow from version pin through human confirmation to apply, with an additive-guarantees badge" width="100%" />
 *The update system asks first and replaces only what it owns — your memory and your settings are not its to touch.*
@@ -713,18 +789,38 @@ discipline — think before coding, simplicity first, surgical changes) and the 
 
 ### Repository layout
 
+A migrated or freshly-initialised **v2 project** keeps only what is genuinely its own —
+every framework mechanism lives in the plugin cache, outside the repo:
+
+```text
+your-project/
+├── CLAUDE.md                     # yours — project notes; one line names the framework
+├── .claude/
+│   ├── TASKS.md                  # the board                    ┐
+│   ├── STATUS.md                 # who's doing what             ├─ your memory —
+│   ├── DECISIONS.md              # why, with rationale          │  yours, and only
+│   ├── ECOSYSTEM.md              # contracts, anchored          │  yours
+│   ├── GOTCHAS.md                # pitfalls                     │
+│   ├── claude-progress.txt       # rolling summary + WIP        ┘
+│   ├── FRAMEWORK-SUGGESTIONS.md  # feedback destined for upstream
+│   ├── settings.json             # consumer-owned: permissions + statusLine (no hook registrations)
+│   ├── statusline.sh             # the status line — part of YOUR scaffold now
+│   ├── .framework-version        # the v2 marker (FRAMEWORK_LINE=v2 + SCAFFOLD_REV)
+│   ├── commands/                 # bare aliases: /build → ccmaf:build, etc.
+│   ├── specs/                    # acceptance specs written by /plan
+│   └── skills/                   # opt-in, synced from the catalogue
+└── .github/                      # frozen CI scaffold: CodeQL, Dependabot (self-gating)
+```
+
+<details>
+<summary>The v1 layout (copy-in line)</summary>
+
 ```text
 your-project/
 ├── CLAUDE.md                     # yours — first line points at CLAUDE.framework.md
 ├── CLAUDE.framework.md           # framework-owned operating manual (overwritten on update)
 ├── .claude/
-│   ├── TASKS.md                  # the board                    ┐
-│   ├── STATUS.md                 # who's doing what             ├─ your memory —
-│   ├── DECISIONS.md              # why, with rationale          │  never overwritten
-│   ├── ECOSYSTEM.md              # contracts, anchored          │  by updates
-│   ├── GOTCHAS.md                # pitfalls                     │
-│   ├── claude-progress.txt       # rolling summary + WIP        ┘
-│   ├── FRAMEWORK-SUGGESTIONS.md  # feedback destined for upstream
+│   ├── (the same seven state files — yours, never overwritten by updates)
 │   ├── settings.json             # consumer-owned; hook registrations merged in
 │   ├── hooks/                    # enforcement hooks (framework-owned)
 │   ├── commands/                 # the slash commands
@@ -735,6 +831,8 @@ your-project/
 │   └── console.mjs               # Console driver — resolves the npm package
 └── .github/                      # frozen CI scaffold: CodeQL, Dependabot (self-gating)
 ```
+
+</details>
 
 ---
 
@@ -755,8 +853,9 @@ Stated in the same voice as the features, because they are part of the same desi
   deployment target.
 - External advisors and watcher mode need your own subscriptions (codex CLI, ChatGPT). The
   core workflow runs without them, and without the Console and skills too.
-- CCMAF is not an agent runtime, a model, or a hosted service. It assumes Claude Code's hook
-  and command surface; other runtimes get the state files and conventions, not the enforcement.
+- CCMAF is not an agent runtime, a model, or a hosted service. The v2 plugin line assumes
+  Claude Code's plugin, hook, and command surface fully; the v1 copy-in line is the portable
+  one — other runtimes get its state files and conventions, not the enforcement.
 
 ### Using, contributing, license
 
@@ -770,7 +869,7 @@ Licensed [MIT](LICENSE).
 
 ---
 
-*README audited against the framework release of 2026-07. The labeled diagrams were generated
-with `/image`; the Console images are real screenshots.*
+*README audited against CCMAF v2.0 (2026-08). The labeled diagrams were generated with
+`/image`; the Console images are real screenshots.*
 
 **The framework maintains itself. Disk is the source of truth.**
