@@ -2,6 +2,11 @@ Deep audit across framework integrity, code quality, contracts, state
 files, and tests. On-demand companion to the always-on self-checks
 (doctor.sh per cold start, insights/analyse.sh weekly). Use this when:
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:healthcheck` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 - Significant framework or project changes have landed
 - Before a major merge
 - The cold-start nudge said it's time

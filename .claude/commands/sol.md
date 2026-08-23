@@ -3,6 +3,11 @@ the **`gpt-5.6-sol`** model via the OpenAI **`codex` CLI**, billed to your **Cha
 subscription (NOT the metered API)**. This is the codex-provider sibling of `/fable`, for when
 Fable is unavailable or when you want a second, independent advisor.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `advisors:sol` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` is the consultation topic / question (free text). If empty, ask the user what they
 want Sol's take on before proceeding.
 

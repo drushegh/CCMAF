@@ -5,6 +5,11 @@ so `/image` delegates the *asset* while the framework keeps the workflow. Runs o
 **subscription** built-in tool — **no `OPENAI_API_KEY`, zero metered spend**. The image is
 **AI-generated** (built-in `image_gen`), pinned to a codex model for provenance.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `media:image` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` = `[advisor] <brief>` — the image description, optionally prefixed with a model
 override. If empty, ask the user what to generate before proceeding.
 

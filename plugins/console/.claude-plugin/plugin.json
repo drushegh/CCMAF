@@ -1,7 +1,7 @@
 {
   "name": "console",
   "description": "Claude-side bridge to the ccmaf-console web dashboard (npm: ccmaf-console): session autostart + heartbeat hooks, the launcher driver, and the /console:stop teardown command. Active only in projects opted in via .claude/.console-version.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": {
     "name": "drushegh"
   }

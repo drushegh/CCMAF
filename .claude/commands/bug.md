@@ -1,6 +1,11 @@
 Log an **ad-hoc bug** straight into the board from chat — a defect noticed outside a
 verify story (in conversation, while reading code, from a stack trace, etc.).
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:bug` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 **Goal:** capture the bug into `.claude/TASKS.md` immediately, in the EXACT on-disk
 shape a board projection writes, so the two bug-intake paths never diverge:
 

@@ -1,5 +1,10 @@
 # /council — Convene a Council of Agents
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `council:council` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 Run a high-stakes decision through five independent advisors who deliberate, peer-review each other anonymously, and produce a synthesised verdict plus a scannable HTML report.
 
 ## When to Invoke

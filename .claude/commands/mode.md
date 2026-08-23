@@ -5,6 +5,11 @@ fail-closed before it writes. See `.claude/framework/advisors/PROTOCOL.md` "Watc
 model + the four load-bearing rules (augment-never-replace · advisory-roles-only · evidence-
 verifier-fail-closed · client-attested-degrade-loudly).
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `advisors:mode` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` = an optional mode name (`normal`, `watcher-low`, `watcher-medium`, `watcher-high`, or
 any `[modes.<name>]` you have defined). No argument → SHOW.
 

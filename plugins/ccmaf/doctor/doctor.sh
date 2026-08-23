@@ -337,7 +337,7 @@ check_manifest_paths() {
 # Grace: a .framework-version younger than 1 day (fresh migration/init)
 # skips the check — same grace the kernel's blackout warning uses.
 check_kernel_present() {
-  _is_v2_line || return
+  _is_v2_line || return 0
   [ -n "$(find "$VERSION_FILE" -mtime -1 2>/dev/null)" ] && return
 
   local marker="$PROJECT_ROOT/.claude/telemetry/.kernel-present"
@@ -568,7 +568,7 @@ check_detector_consumers() {
 # manifest-updated), so this check is how the fix reaches existing clones.
 check_statusline() {
   [ ! -f "$SETTINGS_FILE" ] && return
-  command -v jq >/dev/null 2>&1 || return
+  command -v jq >/dev/null 2>&1 || return 0
   local cmd
   cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS_FILE" 2>/dev/null || true)
   [ -z "$cmd" ] && return

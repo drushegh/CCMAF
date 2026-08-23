@@ -4,6 +4,11 @@ manifest presence (same approach as `init.sh` and `auto-format.sh`). Each
 check is opt-in by tool availability; missing tooling produces an
 informational note rather than a hard failure.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:security` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 This command exists because AI-generated code consistently surfaces in
 research with concrete security failure modes: ~40% of high-risk
 scenarios vulnerable in one Copilot study, package-hallucination rates

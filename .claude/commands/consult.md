@@ -3,6 +3,11 @@ the brief ONCE and runs each named advisor against the **byte-identical** brief 
 constancy is the whole point — it's why this beats running `/sol` then `/terra` by hand, which
 restages and drifts). Then it verifies each seat and compiles an **extractive divergence map**.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `advisors:consult` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` = `<advisors> <task>` where `<advisors>` is a comma-list (`sol,terra,fable`) or
 `all`. Advisors are the rows in `.claude/advisors.toml` (`fable`=Claude/server-attested;
 `sol`/`terra`/`luna`=codex/client-attested). If `$ARGUMENTS` lacks a task, ask for it.

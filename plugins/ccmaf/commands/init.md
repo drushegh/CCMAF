@@ -24,6 +24,11 @@ consumer content.
    `FRAMEWORK_LINE=v2` line, STOP: "this is a v1-line CCMAF project — run the
    v2 migration (migrate-v2.sh ships with the v2.0 update), not /ccmaf:init.
    Init on a live v1 project would strand its bundled hook registrations."
+   **Dev-repo refusal:** if `.claude/.framework-dev-repo` exists, STOP —
+   this is the framework's own dev repo (it IS the upstream); its
+   `.framework-version` carries publish-lifecycle pin fields the template
+   write in Step 4.5 would clobber. The dev repo's v2 crossover is
+   hand-crafted (TASK-176), never scaffolded.
 3. **Git:** if the directory is not a git repo, ask the user whether to
    `git init` (a board without history has no provenance); proceed only on
    yes. (Unattended: log and proceed with `git init` — a defensible minimum.)

@@ -1,5 +1,10 @@
 Run the /wrapup sequence before ending a session (end of day, PC ↔ laptop switch, fresh-context restart).
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:wrapup` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 **Goal:** flush everything in *your current context window* to disk so nothing is lost on the next cold start. Cheaper to surface a risk now than to re-derive context tomorrow.
 
 This is the **Handoff** in the session-lifecycle model (CLAUDE.framework.md "Session Lifecycle"): externalise → commit → **push**. The push is what makes a cold-start Rehydrate on another machine correct — *no push = no handoff*. (Contrast: a mid-run **Checkpoint** flushes the in-flight working-set to `claude-progress.txt`'s `## WIP` section without committing — `/pre-compact` is the command form of that Checkpoint, for clearing the window before a manual `/compact`; `/wrapup` is the full, committed-and-pushed version, run only at session END.)

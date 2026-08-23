@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-autostart.sh\"; }'"
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] && ! grep -Eq \"^[[:space:]]*FRAMEWORK_LINE=v2\" .claude/.framework-version || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-autostart.sh\"; }'"
           }
         ]
       }
@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] && ! grep -Eq \"^[[:space:]]*FRAMEWORK_LINE=v2\" .claude/.framework-version || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
           }
         ]
       }
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
+            "command": "bash -c 'cd \"${CLAUDE_PROJECT_DIR:-.}\" && { [ -f .claude/.framework-version ] && ! grep -Eq \"^[[:space:]]*FRAMEWORK_LINE=v2\" .claude/.framework-version || bash \"${CLAUDE_PLUGIN_ROOT}/hooks/console-heartbeat.sh\"; }'"
           }
         ]
       }

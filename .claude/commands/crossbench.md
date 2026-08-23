@@ -5,6 +5,11 @@ consolidated design/decision document. Where `/consult` runs several advisors on
 buildable document. Reach for it on a hard design/architecture fork you intend to ACT on — the
 cross-review kills plausible-but-wrong positions, and the synthesis hands you a spec, not a menu.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `advisors:crossbench` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` = `[<advisors>] <task>`. `<advisors>` is an optional comma-list (default **`fable,sol`**
 — the canonical pair: one Claude-attested seat + one codex seat, so the cross-review is a true
 cross-MODEL check, not one model wearing two hats). Advisors are rows in `.claude/advisors.toml`. If

@@ -448,7 +448,7 @@ check_detector_consumers() {
 # manifest-updated), so this check is how the fix reaches existing clones.
 check_statusline() {
   [ ! -f "$SETTINGS_FILE" ] && return
-  command -v jq >/dev/null 2>&1 || return
+  command -v jq >/dev/null 2>&1 || return 0
   local cmd
   cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS_FILE" 2>/dev/null || true)
   [ -z "$cmd" ] && return
@@ -957,6 +957,12 @@ check_state_budgets() {
 # project stays silent (the CLAUDE.framework.md cold-start step 0 owns the
 # migration OFFER; doctor only owns broken state).
 check_legacy_layout() {
+  # The framework's own dev repo runs v2 as its live workflow while the root
+  # tree stays authored v1 source (TASK-176) — both halves of the
+  # half-migrated heuristic are legitimately true there, permanently.
+  # Consumers never have the marker, so their behaviour is unchanged.
+  [ -f "$PROJECT_ROOT/.claude/.framework-dev-repo" ] && return
+
   local fv="$PROJECT_ROOT/.claude/.framework-version"
   local ts="$PROJECT_ROOT/.claude/.migrate-v2-tombstone"
   local v2=0

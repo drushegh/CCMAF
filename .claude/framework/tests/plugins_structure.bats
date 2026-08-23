@@ -123,3 +123,23 @@ setup() {
   [ "$status" -eq 0 ]
   [ ! -d "$BARE/.claude" ]
 }
+
+@test "devhooks + console hooks.json gates are CONTENT-aware, never presence-only (BUG-030)" {
+  # A presence-only gate ([ -f .framework-version ] || run) defers in MIGRATED
+  # v2 consumers too — they keep the file, now carrying FRAMEWORK_LINE=v2, and
+  # migrate-v2 has deleted the bundled copies the deferral assumed. Shipped
+  # broken once (babynamey 2026-08-22): devhooks + console silently dead in
+  # every migrated project. Every hooks.json command that checks the file's
+  # PRESENCE must also check its CONTENT for the v2 line.
+  for p in devhooks console; do
+    jq -r '.. | .command? // empty' "$PLUGINS_DIR/$p/hooks/hooks.json" | while IFS= read -r cmd; do
+      case "$cmd" in
+        *".framework-version"*)
+          case "$cmd" in
+            *"FRAMEWORK_LINE=v2"*) : ;;
+            *) echo "presence-only gate in $p hooks.json: $cmd"; exit 1 ;;
+          esac ;;
+      esac
+    done
+  done
+}

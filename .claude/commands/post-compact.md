@@ -3,6 +3,11 @@ now in your window — treat it as POTENTIALLY LOSSY. This is the manual counter
 `session-reanchor` hook (which only fires on AUTO-compaction); you run it yourself after a
 deliberate `/compact`.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:post-compact` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 Per the **Re-anchor / Reconcile** rule (CLAUDE.framework.md "Session Lifecycle") — RECONCILE,
 don't blindly trust either side:
 

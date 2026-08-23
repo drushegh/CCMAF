@@ -2,6 +2,11 @@ Run an **advisory Terra consultation** — the **`gpt-5.6-terra`** model via the
 CLI on your **ChatGPT subscription** (not the metered API). Terra is a codex-family advisor
 sibling of `/sol`; use it for a second independent take, or when its profile suits the question.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `advisors:terra` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 `$ARGUMENTS` is the consultation topic / question (free text; if empty, ask the user first).
 
 **This is a thin wrapper over the shared codex driver.** Follow the exact runbook in

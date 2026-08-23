@@ -1006,3 +1006,18 @@ EOF
   [ "$status" -eq 0 ]
   if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
 }
+
+@test "doctors carry no bare '|| return' — under set -e it kills the run silently (BUG-031)" {
+  # A bare `return` after a failed command propagates that command's status;
+  # under `set -euo pipefail` the _run caller then trips errexit and the
+  # doctor exits 1 with no output — indistinguishable from "clean". Shipped
+  # once (jq-less machines never ran the doctor past check_statusline).
+  # Skip-guards must be `|| return 0`, never `|| return`.
+  for d in "$DOCTOR_SRC/doctor.sh" "$FW_REPO_ROOT/plugins/ccmaf/doctor/doctor.sh"; do
+    [ -f "$d" ] || continue   # plugin tree absent in consumer checkouts
+    if grep -nE '\|\| return[[:space:]]*$' "$d"; then
+      echo "bare '|| return' in $d (shown above) — use '|| return 0'"
+      return 1
+    fi
+  done
+}

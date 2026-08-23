@@ -3,6 +3,11 @@ compaction summary can't lose anything load-bearing. This is the lightweight, **
 counterpart to `/wrapup`: NOT a session-end (no commit/push ceremony, no instinct-miner, no
 memory sweep) — the session continues right after you `/compact`.
 
+> **Step 0 — v2 self-route (read this first):** if `.claude/.framework-version` contains a
+> `FRAMEWORK_LINE=v2` line, this project runs the CCMAF v2 plugins — invoke the
+> `ccmaf:pre-compact` skill (Skill tool) and follow IT instead of this file; stop reading
+> here. This bare command is the v1-line copy, kept as authored source.
+
 **Do NOT stop the project's Console** — the session is continuing; only `/wrapup` tears it
 down.
 
