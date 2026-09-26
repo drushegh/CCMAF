@@ -10,7 +10,8 @@
 | ------ | -------- | ---------------------------- | ----- |
 
 <!-- "Turns to first tool call" = how many Cold Start file reads before the agent starts actual work. -->
-<!-- Ideal: 9 (the 9-step sequence). Higher means the agent is re-reading or getting confused. -->
+<!-- Ideal: about one turn per step of the Cold Start Sequence in CLAUDE.framework.md (count the steps that
+     actually applied that session — several are conditional). Higher means the agent is re-reading or getting confused. -->
 
 ## Drift Guard
 

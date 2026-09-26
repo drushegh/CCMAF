@@ -151,13 +151,20 @@ the update system refuses to apply anything destructive to an un-migrated projec
 ```bash
 # 1. Get the framework into your project
 git clone https://github.com/drushegh/CCMAF
-cp -r CCMAF/.claude CCMAF/CLAUDE.framework.md  your-project/
+cp -r CCMAF/.claude CCMAF/CLAUDE.framework.md CCMAF/tools  your-project/
+#    (tools/ carries the Console driver, tools/console.mjs)
 
-# 2. Point your project's CLAUDE.md at it (create the file if you don't have one).
+# 2. Bootstrap the version pin — without .claude/.framework-version the update
+#    check skips on every cold start and updates silently stop. This also adds
+#    the framework's ephemeral files to your .gitignore.
+cd your-project
+bash .claude/framework/update/init-framework-version.sh
+
+# 3. Point your project's CLAUDE.md at it (create the file if you don't have one).
 #    First line:
 #    @CLAUDE.framework.md
 
-# 3. Open your-project in Claude Code.
+# 4. Open your-project in Claude Code.
 #    The Cold Start Sequence runs itself: update check, doctor, state read, task pick.
 ```
 
@@ -167,16 +174,18 @@ cp -r CCMAF/.claude CCMAF/CLAUDE.framework.md  your-project/
 
 ```bash
 echo latest > .claude/.console-version   # presence marks the opt-in; commit it
-node tools/console.mjs start             # v1 projects; on v2 the ccmaf-console plugin carries the driver
+node tools/console.mjs start             # v1 projects; on v2 the `console` plugin (console@ccmaf) carries the driver
 ```
 
 **Skills (opt-in)** — standards packs for your stack ([Part VI](#skills-library-opt-in)).
 On v2, `/ccmaf:init`'s feature question offers this; the cold start also suggests it when
-your stack matches the catalogue. Accepting creates the `.claude/.skills-version` pin and
-runs the sync. By hand: `bash .claude/framework/update/skills-sync.sh` (v1 line; the v2
+your stack matches the catalogue. Accepting stack-detects a starting set, writes the
+`.claude/.skills-version` pin, and runs the first sync; after that the cold start only tells
+you when the catalogue has moved past your pin. By hand: `bash .claude/framework/update/skills-sync.sh` (v1 line; the v2
 plugin carries the same script).
 
-Recommended starting posture: the `standard` hook profile and the Base skills tier. Widen later.
+Recommended starting posture: the `standard` hook profile and a small skills set matched to
+your stack. Widen later.
 
 *The authoritative operating manual on v2 is the plugin itself — an always-loaded digest of
 standing rules plus per-command runbooks. On the v1 line it is
@@ -192,8 +201,9 @@ instruct.*
 You open the project in Claude Code. Before you type anything, the
 [**Cold Start Sequence**](#the-cold-start-sequence) runs: on v2 the core plugin injects its
 digest of standing rules and a check table — the [**doctor**](#the-immune-system) has already
-validated the wiring (hooks live, contract anchors intact, board grammar clean), the update
-nudge has compared installed plugin versions, and the opt-in surfaces have had their say — and
+validated the wiring (hooks live, contract anchors intact, board grammar clean), the plugin-update
+reminder has fired if a check is due (a periodic nudge to run `claude plugin update` — it
+cannot see what version is available), and the opt-in surfaces have had their say — and
 a `git pull` picks up whatever a previous session pushed, possibly from another machine. Then the session reads its memory off disk:
 [contracts](#contracts-that-dont-drift), the last ten decisions, the
 [**task board**](#the-two-lane-board), the status file, the rolling progress log. Nothing is
@@ -314,7 +324,7 @@ Decision in flight: per-token, not per-IP — IPs are shared behind the corp pro
 
 It runs unprompted at every session start. On v2 the core plugin fronts it with two compact
 artifacts: a **digest** of the standing rules (always loaded, deliberately small) and a
-**check table** — doctor, plugin-version nudge, skills check, Console check, insights, each
+**check table** — doctor, periodic plugin-update reminder, skills check, Console check, insights, each
 with its exit code — so the session starts already knowing whether the machinery is intact
 and whether anything is offering itself. Then the same spine as ever: sync (`git pull` picks
 up a handoff from another machine), read state (contracts, then decisions, then the board,
@@ -428,25 +438,36 @@ tooling and enforced by the doctor, not decoration.
 
 ### Verify: the human gate
 
-When a task reaches Ready for Test, the tester emits one verify-handback seed — a JSON file
+When a task passes testing and moves from Ready for Test to Verify, the tester emits one
+verify-handback seed — a JSON file
 per task under `.claude/console/verify/`, whose `items[]` are that feature's use-cases. The
 human works through the items and records verdicts; passing moves the task to Done. Seeds are
 write-once: a recorded human verdict is never clobbered. Emission is gated on
 `.claude/console/` existing — absent, the tester skips it, so nothing in the core loop couples
 to the Console.
 
+Seeds and verdicts are **machine-local by default**: `/ccmaf:init` adds `.claude/console/` to
+`.gitignore`, so `verify/` (seeds + verdicts) and `comments/` never reach another clone. Record
+verdicts on the machine that holds them — on a fresh clone `/board-heal` backfills fresh
+all-`pending` seeds, not your verdicts. To carry them across machines, un-ignore the two
+directories (replace the `.claude/console/` line with `.claude/console/*`,
+`!.claude/console/verify/` and `!.claude/console/comments/`) and commit them.
+
 ```json
 {
-  "task": "TASK-214",
-  "title": "Rate-limit the export endpoint",
-  "emitted": "2026-07-14T16:42:07Z",
+  "schemaVersion": 1, "task": "TASK-214", "status": "in-review",
   "items": [
-    { "id": 1, "case": "Exports under 30 req/min succeed unchanged", "verdict": null },
-    { "id": 2, "case": "The 31st request in a minute returns 429 with retry_after_seconds", "verdict": null },
-    { "id": 3, "case": "The limit is per token — a second token is unaffected", "verdict": null }
+    { "id": "under-limit-ok",   "kind": "use-case", "title": "Exports under 30 req/min succeed unchanged",                      "verdict": "pending", "severity": null },
+    { "id": "over-limit-429",   "kind": "use-case", "title": "The 31st request in a minute returns 429 with retry_after_seconds", "verdict": "pending", "severity": null },
+    { "id": "per-token-limit",  "kind": "use-case", "title": "The limit is per token — a second token is unaffected",           "verdict": "pending", "severity": null }
   ]
 }
 ```
+
+Item `id`s are strings and stay stable across re-seeds (they are the reconcile key); verdicts
+start as `"pending"`. The full shape — `round`, `bugId`, `noteRounds` and the verdict/severity
+vocabularies — is the `verify-handback` contract in the core plugin's
+`agent_docs/verify-handback.md`.
 
 The retroactive rule covers batch and overnight builds: if many features were delivered under
 one umbrella task, decompose after the fact — one board task per delivered feature, placed in
@@ -574,19 +595,34 @@ All of this is bring-your-own-model and opt-in. The entire core workflow runs wi
 Everything above describes discipline; hooks are what make it not depend on anyone's mood.
 They fire on session events — start, prompt, before and after each tool call, before
 compaction, at stop — and the Stop hook is the reason a session cannot end with a stale board.
-On v2 the hooks arrive with the plugins — the kernel carries the safety tier, the core
-carries the discipline tier, `devhooks` and `console` carry their own — and none of them are
+On v2 the hooks arrive with the plugins — the kernel carries the guard and its budget counter,
+the core carries the discipline tier (plus the guard's health monitor), `devhooks` and `console` carry their own — and none of them are
 files in your repo. They still run under a profile: `minimal` keeps only the safety tier,
 `standard` runs everything shipped (the default), `strict` reserves room for opt-in extras.
-Individual hooks can be disabled by ID; an explicit disable always wins.
+Most hooks can be disabled by ID (`CLAUDE_DISABLED_HOOKS`); an explicit disable always wins.
+A few have no ID and run whenever their plugin is installed — see the table below.
 
 > The destructive-command guard (`block-dangerous`) is heuristic defense-in-depth, not a
-> security boundary. It catches the accidents it was written for — an `rm -rf` at the wrong
-> path, a force-push nobody asked for — and a determined actor or a novel phrasing will get
-> past it. Treat it as a seatbelt, not a vault door.
+> security boundary. Its scope is narrow on purpose. It blocks commands aimed at a PROTECTED
+> location — a filesystem or drive root; your home directory or anything above it (`/home`,
+> `/Users`, `C:\Users`); a core system directory at the root (`/etc`, `/usr`, `/bin`, `/sbin`,
+> `/lib`, `/lib64`, `/var`, `/boot`, `/opt`, macOS `/System`, `/Library`, `/Applications`,
+> `/private`, `C:\Windows`, `C:\Program Files*`, `C:\ProgramData`); or a whole block device
+> (`/dev/sd*`, `/dev/nvme*`, `/dev/disk*`, `\\.\PhysicalDrive*`). The blocked actions are
+> recursive delete (`rm -r`, `Remove-Item -Recurse`, `rd /s`, `find -delete`, `rsync --delete`),
+> moving the location (`mv`, `Move-Item`), recursive permission or owner rewrites
+> (`chmod`/`chown`/`chgrp -R`, `icacls … /T` with a modifying switch, `Set-Acl -Recurse`,
+> `takeown /r`), and raw disk writes or formats (`dd`, `cp`, `truncate`, `tee` or a `>` redirect
+> onto a device, `mkfs`, `format`, `Format-Volume`, `Clear-Disk`), plus fork bombs. Deeper paths
+> (`/usr/local/src/app`, `/var/tmp/x`) and project directories are not protected. It does NOT
+> judge git (`git push --force`, `git reset --hard` and `git clean -fdx` pass) or project-level
+> deletes (`rm -rf ./src` passes); gate those with the `permissions.ask` recipe under
+> *Permission gating* below. A determined actor or a novel phrasing will get past it. Treat it
+> as a seatbelt, not a vault door.
 
 The safety tier — the guard and its health monitor — survives even the `minimal` profile.
-On v2 it lives in `ccmaf-kernel`, deliberately separate from the core: one guard copy per
+On v2 the guard lives in `ccmaf-kernel`, deliberately separate from the core (its health
+monitor, `guard-interpreter-check`, ships in the core): one guard copy per
 machine, screening every Bash call in every repo, scaffolded or not.
 
 <img src=".github/assets/v2/img12.webp" alt="Event-column timeline showing which hooks fire at which session events, with safety-tier hooks highlighted in red" width="100%" />
@@ -597,18 +633,18 @@ machine, screening every Bash call in every repo, scaffolded or not.
 
 | Hook | What it does | Ships in |
 |---|---|---|
-| `block-dangerous` (guard) | destructive-command guard (`rm -rf`, force-push, and kin) | `ccmaf-kernel` (safety) |
+| `block-dangerous` (guard) | destructive-command guard: recursive deletes, moves and recursive chmod/chown of roots, home and core system dirs; raw disk writes; filesystem formats; fork bombs (not git operations or project-level `rm -rf`) | `ccmaf-kernel` (safety) |
 | kernel budget counter | tool-call budget with nags at the half and full marks | `ccmaf-kernel` (safety) |
-| `guard-interpreter-check` | reports if the guard has lost its interpreter and is silently off | `ccmaf-kernel` (safety) |
+| `guard-interpreter-check` | reports if the guard has lost its interpreter and is silently off | `ccmaf` core (safety tier) |
 | `core-context` | injects the digest + check table at session start (v2 projects only) | `ccmaf` core |
 | `enforce-state` | blocks session end until `TASKS.md`, `STATUS.md`, and progress are updated | `ccmaf` core |
 | `drift-guard` | flags divergence between claimed state and the working tree mid-session | `ccmaf` core |
-| `task-budget-counter` | per-task tool-call budgets, counted by hook — never model-estimated | `ccmaf` core (v2) |
+| `task-budget-counter` | per-task tool-call budgets — a best-effort meter of the calls the harness shows it; the authoritative check is `/ccmaf:build`'s return-time audit of the worker's reported count | `ccmaf` core (v2) |
 | `unattended-guard` | under `CLAUDE_UNATTENDED=1`: denies interactive prompts, halts mutating tools on a doctor CRITICAL | `ccmaf` core (v2) |
 | `session-start-marker` | records HEAD at session start for later re-anchor and diff | `ccmaf` core |
 | `checkpoint-watermark` | nudges a `## WIP` checkpoint as the window fills | `ccmaf` core |
 | `precompact-snapshot` | snapshots working state before a compaction | `ccmaf` core |
-| `reanchor` | injects the reconcile directive after an auto-compaction | `ccmaf` core |
+| `reanchor` | injects the reconcile directive after a compaction (auto or manual) | `ccmaf` core |
 | `postcompact-archive` | archives the pre-compact snapshot | `ccmaf` core |
 | `format` | auto-format dispatch by detected stack | `devhooks` |
 | `lint` | lint dispatch by detected stack | `devhooks` |
@@ -616,7 +652,12 @@ machine, screening every Bash call in every repo, scaffolded or not.
 | `filter-test-output` | trims noisy test output before it floods the window | `devhooks` |
 | `console-heartbeat` | keeps the Console registry entry fresh; no-op unless opted in | `console` |
 | `console-autostart` | brings an opted-in project's Console up at session start | `console` |
-| `suggest-compact` · `cost-tracker` | compaction-cadence nudge · local cost telemetry | v1 line |
+| `suggest-compact` · `cost-tracker` | compaction-cadence nudge · local cost telemetry (sub-features of `drift-guard` / `enforce-state`, each with its own disable ID) | `ccmaf` core |
+
+Names in backticks are the hooks' stable names, and most of them double as their
+`CLAUDE_DISABLED_HOOKS` disable ID. The exceptions: `core-context`, `task-budget-counter`,
+`unattended-guard` and the kernel budget counter have no disable ID (they can't be switched off by name).
+`block-dangerous` honours only an explicit disable, never a profile.
 
 On the v1 line the same hooks (minus the v2-only pair) live as files under `.claude/hooks/`,
 exactly as before.
@@ -648,7 +689,7 @@ state so the memory stays readable.
 | Tier | Cadence | Scope |
 |---|---|---|
 | doctor | every cold start | is the machinery intact? |
-| `/healthcheck` | periodic (nudged after N days) | is the whole project healthy? |
+| `/healthcheck` | on demand (v2: no automatic nudge; v1: cold-start reminder every `HEALTHCHECK_REMIND_DAYS`, default 14) | is the whole project healthy? |
 | `/housekeeping` | on demand | is the memory still lean? |
 
 Two quieter organs feed the loop. Framework-insights mines the session transcript for
@@ -689,7 +730,9 @@ fresh while you work and bring it up on cold boot.
 Skills are per-domain standards packs — senior-level engineering conventions for React, Rust,
 .NET, Kubernetes, Power Platform, and other stacks — maintained in the public
 [CCMAF---Skills](https://github.com/drushegh/CCMAF---Skills) catalogue and synced into
-`.claude/skills/`. Setup is a tiered choice: Base, Enhanced, All, or None. Once installed,
+`.claude/skills/`. Setup picks a set: the skills matching your detected stack plus a few
+cross-cutting ones, and you can add any other catalogue entry (`skills-sync.sh --list`
+prints them all) to `SKILLS_SELECTED`. Once installed,
 skills auto-trigger on file types and keywords declared in each skill's frontmatter, and every
 role agent consults the relevant ones before working.
 
@@ -698,8 +741,10 @@ role agent consults the relevant ones before working.
 Absent skills are a silent no-op, never an error — the framework runs identically with none
 installed.
 
-<img src=".github/assets/v2/img14.webp" alt="Flow from the public skills catalogue through a tier choice into the project's skills directory, consulted by role agents" width="100%" />
-*Standards arrive as files and load themselves when the work matches — no skill installed, nothing lost.*
+<img src=".github/assets/v2/img14.webp" alt="Flow from the public skills catalogue through a selection step (pictured as outdated Base, Enhanced, All, None tiers) into the project's skills directory, consulted by role agents" width="100%" />
+*Standards arrive as files and load themselves when the work matches — no skill installed, nothing lost.
+(The Base / Enhanced / All / None selector pictured is outdated: there are no tiers — setup
+writes the stack-detected `SKILLS_SELECTED` list described above, which you edit freely.)*
 
 ---
 
@@ -708,7 +753,9 @@ installed.
 ### Staying current
 
 **On v2, code updates are plugin updates.** `claude plugin update` per plugin; the cold
-start's check table nudges when an installed version falls behind. Nothing in your repo is
+start's check table carries a periodic reminder (weekly by default) to run it — a cadence nudge,
+not a version comparison: there is no local way to read the latest available version, so
+running the update is how you find out whether anything shipped. Nothing in your repo is
 framework-owned anymore, so there is nothing for an update to overwrite. The scaffold — alias
 files, templates, gitignore entries — has its own revision (`SCAFFOLD_REV`), and
 `/ccmaf:update` applies scaffold deltas when the plugin moves ahead: collisions reported
@@ -759,7 +806,8 @@ recommendation; open a fold when you want a knob.
 <summary>Permission gating</summary>
 
 `settings.json` already denies reads and writes of secret paths, and the destructive-command
-guard covers the accident tier. To require an interactive confirm before a specific
+guard covers wipes, moves and recursive permission changes of roots, home, core system
+directories and block devices — but not git operations or deletes inside the project. To require an interactive confirm before a specific
 risky-but-allowed operation, add an `ask` array to `permissions` alongside `allow`/`deny`:
 
 ```json
@@ -792,7 +840,10 @@ tools over MCP when both exist; the CLI is almost always cheaper.
 Two documents every role agent loads on handoff: the behavioral principles (per-turn
 discipline — think before coding, simplicity first, surgical changes) and the code conventions
 (check for existing helpers before creating, reuse over duplication, domain language from
-`ECOSYSTEM.md`). Both live under `.claude/framework/agent_docs/` and are framework-owned.
+`ECOSYSTEM.md`). Both are framework-owned. On v2 the behavioral principles ship in the core
+plugin (`agent_docs/behavioral-principles.md`, read from the plugin cache) and the code
+conventions are scaffolded once into your repo as `docs/code-conventions.md` — yours to edit
+from then on. On the v1 line both live under `.claude/framework/agent_docs/`.
 
 </details>
 
@@ -818,8 +869,11 @@ your-project/
 │   ├── commands/                 # bare aliases: /build → ccmaf:build, etc.
 │   ├── specs/                    # acceptance specs written by /plan
 │   └── skills/                   # opt-in, synced from the catalogue
-└── .github/                      # frozen CI scaffold: CodeQL, Dependabot (self-gating)
+└── docs/                         # README, code-conventions.md, architecture.md (created if absent)
 ```
+
+`/ccmaf:init` does not create a `.github/` CI scaffold; if your repo already has
+`.github/workflows/codeql.yml`, init only offers to disable it on a private free-tier repo.
 
 <details>
 <summary>The v1 layout (copy-in line)</summary>
@@ -879,6 +933,7 @@ Licensed [MIT](LICENSE).
 ---
 
 *README audited against CCMAF v2.0 (2026-08). The labeled diagrams were generated with
-`/image`; the Console images are real screenshots.*
+`/image`; the Console screenshots are still pending (placeholders in Part VI) — they will be
+real captures, never generated.*
 
 **The framework maintains itself. Disk is the source of truth.**

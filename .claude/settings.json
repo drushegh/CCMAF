@@ -119,11 +119,20 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "PowerShell|Monitor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && _lib=\".claude/hooks/lib/hook-common.sh\"; [ -f \"$_lib\" ] && . \"$_lib\"; PY=\"\"; if command -v resolve_python >/dev/null 2>&1; then PY=$(resolve_python python3 python) || PY=\"\"; else PY=$(command -v python3 || command -v python || true); fi; if [ -n \"$PY\" ]; then \"$PY\" .claude/hooks/block-dangerous-commands.py; else echo \"block-dangerous-commands guard SKIPPED: no working Python interpreter found on PATH - this command was NOT screened for destructive patterns\" >&2; exit 1; fi'"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && _lib=\".claude/hooks/lib/hook-common.sh\"; [ -f \"$_lib\" ] && . \"$_lib\"; PY=\"\"; if command -v resolve_python >/dev/null 2>&1; then PY=$(resolve_python python3 python) || PY=\"\"; else PY=$(command -v python3 || command -v python || true); fi; if [ -n \"$PY\" ]; then \"$PY\" .claude/hooks/block-dangerous-commands.py; else echo \"block-dangerous-commands guard SKIPPED: no working Python interpreter found on PATH - this Bash command was NOT screened for destructive patterns\" >&2; exit 1; fi'"
+            "command": "bash -c 'cd \"$CLAUDE_PROJECT_DIR\" && _lib=\".claude/hooks/lib/hook-common.sh\"; [ -f \"$_lib\" ] && . \"$_lib\"; PY=\"\"; if command -v resolve_python >/dev/null 2>&1; then PY=$(resolve_python python3 python) || PY=\"\"; else PY=$(command -v python3 || command -v python || true); fi; if [ -n \"$PY\" ]; then \"$PY\" .claude/hooks/block-dangerous-commands.py; else echo \"block-dangerous-commands guard SKIPPED: no working Python interpreter found on PATH - this command was NOT screened for destructive patterns\" >&2; exit 1; fi'"
           },
           {
             "type": "command",

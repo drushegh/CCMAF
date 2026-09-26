@@ -19,13 +19,44 @@ permissions:
   actions: read
 
 jobs:
+  # CodeQL code scanning is free ONLY on public repos; on a private repo it
+  # needs GitHub Advanced Security (paid). Gate to public so a consumer who
+  # clones this onto a private/free-tier account gets a SKIPPED (green) job,
+  # not a perpetually-failing one. On a private repo WITH GHAS, drop the
+  # `needs:`/`if:` gate on `analyze`.
+  #
+  # Visibility is resolved in its own job because not every event payload
+  # carries the `repository` object (the `schedule` payload does not), so
+  # gating on `github.event.repository.visibility` alone could silently skip
+  # the weekly run. Fall back to the REST API (metadata read) when it's absent.
+  visibility:
+    name: Resolve repository visibility
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      public: ${{ steps.vis.outputs.public }}
+    steps:
+      - id: vis
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_VISIBILITY: ${{ github.event.repository.visibility }}
+        run: |
+          vis="$EVENT_VISIBILITY"
+          if [ -z "$vis" ]; then
+            vis="$(gh api "repos/${GITHUB_REPOSITORY}" --jq .visibility 2>/dev/null || true)"
+          fi
+          echo "Repository visibility: ${vis:-unknown}"
+          if [ "$vis" = "public" ]; then
+            echo "public=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "public=false" >> "$GITHUB_OUTPUT"
+          fi
+
   analyze:
     name: Analyze (${{ matrix.language }})
-    # CodeQL code scanning is free ONLY on public repos; on a private repo it
-    # needs GitHub Advanced Security (paid). Gate to public so a consumer who
-    # clones this onto a private/free-tier account gets a SKIPPED (green) job,
-    # not a perpetually-failing one. On a private repo WITH GHAS, remove this.
-    if: ${{ github.event.repository.visibility == 'public' }}
+    needs: visibility
+    if: ${{ needs.visibility.outputs.public == 'true' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -25,12 +25,18 @@ console/dist-server/
 .claude/.framework-update-available.md
 # apply-update staging dir (removed by trap; survives only a hard kill).
 .claude/.update-staging.*
+# apply-update pinned-settings temp (merge baseline; removed after the merge,
+# survives only a hard kill).
+.claude/.pinned-settings.json.*
 # Skills sync — ephemeral "skills behind upstream" flag (skills-check.sh).
 .claude/.skills-update-available.md
 # Skills sync — ephemeral non-adopter suggestion flag (skills-check.sh).
 # NOTE: .claude/.skills-declined is deliberately NOT ignored — it's a
 # committed project decision every clone should see.
 .claude/.skills-suggestion.md
+# Console opt-in suggestion flag (console-check.sh) — ephemeral, same class as
+# .skills-suggestion.md (console-check.sh writes it for non-adopters).
+.claude/.console-suggestion.md
 
 # Framework insights — ephemeral alert flag file.
 .claude/.framework-insight-alert.md
@@ -81,3 +87,7 @@ console/dist-server/
 
 # /image + advisor run scratch (never ship working files)
 _advisors/
+
+# Python bytecode caches (e.g. from running the guard / skill scripts)
+__pycache__/
+*.pyc

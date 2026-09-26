@@ -6,9 +6,11 @@ framework so every project that uses it benefits.
 
 > **Adopted this framework? Please send these upstream.** This file lives only
 > in your project, so the framework's maintainers never see what your agents
-> record here. To contribute an idea back, open an issue or pull request on the
-> framework's upstream repository — its URL is the `FRAMEWORK_UPSTREAM_URL` in
-> `.claude/.framework-version`. Pasting an entry from below is enough; the more
+> record here. To contribute an idea back, open an issue on the framework's
+> upstream repository — its URL is the `FRAMEWORK_UPSTREAM_URL` in
+> `.claude/.framework-version`. Please use an issue, not a pull request: the
+> public CCMAF repo is a published mirror and closes PRs automatically (paste a
+> diff into the issue instead). Pasting an entry from below is enough; the more
 > context, the better. (Nothing here is sent anywhere automatically — it is
 > yours to share or keep.)
 
