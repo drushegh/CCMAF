@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # init-framework-version.sh — Bootstrap .framework-version for a project.
 #
-# Creates .framework-version at the project root so check-updates.sh can
-# start tracking upstream. Safe to re-run: refuses to overwrite an
-# existing .framework-version unless --force is passed.
+# Creates .claude/.framework-version so check-updates.sh can start
+# tracking upstream, and adds the framework's ephemeral files to .gitignore.
+# Safe to re-run: refuses to overwrite an existing .framework-version unless
+# --force is passed.
 #
 # Usage:
 #   bash .claude/framework/update/init-framework-version.sh
@@ -16,6 +17,9 @@
 #                        public HTTPS URL of the canonical framework.
 #   --branch NAME        Upstream branch. Defaults to main.
 #   --interval HOURS     Throttle for update checks. Defaults to 24.
+#   --subdir PATH        Subdirectory of the upstream repo that holds the
+#                        canonical framework (FRAMEWORK_SOURCE_SUBDIR, e.g.
+#                        framework/). Defaults to empty = the repo root.
 #   --force              Overwrite an existing .framework-version.
 
 set -euo pipefail
@@ -32,20 +36,38 @@ interval=24
 subdir=""
 force=0
 
+# A value-taking flag given as the LAST argument (or followed by another
+# flag) used to crash with "$2: unbound variable" under `set -u`. Fail with
+# a usage message instead.
+_need_value() {  # <flag> <remaining-arg-count> <next-arg>
+  if [ "$2" -lt 2 ] || [ -z "$3" ] || [ "${3#--}" != "$3" ]; then
+    echo "init-framework-version: $1 requires a value." >&2
+    echo "Run with --help for usage." >&2
+    exit 1
+  fi
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --url) url="$2"; shift 2 ;;
-    --branch) branch="$2"; shift 2 ;;
-    --interval) interval="$2"; shift 2 ;;
-    --subdir) subdir="${2%/}"; shift 2 ;;
+    --url)      _need_value "$1" $# "${2:-}"; url="$2"; shift 2 ;;
+    --branch)   _need_value "$1" $# "${2:-}"; branch="$2"; shift 2 ;;
+    --interval) _need_value "$1" $# "${2:-}"; interval="$2"; shift 2 ;;
+    --subdir)   _need_value "$1" $# "${2:-}"; subdir="${2%/}"; shift 2 ;;
     --force) force=1; shift ;;
     -h|--help)
-      sed -n '2,20p' "$0" | sed 's/^# \?//'
+      sed -n '2,24p' "$0" | sed 's/^# \?//'
       exit 0
       ;;
     *) echo "Unknown flag: $1" >&2; exit 1 ;;
   esac
 done
+
+case "$interval" in
+  ''|*[!0-9]*)
+    echo "init-framework-version: --interval must be a whole number of hours (got '$interval')." >&2
+    exit 1
+    ;;
+esac
 
 if [ -f "$VERSION_FILE" ] && [ $force -eq 0 ]; then
   echo "init-framework-version: $VERSION_FILE already exists. Use --force to overwrite." >&2

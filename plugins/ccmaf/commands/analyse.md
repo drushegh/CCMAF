@@ -1,3 +1,6 @@
+---
+description: Architect analysis of requirements and existing code into a design and task breakdown (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check

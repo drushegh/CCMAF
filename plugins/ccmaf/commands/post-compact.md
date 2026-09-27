@@ -1,3 +1,6 @@
+---
+description: Rehydrate after a manual /compact by reconciling the lossy summary against on-disk state (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -12,9 +15,10 @@ This command runs only in a **CCMAF v2** project. Check
 ---
 
 Rehydrate after a MANUAL `/compact`. A model-generated SUMMARY of the pre-compact context is
-now in your window — treat it as POTENTIALLY LOSSY. This is the manual counterpart to the
-`session-reanchor` hook (which only fires on AUTO-compaction); you run it yourself after a
-deliberate `/compact`.
+now in your window — treat it as POTENTIALLY LOSSY. This is the fuller, deliberate companion
+to the `session-reanchor` hook: that hook fires on `SessionStart` with `source=compact` (after
+ANY compaction, auto or manual) and injects only a short re-anchor directive; you run this
+command yourself after a deliberate `/compact` to do the complete reconciliation below.
 
 Per the **Re-anchor / Reconcile** rule (`${CLAUDE_PLUGIN_ROOT}/DIGEST.md` "Session Lifecycle") —
 RECONCILE, don't blindly trust either side:

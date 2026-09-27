@@ -1,7 +1,7 @@
 {
   "name": "devhooks",
   "description": "Stack-aware dev QoL hooks for any repo: format-on-edit, lint-on-edit, dependency verification, and noisy-test-output filtering. Honours CLAUDE_HOOK_PROFILE and CLAUDE_DISABLED_HOOKS.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": {
     "name": "drushegh"
   }

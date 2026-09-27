@@ -9,6 +9,7 @@
 # Skip → exit 0 (no state-update enforcement). In minimal profile or if
 # explicitly disabled, the session is not blocked at Stop.
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 
 # Capture the Stop hook payload (carries transcript_path) for the
@@ -123,6 +124,26 @@ if [ "$SESSION_SCOPED" -eq 0 ]; then
   RECENT_FILES=$(git log --name-only --format= -5 2>/dev/null)
 fi
 UNCOMMITTED=$(git diff --name-only HEAD 2>/dev/null; git diff --name-only --cached 2>/dev/null)
+
+# Dirty-before-this-session filter: a state file left UNCOMMITTED by an
+# earlier session is dirty vs HEAD without anyone touching it now, and used
+# to pre-satisfy this gate for every later session. When OUR session
+# marker resolved, its mtime is this session's start (session-start-marker.sh
+# rewrites it at every SessionStart), so an uncommitted path counts only if
+# it is not older than the marker (or no longer exists — a deletion is a
+# change). Unscoped (no marker) → no filtering, the previous behaviour.
+if [ "$SESSION_SCOPED" -eq 1 ] && [ -f "$SESSION_MARKER" ] && [ -n "$UNCOMMITTED" ]; then
+  _fresh=""
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    if [ ! -e "$REPO_ROOT/$_p" ] || [ ! "$SESSION_MARKER" -nt "$REPO_ROOT/$_p" ]; then
+      _fresh="$_fresh$_p"$'\n'
+    fi
+  done <<EOF_UNCOMMITTED
+$UNCOMMITTED
+EOF_UNCOMMITTED
+  UNCOMMITTED="$_fresh"
+fi
 ALL_CHANGES="$UNCOMMITTED
 $RECENT_FILES"
 
@@ -151,7 +172,9 @@ if [ -n "$REPO_ROOT" ]; then
   fi
 
   # Scrape review-findings.md once per session end. Cheap, non-fatal.
-  if [ -x "$REPO_ROOT/.claude/framework/insights/scrape-review-findings.sh" ]; then
+  # `-f`, not `-x`: the script is run via `bash` and is committed as mode
+  # 100644 — an exec-bit gate silently skipped it on Linux/macOS.
+  if [ -f "$REPO_ROOT/.claude/framework/insights/scrape-review-findings.sh" ]; then
     bash "$REPO_ROOT/.claude/framework/insights/scrape-review-findings.sh" 2>/dev/null || true
   fi
 fi

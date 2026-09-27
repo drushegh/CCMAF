@@ -25,8 +25,21 @@
 # compaction, so the enforced window is always "commits since the most
 # recent SessionStart", consistent with treating a post-compaction
 # re-anchor (session-reanchor.sh) as a fresh checkpoint. Suffixed markers
-# from long-dead sessions are pruned here (>3 days old) so they never
-# accumulate.
+# from long-dead sessions are pruned here so they never accumulate.
+#
+# Marker format: line 1 = the HEAD sha (the only line older readers use —
+# /ccmaf:build reads `head -1`), line 2 = `started=<epoch>`, the session's
+# start time. The start time lives in the CONTENT, not the file mtime,
+# because enforce-state-update.sh re-touches this session's marker on every
+# Stop as a LIVENESS signal — so the prune below keys on "no Stop for 7
+# days" (a genuinely dead session), never on "started 3+ days ago", which
+# used to delete a live long-running session's marker out from under it.
+# enforce-state-update.sh uses `started=` to tell state files dirtied THIS
+# session from ones left dirty by an earlier one.
+#
+# Root: "${CLAUDE_PROJECT_DIR:-$PWD}" — the same .claude/ core_active
+# gated on (a nested project in a monorepo must not scatter its marker into
+# the git toplevel's .claude/). git is still required for the HEAD sha.
 #
 # Tier: normal (matches enforce-state's own tier — in `minimal` profile
 # enforce-state-update.sh no-ops entirely, so this marker not being written
@@ -49,7 +62,7 @@ _lib="${CLAUDE_PLUGIN_ROOT:-}/hooks/lib/hook-common.sh"
 if ! command -v core_active >/dev/null 2>&1; then
   core_active() {
     local f="${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version"
-    [ -f "$f" ] && grep -q '^FRAMEWORK_LINE=v2' "$f" 2>/dev/null
+    [ -f "$f" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$f" 2>/dev/null
   }
 fi
 # v2 adaptation: core activates on the v2 line in .framework-version
@@ -74,14 +87,15 @@ if command -v jq >/dev/null 2>&1; then
 fi
 SID=$(printf '%s' "$SID" | tr -cd 'A-Za-z0-9._-')
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-[ -n "$ROOT" ] || { echo "{}"; exit 0; }
+ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || { echo "{}"; exit 0; }
 
 # Prune suffixed markers left by long-dead sessions (cheap, best-effort).
-# The current session's marker is immune in practice: it is (re)written
-# with a fresh mtime immediately below.
+# mtime = that session's last Stop (enforce-state-update.sh touches its own
+# marker every Stop), so +7 means a week with no turn at all. The current
+# session's marker is immune: it is (re)written just below.
 find "$ROOT/.claude" -maxdepth 1 -name '.session-start-commit.*' -type f \
-  -mtime +3 -delete 2>/dev/null || true
+  -mtime +7 -delete 2>/dev/null || true
 
 # `git rev-parse HEAD` on an UNBORN HEAD (no commits yet) is a genuine git
 # gotcha, not a hypothetical: it exits 128 but still prints the literal
@@ -94,7 +108,7 @@ if HEAD_SHA=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null) && [ -n "$HEAD_SHA" ]; 
   mkdir -p "$ROOT/.claude" 2>/dev/null
   _tmp="$MARKER.tmp"
   command -v unique_tmp >/dev/null 2>&1 && _tmp=$(unique_tmp "$MARKER")
-  printf '%s\n' "$HEAD_SHA" > "$_tmp" 2>/dev/null \
+  printf '%s\nstarted=%s\n' "$HEAD_SHA" "$(date +%s 2>/dev/null)" > "$_tmp" 2>/dev/null \
     && mv -f "$_tmp" "$MARKER" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
 fi
 

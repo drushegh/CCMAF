@@ -4,7 +4,7 @@ Last updated: {{date}}
 
 <!-- Do NOT record push/ahead-behind state as prose here — it goes stale
      the moment anything is committed. It is computed on demand:
-     `bash .claude/framework/insights/push-state.sh` (/wrapup reports it). -->
+     the ccmaf plugin's `insights/push-state.sh` (/ccmaf:wrapup reports it). -->
 
 ## Current Sprint Goal
 

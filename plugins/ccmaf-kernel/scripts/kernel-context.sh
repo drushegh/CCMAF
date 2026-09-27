@@ -61,4 +61,4 @@ for cand in python3 python; do
     exit 0
   fi
 done
-printf '\nWARNING: no working Python interpreter on PATH - the kernel dangerous-command guard (rule 5) cannot run this session. Treat every Bash command as UNSCREENED: apply the same bans yourself and record the gap in the receipt.\n'
+printf '\nWARNING: no working Python interpreter on PATH - the kernel dangerous-command guard (rule 5) cannot run this session. Treat every shell command (Bash, PowerShell, Monitor) as UNSCREENED: apply the same bans yourself and record the gap in the receipt.\n'

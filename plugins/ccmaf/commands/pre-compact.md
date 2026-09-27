@@ -1,3 +1,6 @@
+---
+description: Flush the in-context working set to disk before a manual /compact (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check

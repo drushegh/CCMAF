@@ -11,7 +11,8 @@ description: Review Ready-for-Review tasks — receipts to the orchestrator, fin
    wave diff when invoked from /ccmaf:build step 9 — same flow, task list =
    the wave).
 2. Gather the file list:
-   `git log --oneline --name-only --grep="TASK-XXX" -- . ':(exclude).claude'`.
+   `git log --oneline --name-only -E --grep='TASK-XXX([^0-9]|$)' -- . ':(exclude).claude'`
+   (the `([^0-9]|$)` anchor stops TASK-17 also pulling in TASK-170..179's files).
 
 3. **Watcher mode (advisors plugin, double-gated).** Run the codex
    cross-check ONLY when BOTH hold: (a) a registry exists

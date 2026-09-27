@@ -23,14 +23,20 @@ now_ms() { date +%s%3N 2>/dev/null | grep -qE '^[0-9]+$' && date +%s%3N || echo 
 rc_all=0
 echo "cold-start checks — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "-----------------------------------------------"
-run_check() { # <label> <script...>
+run_check() { # <label> <interpreter> <script> [args...]
   local label="$1"; shift
-  [ -f "${1:-}" ] || { printf '%-16s %8s   (missing)\n' "$label" "-"; return 0; }
+  # After the shift, $1 is the interpreter (bash) and $2 the script PATH — test
+  # the script, not the interpreter (else every check reports "(missing)").
+  [ -f "${2:-}" ] || { printf '%-16s %8s   (missing)\n' "$label" "-"; return 0; }
   local s e rc; s=$(now_ms); "$@" >/dev/null 2>&1; rc=$?; e=$(now_ms)
   printf '%-16s %6s ms   exit=%s\n' "$label" "$((e - s))" "$rc"
-  # A check "failing" usually means it wrote a flag (normal) — those exit 0/2/3
-  # by design. Only a truly unexpected code (>=10) is treated as a crash here.
-  [ "$rc" -ge 10 ] && rc_all=1
+  # The wrapped checks' documented contracts: 0 = ok / flag written, 2 = setup
+  # issue (non-fatal), 3 = offline (non-fatal). Anything else — notably 1, the
+  # checks' own "fatal" code and what a `set -e` abort exits with — is a crash.
+  case "$rc" in
+    0|2|3) ;;
+    *) rc_all=1 ;;
+  esac
 }
 run_check "check-updates"  bash "$FW/update/check-updates.sh"
 run_check "skills-check"   bash "$FW/update/skills-check.sh"

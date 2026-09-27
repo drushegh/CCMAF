@@ -44,7 +44,7 @@ _trim() { local s="$1"; s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:
 
 # pairs_for_mode <mode> — prints "plugin-path<TAB>bundled-path" per matching row.
 pairs_for_mode() {
-  local want="$1" line p b m
+  local want="$1" p b m
   while IFS='|' read -r p b m _rest; do
     p="$(_trim "$p")"; b="$(_trim "$b")"; m="$(_trim "$m")"
     [ "$m" = "$want" ] || continue

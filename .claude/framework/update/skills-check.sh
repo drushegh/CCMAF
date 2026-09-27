@@ -5,7 +5,8 @@
 # this tells you when there's something to pull.
 #
 # Runs as part of cold start (alongside check-updates.sh). Silent when the
-# project hasn't opted into skills (no .skills-version) or is up to date.
+# project hasn't opted into skills (no .skills-version), is in bundle mode,
+# or is up to date.
 # When behind, writes .claude/.skills-update-available.md for the session
 # to surface and offer to run skills-sync.sh.
 #
@@ -22,6 +23,43 @@
 # Dependencies: git, date. No jq, no curl.
 
 set -uo pipefail
+
+# Portable timeout (review P1): stock macOS ships no GNU `timeout` (only
+# Homebrew coreutils' `gtimeout`) and a bare `timeout` there is exit 127 for
+# EVERY call.
+# (Same helper as the plugin copy / boot/cold-start.sh — keep in sync.)
+# Resolve once: timeout -> gtimeout -> a perl fork/alarm
+# fallback (kills the child, exits 124 like GNU) -> unbounded.
+# (Canonical: hooks/lib/hook-common.sh — sourced when present.)
+_hc="$(dirname "${BASH_SOURCE[0]}")/../../hooks/lib/hook-common.sh"
+# shellcheck source=/dev/null
+[ -f "$_hc" ] && . "$_hc"
+if ! declare -F run_tmo >/dev/null 2>&1; then  # standalone: inline copy
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -98,21 +136,65 @@ fi
 # DA-C4: do NOT remove the flag up front — an existing flag is a pending,
 # unactioned notification. Cleared only by a live up-to-date check below.
 
-# CRLF-safe source (project-owned file; a Windows editor may save CRLF).
-# shellcheck disable=SC1090
-source <(tr -d '\r' < "$VERSION_FILE")
+# Parsed without sourcing (DA-M12: never execute a config file as shell —
+# .skills-version is project-owned and committed, so sourcing it would run
+# arbitrary shell from any clone at session start). Pull only the known
+# KEY=VALUE fields via kv_file_get (CRLF-safe; quoted values and trailing
+# `# comments` handled as its header describes). A key absent from the file leaves any existing
+# value (e.g. an env override) untouched.
+if ! declare -F kv_file_get >/dev/null 2>&1; then  # standalone: inline copy
+# >>> kv_file_get
+kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if absent
+  # Never sources the file (it may be project-owned and committed — sourcing
+  # would execute arbitrary shell from any clone). CRLF-safe; the LAST
+  # assignment wins; an optional `export ` prefix is accepted. A value that
+  # starts with a quote runs to its matching close quote (so `KEY="a b"  #
+  # note` is `a b`); an unquoted value ends at the first whitespace followed
+  # by `#` (`KEY=x   # OPTIONAL` is `x`), trailing whitespace trimmed.
+  local _line _val
+  _line=$(tr -d '\r' < "$1" 2>/dev/null \
+    | grep -E "^[[:space:]]*(export[[:space:]]+)?$2=" | tail -1)
+  [ -n "$_line" ] || return 1
+  _val="${_line#*=}"
+  case "$_val" in
+    \"*) _val="${_val#\"}"; _val="${_val%%\"*}" ;;
+    \'*) _val="${_val#\'}"; _val="${_val%%\'*}" ;;
+    *) _val="${_val%%[[:space:]]#*}"
+       _val="${_val%"${_val##*[![:space:]]}"}" ;;
+  esac
+  printf '%s' "$_val"
+}
+# <<< kv_file_get
+fi
+for _sv_key in SKILLS_UPSTREAM_URL SKILLS_UPSTREAM_BRANCH SKILLS_PINNED_SHA \
+               SKILLS_SELECTED SKILLS_CHECK_INTERVAL_HOURS SKILLS_LAST_CHECKED; do
+  if _sv_val=$(kv_file_get "$VERSION_FILE" "$_sv_key"); then
+    printf -v "$_sv_key" '%s' "$_sv_val"
+  fi
+done
+unset _sv_key _sv_val
+# A non-numeric interval would break the throttle arithmetic — default 24.
+case "${SKILLS_CHECK_INTERVAL_HOURS:-}" in
+  ''|*[!0-9]*) SKILLS_CHECK_INTERVAL_HOURS=24 ;;
+esac
 
-# No SKILLS_UPSTREAM_URL is a FIRST-CLASS valid state, not a malformed file: the
-# project syncs either from a vendored in-repo skills/ (skills-sync bundle mode)
-# or, if none, from the public CCMAF catalogue (skills-sync default mode). Neither
-# pins a tracked remote here, so there is nothing to poll — skills-check stays
-# SILENT rather than nagging. Set an explicit SKILLS_UPSTREAM_URL to opt into
-# update checks.
+# No SKILLS_UPSTREAM_URL is a FIRST-CLASS valid state, not a malformed file.
+# Resolve the mode exactly as skills-sync.sh does (contract:skills-sync):
+#   * BUNDLE mode (a vendored skills/*/SKILL.md tree) — no remote to poll, so
+#     stay SILENT and clear any flag left from a prior clone-mode config (this
+#     early exit returns before the normal clear-on-up-to-date path below).
+#   * DEFAULT mode (neither) — skills-sync pulls the public CCMAF catalogue
+#     and pins its real HEAD sha, so poll THAT remote. (This used to stay silent
+#     too, so default-mode adopters — the documented default — never got an
+#     update notice.)
+BUNDLED_SKILLS="$PROJECT_ROOT/skills"
 if [ -z "${SKILLS_UPSTREAM_URL:-}" ]; then
-  # Clear any flag left over from a prior clone-mode config (this early exit
-  # returns before the normal clear-on-up-to-date path below).
-  rm -f "$FLAG_FILE"
-  exit 0
+  if [ -d "$BUNDLED_SKILLS" ] && compgen -G "$BUNDLED_SKILLS/*/SKILL.md" >/dev/null 2>&1; then
+    rm -f "$FLAG_FILE"
+    exit 0
+  fi
+  SKILLS_UPSTREAM_URL="${SKILLS_DEFAULT_UPSTREAM_URL:-https://github.com/drushegh/CCMAF---Skills.git}"
+  : "${SKILLS_UPSTREAM_BRANCH:=main}"
 fi
 if [ -z "${SKILLS_UPSTREAM_BRANCH:-}" ]; then
   echo "skills-check: SKILLS_UPSTREAM_URL is set but SKILLS_UPSTREAM_BRANCH is missing — skipping." >&2
@@ -122,6 +204,11 @@ SKILLS_PINNED_SHA="${SKILLS_PINNED_SHA:-}"
 SKILLS_SELECTED="${SKILLS_SELECTED:-}"
 SKILLS_CHECK_INTERVAL_HOURS="${SKILLS_CHECK_INTERVAL_HOURS:-24}"
 SKILLS_LAST_CHECKED="${SKILLS_LAST_CHECKED:-1970-01-01T00:00:00Z}"
+# Throttle marker lives in GITIGNORED telemetry, not in .skills-version: the
+# pin file is committed, and rewriting SKILLS_LAST_CHECKED there on every
+# daily check dirtied the working tree. A legacy SKILLS_LAST_CHECKED line is
+# still honoured on read (the later of the two wins) but never written.
+CHECK_THROTTLE="$PROJECT_ROOT/.claude/telemetry/.last-skills-check"
 
 # Throttle: skip if checked recently.
 now_epoch=$(date -u +%s)
@@ -131,6 +218,11 @@ now_epoch=$(date -u +%s)
 last_epoch=$(date -u -d "$SKILLS_LAST_CHECKED" +%s 2>/dev/null \
   || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$SKILLS_LAST_CHECKED" +%s 2>/dev/null \
   || echo 0)
+if [ -f "$CHECK_THROTTLE" ]; then
+  marker_epoch=$(date -u -r "$CHECK_THROTTLE" +%s 2>/dev/null \
+    || stat -c '%Y' "$CHECK_THROTTLE" 2>/dev/null || echo 0)
+  [ "$marker_epoch" -gt "$last_epoch" ] && last_epoch="$marker_epoch"
+fi
 interval_seconds=$((SKILLS_CHECK_INTERVAL_HOURS * 3600))
 if [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
   exit 0
@@ -138,7 +230,7 @@ fi
 
 # Resolve latest remote SHA (no working tree needed; works for public HTTPS
 # + authenticated SSH + local paths).
-if ! latest_sha=$(git ls-remote "$SKILLS_UPSTREAM_URL" "refs/heads/$SKILLS_UPSTREAM_BRANCH" 2>/dev/null | awk '{print $1}'); then
+if ! latest_sha=$(run_tmo 10 git ls-remote "$SKILLS_UPSTREAM_URL" "refs/heads/$SKILLS_UPSTREAM_BRANCH" 2>/dev/null | awk '{print $1}'); then
   echo "skills-check: unable to reach $SKILLS_UPSTREAM_URL (offline?) — continuing." >&2
   exit 3
 fi
@@ -147,18 +239,10 @@ if [ -z "$latest_sha" ]; then
   exit 3
 fi
 
-# Bump last-checked regardless of the comparison outcome below. Atomic write:
-# mktemp alongside the destination so the final `mv` is a same-filesystem rename
-# (portable template form — GNU/BSD both accept a full-path X-suffixed template;
-# `mktemp -p` is GNU-only).
-now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-tmp_version="$(mktemp "$(dirname "$VERSION_FILE")/.skills-version.XXXXXX")"
-awk -v now="$now_iso" '
-  BEGIN { set = 0 }
-  /^SKILLS_LAST_CHECKED=/ { print "SKILLS_LAST_CHECKED=" now; set = 1; next }
-  { print }
-  END { if (!set) print "SKILLS_LAST_CHECKED=" now }
-' "$VERSION_FILE" > "$tmp_version" && mv "$tmp_version" "$VERSION_FILE"
+# Bump the last-checked marker regardless of the comparison outcome below
+# (gitignored telemetry — never the committed .skills-version).
+mkdir -p "$(dirname "$CHECK_THROTTLE")" 2>/dev/null
+touch "$CHECK_THROTTLE" 2>/dev/null || true
 
 if [ "$latest_sha" = "$SKILLS_PINNED_SHA" ]; then
   rm -f "$FLAG_FILE"   # up to date — clear any stale flag

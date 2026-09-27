@@ -1,3 +1,6 @@
+---
+description: Deep periodic audit across framework integrity, code quality, contracts, state files and tests (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -17,7 +20,6 @@ files, and tests. On-demand companion to the always-on self-checks
 
 - Significant framework or project changes have landed
 - Before a major merge
-- The cold-start nudge said it's time
 - On a user-chosen schedule
 
 Takes 5-15 minutes. Writes findings to `.claude/review-findings.md`
@@ -74,8 +76,8 @@ the failure mode this step prevents.
 **0.1. Load optional overrides.** If `.claude/healthcheck.conf` exists,
 source it. It may set any of:
 `HEALTHCHECK_SOURCE_DIRS`, `HEALTHCHECK_TEST_DIRS`, `HEALTHCHECK_TEST_CMD`,
-`HEALTHCHECK_LINT_CMD`, `HEALTHCHECK_FW_WINDOW`, `HEALTHCHECK_REVIEW_FOCUS`,
-`HEALTHCHECK_REMIND_DAYS`. Unset values fall through to auto-detect.
+`HEALTHCHECK_LINT_CMD`, `HEALTHCHECK_FW_WINDOW`, `HEALTHCHECK_REVIEW_FOCUS`.
+Unset values fall through to auto-detect.
 
 **0.2. Auto-detect source + test dirs (only where not overridden).**
 
@@ -96,7 +98,7 @@ Read `CLAUDE.md` "Commands" section. Match common patterns:
 `npm test`, `pytest`, `go test`, `cargo test`, `dotnet test`,
 `npm run lint`, `ruff check`, `eslint`, `golangci-lint`.
 
-If neither found, Parts 4 auto-skip with a note in the findings.
+If neither found, Part 5 (automated checks) auto-skips with a note in the findings.
 
 **0.4. Detect contracts.**
 
@@ -146,8 +148,17 @@ the `SCAFFOLD_REV` pin). Check for changes in the last
 `HEALTHCHECK_FW_WINDOW` commits (default 10) across what remains in-project:
 
 ```bash
-git diff --name-only HEAD~${HEALTHCHECK_FW_WINDOW:-10} -- \
-  .claude/agents/ .claude/commands/ .claude/.framework-version 2>/dev/null
+# Clamp the window to the history that exists: HEAD~N on a repo with <= N
+# commits is an unknown revision, and a swallowed git error must never read
+# as "no changes" (that silently skipped the deep audit on young repos).
+win="${HEALTHCHECK_FW_WINDOW:-10}"
+total="$(git rev-list --count HEAD 2>/dev/null)" || total=0
+if [ "$total" -gt "$win" ]; then base="HEAD~$win"
+else base="$(git hash-object -t tree /dev/null)"   # empty tree: every commit is in the window
+fi
+git diff --name-only "$base" -- \
+  .claude/agents/ .claude/commands/ .claude/.framework-version \
+  || echo "HEALTHCHECK-FW-WINDOW: git diff failed — treat as CHANGED"
 ```
 
 **If changes detected → deep framework audit via reviewer subagent:**
@@ -240,7 +251,9 @@ the shape detected in Part 0 so the subagent doesn't re-derive it
 > - **STALE** (exists and is referenced but content is outdated)
 > - **OK** (checked, no issues)
 
-**If no framework changes detected → skip the deep audit.** Doctor +
+**If no framework changes detected (the command above succeeded with
+empty output) → skip the deep audit.** A git failure (the `treat as
+CHANGED` line) is NOT "no changes" — run the deep audit instead. Doctor +
 insights output alone is sufficient — the framework hasn't moved.
 
 **1.4. PERSIST.** Append findings to `.claude/review-findings.md`
@@ -397,11 +410,20 @@ the command produces.
 memory.** The ephemeral-context rule applies to YOU as much as to any
 other agent.
 
-1. **CRITICAL / BROKEN / MISMATCH / MISALIGNMENT** → create P0 tasks
-   in `TASKS.md` (feature lane or Bug-Fix Lane as appropriate).
-   Each task includes a reference back to the findings file entry.
-2. **STALE** → fix state files directly, commit separately.
-3. **ORPHANED / REDUNDANT** → flag for the next architect session;
+Each part reports in its own vocabulary — Part 1: BROKEN / CONFLICT /
+ORPHANED / REDUNDANT / STALE / OK; Part 2: CRITICAL / HIGH / MEDIUM / LOW;
+Part 3: MISMATCH / MISSING / DRIFT (+ the reconciler's own categories);
+Part 4: MISALIGNMENT / STALE. Map every label onto one of three **tiers**
+(these tiers are also what `--verify` counts):
+
+1. **Blocking** — **CRITICAL / BROKEN / CONFLICT / MISMATCH /
+   MISALIGNMENT** → create P0 tasks in `TASKS.md` (feature lane or
+   Bug-Fix Lane as appropriate). Each task includes a reference back to
+   the findings file entry.
+   **Should-fix** — **HIGH / MEDIUM / MISSING / DRIFT** → create tasks at
+   normal priority (same back-reference rule).
+2. **STALE** (Advisory) → fix state files directly, commit separately.
+3. **LOW / ORPHANED / REDUNDANT** (Advisory) → flag for the next architect session;
    log entries in `FRAMEWORK-SUGGESTIONS.md` if they're
    framework-level, otherwise in `GOTCHAS.md`.
 4. After each batch of fixes, update `TASKS.md` and `STATUS.md` —
@@ -409,7 +431,8 @@ other agent.
 5. If fixes touch more than 10 files, suggest a commit checkpoint to
    the user before continuing.
 6. Update `.claude/telemetry/.last-healthcheck` with the current ISO
-   timestamp — this is what the cold-start nudge reads.
+   timestamp — a local record of the last run. Nothing reads it
+   automatically: there is no cold-start healthcheck nudge.
 7. Report summary to the user. Include: counts per severity, new
    tasks filed, files touched, commit hashes of any checkpoints made.
 8. Update `claude-progress.txt` with the session summary.
@@ -433,9 +456,9 @@ other agent.
 ## Known limitation
 
 This command is linear (parts in sequence, though subagents within
-a part may parallelise). A 10-minute audit isn't cheap. The
-cold-start nudge only prompts every `HEALTHCHECK_REMIND_DAYS` days
-(default 14), so it shouldn't become ritual. For tighter cadences,
+a part may parallelise). A 10-minute audit isn't cheap, so it
+shouldn't become ritual. Nothing schedules or nudges it — there is no
+cold-start healthcheck reminder; run it deliberately. For a cadence,
 wire `/loop` or the `schedule` skill around this command directly.
 
 ---
@@ -471,7 +494,7 @@ characterise more precisely.
    at the start of every run. Each of the N runs starts from a clean
    `review-findings.md`. Confirm this is happening before run 2 starts.
 4. **Capture per-run counts.** After each run, snapshot the finding
-   counts by category (CRITICAL / WARNING / SUGGESTION / by part) to
+   counts by Part 7 tier (Blocking / Should-fix / Advisory) and by part to
    a temp summary. Note: you (the orchestrator) WILL hold prior runs'
    results in context by the comparison step — that is expected and
    unavoidable. The anchoring defenses that actually work are the
@@ -503,8 +526,8 @@ sort it visibly at top). Format:
 # /healthcheck --verify N=<N> — <ISO>
 
 ## Per-run totals
-| Run | CRITICAL | WARNING | SUGGESTION | TOTAL |
-| --- | -------- | ------- | ---------- | ----- |
+| Run | Blocking | Should-fix | Advisory | TOTAL |
+| --- | -------- | ---------- | -------- | ----- |
 | 1   | …        | …       | …          | …     |
 | 2   | …        | …       | …          | …     |
 | N   | …        | …       | …          | …     |

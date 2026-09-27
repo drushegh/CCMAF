@@ -32,6 +32,7 @@
 #
 # settings.json registration (replaces the three separate entries):
 #   bash -c 'cd "$CLAUDE_PROJECT_DIR" && bash .claude/hooks/post-edit-dispatch.sh'
+# (devhooks plugin copy: that line is the v1 bundled registration — the plugin is registered by its own hooks/hooks.json as bash "${CLAUDE_PLUGIN_ROOT}/hooks/post-edit-dispatch.sh", and stands down in v1-line projects.)
 
 input=$(cat)
 
@@ -39,6 +40,7 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Resolve once -----------------------------------------------------
 _lib="$HOOK_DIR/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 
 file="" _sid="" _tuid=""

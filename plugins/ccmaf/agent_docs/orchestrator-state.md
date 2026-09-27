@@ -59,8 +59,8 @@ Read the boot set in this order, before anything else:
 
 1. `.claude/NOW.md` — what's in flight, right now.
 2. `.claude/GROUND-TRUTH.md` — the facts that in-flight work depends on.
-3. The 10 newest `.claude/DECISIONS.md` entries — the same window Cold Start step 6 already
-   reads, so this isn't extra work, just done earlier.
+3. The 10 newest `.claude/DECISIONS.md` entries — the same window the cold-start boot view
+   already shows, so this isn't extra work, just done earlier.
 4. `.claude/PLAYBOOK.md` + `.claude/GOTCHAS.md` — technique and traps, orchestration-level
    and code-level respectively.
 
@@ -94,8 +94,9 @@ without adding a fifth:
   what a Checkpoint just wrote, so they're the freshest committed record of in-flight work —
   read them before falling back to the broader state-file reconcile.
 - **Handoff** (`/wrapup`) and **Rehydrate** (cold start) don't change: a cold start already
-  reads `DECISIONS.md`/`TASKS.md`/`STATUS.md`/`claude-progress.txt` in full per the Cold Start
-  Sequence, and an empty window has nothing to reconcile against. The boot set earns its keep
+  loads the boot view (the non-Done `TASKS.md` entries, current `STATUS.md`, the 10 newest
+  `DECISIONS.md` entries, and the `claude-progress.txt` head) after the session digest, and an
+  empty window has nothing to reconcile against. The boot set earns its keep
   specifically on the SUMMARY-in-window case — mid-session compaction — where something
   competes with disk and reading the smallest reliable set first matters.
 

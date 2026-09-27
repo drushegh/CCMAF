@@ -26,6 +26,17 @@ are loaded into the session context on cold start.
      Steps 1-4 emit session-varying output and sit first for a different
      reason: broken state must surface before any content is read. -->
 
+**First — Sync to remote (Rehydrate).** `git pull --ff-only` the project repo to
+pick up a `/wrapup` Handoff committed on another machine. This runs BEFORE every
+numbered step: step 1 may apply a framework update and step 0 reads
+`.framework-version`, so running them against a stale checkout re-offers an update
+(or migration) the other machine already applied and committed — and the later pull
+then conflicts with the local re-application. Essential for the PC ↔ laptop handoff;
+a harmless no-op on the same machine, and it doubles as a remote-drift check. On a
+non-fast-forward or conflict, STOP and surface it to the user — don't merge or rebase
+blind. (Separate from step 1's *framework* update check: this syncs the project's own
+committed state, not the framework upstream.)
+
 0. **v2 migration (one-time, when offered)** — If `.claude/framework/update/migrate-v2.sh`
    exists AND `.claude/.framework-version` has no `FRAMEWORK_LINE=v2` line AND this is
    not the framework dev repo (no `.claude/.framework-dev-repo` marker): CCMAF v2 is
@@ -133,13 +144,8 @@ are loaded into the session context on cold start.
    timestamp — the nudge waits another full interval. Throttle: only one healthcheck
    prompt per cold start, even if multiple reasons to nudge exist.
 
-   4.5 **Sync to remote (Rehydrate)** — `git pull --ff-only` the project repo to
-   pick up a `/wrapup` Handoff committed on another machine. Essential for the
-   PC ↔ laptop handoff; a harmless no-op on the same machine, and it doubles as a
-   remote-drift check. On a non-fast-forward or conflict, STOP and surface it to
-   the user — don't merge or rebase blind. (Separate from step 1's *framework*
-   update check: this syncs the project's own committed state, not the framework
-   upstream.)
+   4.5 *(moved)* — the Rehydrate `git pull --ff-only` now runs FIRST, before
+   step 0 (see the top of this sequence); nothing to do here.
 5. Read contracts — types, boundaries, interface agreements (stable — high cache hit rate). Default: `.claude/ECOSYSTEM.md` (monolithic); projects using per-file contracts read `contracts/` instead. Project CLAUDE.md specifies which layout applies.
 6. Read recent decisions — top 10, newest first (mostly stable). Default: `.claude/DECISIONS.md`; per-file layouts read `decisions/`. Project CLAUDE.md specifies which layout applies.
 7. Read `.claude/TASKS.md` → task board with lifecycle statuses (changes each session)
@@ -185,7 +191,13 @@ are loaded into the session context on cold start.
 
 - Every commit MUST include the task/bug ID: `type: description (TASK-XXX)` or `(BUG-XXX)`
 - A task cannot move to Ready for Review or Done without a linked commit
-- Verify with: `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'` (excludes framework bookkeeping commits)
+- Verify with: `git log --oneline -E --grep='TASK-XXX([^0-9]|$)' -- . ':(exclude,glob).claude/*.md' ':(exclude,glob).claude/.*' ':(exclude).claude/claude-progress.txt' ':(exclude).claude/archive'`
+  — excludes only the board/bookkeeping files (top-level `.claude/*.md` state files,
+  `.claude/.*` pins/markers, the progress log, the archive), so a commit that only
+  updated the board does not count, while real work under `.claude/` (hooks,
+  commands, agents, framework scripts) still does. A blanket `':(exclude).claude'`
+  can never pass for framework work itself. The `-E` + `([^0-9]|$)` stops
+  `TASK-12` from matching `TASK-123`.
 
 ## Agent Rules
 
@@ -201,9 +213,12 @@ are loaded into the session context on cold start.
   a parallel-build wave merge (/build wires it in) or runs on demand via
   `/reconcile` (nudged by doctor Check 14), `full` mode runs inside
   /healthcheck
-- **Skills reach agents:** every role agent carries the `Skill` tool and is
-  instructed to consult installed `.claude/skills/` packs relevant to its
-  task before working — opt-in, so absent skills are a silent no-op, never an
+- **Skills reach agents:** the building and judging role agents (architect,
+  developer, tester, reviewer, researcher, ui-designer, ux-critic) carry the
+  `Skill` tool and are instructed to consult installed `.claude/skills/` packs
+  relevant to their task before working. The **verifier** and **reconciler**
+  do not carry `Skill` (their `tools:` lists omit it), so they work from the
+  code and evidence alone — opt-in, so absent skills are a silent no-op, never an
   error. When a skill covers the task area it outranks the model's priors.
   UI agents (ui-designer/ux-critic) name `design-taste` + `ui-verification`
   as must-haves; code agents pull their stack/testing/security/docs skills.
@@ -366,7 +381,7 @@ either side.
   commit, and **push**. The push is what makes a cold start on another machine
   correct: no push = no handoff.
 - **Rehydrate** (cold start) — empty window, new machine or fresh session.
-  `git pull` first (cold-start step 4.5), then rebuild entirely from disk per the
+  `git pull` first (the cold start's first step), then rebuild entirely from disk per the
   Cold Start Sequence. EMPTY context → disk is canonical, nothing competes.
 - **Re-anchor / Reconcile** (after an auto-compaction, same session) — a
   model-generated SUMMARY is now in your context and **may be lossy or wrong**.

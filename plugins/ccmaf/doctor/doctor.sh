@@ -21,8 +21,12 @@
 #      enough — Claude Code only inlines @path imports).
 #   4. Every path in .claude/framework/update/framework-manifest.txt exists
 #      locally. Missing paths mean apply-update.sh will fail mid-copy.
+#   4.5 (v2 line only) The ccmaf-kernel plugin (the dangerous-command safety
+#      floor) is active: fresh .kernel-present marker or plugin-list probe.
 #   5. .framework-version (if present) has all required fields set.
-#   6. TASKS.md has no duplicate TASK-NNN heading IDs.
+#   6. (retired — multi-project mode removed, TASK-023; number kept stable)
+#   7. TASKS.md has no duplicate TASK-NNN heading IDs.
+#   8. (retired — framework-self mode removed, TASK-054; number kept stable)
 #   9. Detector-consumer determinism: if any framework code added in
 #      recent commits references .claude/review-findings.md or its
 #      rotated archive as INPUT (not just output), warn unless
@@ -54,8 +58,9 @@
 #      for NON-CANONICAL suffixed sub-IDs, which older board tools drop/mis-parse.)
 #  16. State-file size budgets (OPT P3): each live state file vs a ceiling in
 #      framework/doctor/state-budgets.conf (or .claude/state-budgets.local.conf).
-#      >=80% -> WARNING, >=100% -> CRITICAL; finding names rotate-state.sh. This
-#      is the missing half of the enforcement asymmetry (Stop defends freshness;
+#      >=80% -> WARNING, >=100% -> WARNING ("OVER") -- never CRITICAL, which
+#      would halt unattended runs; the finding names a per-file remedy
+#      (rotate-state.sh only rotates TASKS + DECISIONS). This is the missing half of the enforcement asymmetry (Stop defends freshness;
 #      nothing defended bounds). Never blocks — enforce at boot, remediate at will.
 #
 # Exit codes:
@@ -69,8 +74,11 @@ set -euo pipefail
 # Bash 4+ guard (DA-C8): this script uses mapfile, which bash 3.2 (stock
 # macOS) lacks — without the guard it dies mid-run with a confusing error
 # and NO checks execute. Fail loudly and early instead.
-if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-  echo "doctor: bash >= 4 required (found ${BASH_VERSION:-unknown})." >&2
+# 4.4, not just 4: under `set -u`, bash 4.0-4.3 treat "${arr[@]}" of an EMPTY
+# array as an unbound variable and abort mid-run (several checks expand
+# possibly-empty arrays).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] || { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -lt 4 ]; }; then
+  echo "doctor: bash >= 4.4 required (found ${BASH_VERSION:-unknown})." >&2
   echo "doctor: on macOS: brew install bash, then re-run. No checks were performed." >&2
   exit 1
 fi
@@ -180,17 +188,25 @@ check_hooks() {
     for r in "${referenced_paths[@]}"; do
       [ -f "$PROJECT_ROOT/$r" ] && ref_files+=("$PROJECT_ROOT/$r")
     done
-    for p in "${on_disk[@]}"; do
-      [ -n "${_ref_set[$p]:-}" ] && continue   # directly referenced
-      # Dispatcher-driven hooks (TASK-035): a hook invoked by a hook that IS
-      # registered (post-edit-dispatch.sh runs auto-format / auto-lint /
-      # verify-deps) is wired, just indirectly. Treat "basename appears in a
-      # registered hook's file" as referenced. One multi-file grep, not a loop.
-      if [ ${#ref_files[@]} -gt 0 ] && grep -qF "${p##*/}" "${ref_files[@]}" 2>/dev/null; then
-        continue
-      fi
-      add_finding "WARNING" "hooks" "\`$p\` exists on disk but isn't referenced in \`.claude/settings.json\` (directly, or via a registered dispatcher hook). Either wire it up or delete the file (dead code)."
-    done
+    # The framework's own dev repo (committed .claude/.framework-dev-repo
+    # marker) runs v2 with its .claude/hooks/* files deliberately
+    # unregistered — they are AUTHORED v1-line source, not dead code
+    # (TASK-176; the flip de-registered all 15). Skip the orphan check
+    # there; every other check above still runs. Consumers never have the
+    # marker, so their orphan detection is unchanged.
+    if [ ! -f "$PROJECT_ROOT/.claude/.framework-dev-repo" ]; then
+      for p in "${on_disk[@]}"; do
+        [ -n "${_ref_set[$p]:-}" ] && continue   # directly referenced
+        # Dispatcher-driven hooks (TASK-035): a hook invoked by a hook that IS
+        # registered (post-edit-dispatch.sh runs auto-format / auto-lint /
+        # verify-deps) is wired, just indirectly. Treat "basename appears in a
+        # registered hook's file" as referenced. One multi-file grep, not a loop.
+        if [ ${#ref_files[@]} -gt 0 ] && grep -qF "${p##*/}" "${ref_files[@]}" 2>/dev/null; then
+          continue
+        fi
+        add_finding "WARNING" "hooks" "\`$p\` exists on disk but isn't referenced in \`.claude/settings.json\` (directly, or via a registered dispatcher hook). Either wire it up or delete the file (dead code)."
+      done
+    fi
   fi
 }
 
@@ -573,7 +589,7 @@ check_statusline() {
   cmd=$(jq -r '.statusLine.command // empty' "$SETTINGS_FILE" 2>/dev/null || true)
   [ -z "$cmd" ] && return
   if [[ "$cmd" == *CLAUDE_STATUS_JSON* ]]; then
-    add_finding "WARNING" "statusline" "settings.json statusLine reads \$CLAUDE_STATUS_JSON, which Claude Code never sets — the status line has been rendering placeholders. Status data arrives as JSON on stdin. Fix: set statusLine.command to \`bash .claude/hooks/statusline.sh\` (shipped stdin reader)."
+    add_finding "WARNING" "statusline" "settings.json statusLine reads \$CLAUDE_STATUS_JSON, which Claude Code never sets — the status line has been rendering placeholders. Status data arrives as JSON on stdin. Fix: set statusLine.command to \`bash .claude/statusline.sh\` (the stdin reader /ccmaf:init scaffolds from the plugin template — the v1 \`.claude/hooks/statusline.sh\` path does not exist on v2)."
   fi
 }
 
@@ -840,7 +856,7 @@ check_state_structure() {
 #
 # Threshold is a variable, not a hardcoded number: RECONCILE_DUE_THRESHOLD
 # (default 5), consistent with the framework's other env-tunable knobs
-# (HEALTHCHECK_REMIND_DAYS, CLAUDE_CHECKPOINT_WATERMARK_PCT, etc.).
+# (e.g. CLAUDE_CHECKPOINT_WATERMARK_PCT).
 #
 # Method: resolve the git commit nearest-before the watermark's mtime,
 # diff TASKS.md's Done-section task/bug IDs at that commit against Done at
@@ -1057,7 +1073,7 @@ check_state_budgets() {
   local override="$PROJECT_ROOT/.claude/state-budgets.local.conf"
   [ -f "$override" ] && conf="$override"
   [ -f "$conf" ] || return 0
-  local line rel budget path sz pct
+  local line rel budget path sz pct fix
   while IFS= read -r line; do
     line="${line%$'\r'}"
     case "$line" in ''|'#'*) continue ;; esac
@@ -1068,10 +1084,25 @@ check_state_budgets() {
     [ -f "$path" ] || continue
     sz=$(wc -c < "$path" 2>/dev/null | tr -d ' '); case "$sz" in ''|*[!0-9]*) continue ;; esac
     pct=$(( sz * 100 / budget ))
+    # Per-file remedy: rotate-state.sh only rotates TASKS + DECISIONS.
+    case "$rel" in
+      *TASKS.md|*DECISIONS.md)
+        fix="run /ccmaf:housekeeping (\`bash \"${CLAUDE_PLUGIN_ROOT:-<ccmaf-plugin>}/housekeeping/rotate-state.sh\"\`) to archive old entries" ;;
+      *claude-progress.txt)
+        fix="run /ccmaf:housekeeping — its '## Rolling Summary' step archives older entries past ~30 (rotate-state.sh does not rotate this file)" ;;
+      *STATUS.md)
+        fix="prune superseded session prose per /ccmaf:housekeeping's '## State File Archiving' STATUS rule (rotate-state.sh does not rotate this file)" ;;
+      *GOTCHAS.md)
+        fix="retire resolved/superseded entries per /ccmaf:housekeeping's '## Memory reconciliation' and '### Semantic decay' sections (rotate-state.sh does not rotate this file)" ;;
+      *)
+        fix="archive or prune old entries (see /ccmaf:housekeeping)" ;;
+    esac
+    # Over budget is WARNING, never CRITICAL: a doctor CRITICAL halts unattended
+    # runs, and size is loud-but-recoverable ("never blocks").
     if [ "$pct" -ge 100 ]; then
-      add_finding "CRITICAL" "state-budget" "\`$rel\` is ${sz}B, OVER its ${budget}B budget (${pct}%) — boot reads and board loading are at risk. Fix: run /ccmaf:housekeeping (\`bash \"${CLAUDE_PLUGIN_ROOT:-<ccmaf-plugin>}/housekeeping/rotate-state.sh\"\`) to archive old entries."
+      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, OVER its ${budget}B budget (${pct}%) — boot reads and board loading are at risk. Fix: $fix."
     elif [ "$pct" -ge 80 ]; then
-      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, ${pct}% of its ${budget}B budget — approaching the ceiling. Fix: run /ccmaf:housekeeping soon (\`bash \"${CLAUDE_PLUGIN_ROOT:-<ccmaf-plugin>}/housekeeping/rotate-state.sh\"\`)."
+      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, ${pct}% of its ${budget}B budget — approaching the ceiling. Fix (soon): $fix."
     fi
   done < "$conf"
 }

@@ -28,7 +28,7 @@ _lib="${CLAUDE_PLUGIN_ROOT:-}/hooks/lib/hook-common.sh"
 if ! command -v core_active >/dev/null 2>&1; then
   core_active() {
     local f="${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version"
-    [ -f "$f" ] && grep -q '^FRAMEWORK_LINE=v2' "$f" 2>/dev/null
+    [ -f "$f" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$f" 2>/dev/null
   }
 fi
 # v2 adaptation: core activates on the v2 line in .framework-version
@@ -47,10 +47,17 @@ core_active || exit 0
 # left after the human fixed the findings must not silently disable
 # Stop-hook enforcement forever (core-context clears stale halts at the
 # next session start).
-_uh_root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-if [ "${CLAUDE_UNATTENDED:-}" = "1" ] && [ -f "$_uh_root/.claude/unattended-halt.md" ] \
-   && [ -f "$_uh_root/.claude/.framework-doctor-findings.md" ] \
-   && head -n 10 "$_uh_root/.claude/.framework-doctor-findings.md" | grep -Eq '\*\*Findings:\*\*[[:space:]]+[1-9][0-9]*[[:space:]]+CRITICAL'; then
+#
+# ONE root for every file this hook reads or writes: the project dir
+# core_active just gated on. `git rev-parse --show-toplevel` is NOT used
+# for paths — in a nested project (monorepo sub-dir) it names a different
+# .claude/ than the one unattended-guard.sh writes the halt into and
+# session-start-marker.sh writes the session marker into, which silently
+# broke this exemption and the session scoping.
+ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+if [ "${CLAUDE_UNATTENDED:-}" = "1" ] && [ -f "$ROOT/.claude/unattended-halt.md" ] \
+   && [ -f "$ROOT/.claude/.framework-doctor-findings.md" ] \
+   && head -n 10 "$ROOT/.claude/.framework-doctor-findings.md" | grep -Eq '\*\*Findings:\*\*[[:space:]]+[1-9][0-9]*[[:space:]]+CRITICAL'; then
   exit 0
 fi
 
@@ -79,13 +86,13 @@ export CLAUDE_HOOK_SESSION_ID="$_sid"
 emit_cost_marker() {
   command -v hook_enabled >/dev/null 2>&1 && ! hook_enabled cost-tracker normal && return 0
   command -v telemetry_emit >/dev/null 2>&1 || return 0
-  local root; root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || return 0
   local tool_uses=0 lines=0
   if [ -n "$_tpath" ] && [ -f "$_tpath" ]; then
     tool_uses=$(grep -c '"type":"tool_use"' "$_tpath" 2>/dev/null) || tool_uses=0
     lines=$(wc -l < "$_tpath" 2>/dev/null | tr -d ' ') || lines=0
   fi
-  telemetry_emit "$root" "cost-tracker" "session-end" "ok" \
+  telemetry_emit "$ROOT" "cost-tracker" "session-end" "ok" \
     ",\"tool_uses\":${tool_uses:-0},\"transcript_lines\":${lines:-0}"
 }
 emit_cost_marker
@@ -101,12 +108,14 @@ command -v hook_enabled >/dev/null 2>&1 && { hook_enabled enforce-state normal |
 [ "$STOP_ACTIVE" = "true" ] && exit 0
 
 # Skip on first session — no commits yet means we're scaffolding
-COMMIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "0")
+COMMIT_COUNT=$(git -C "$ROOT" rev-list --count HEAD 2>/dev/null || echo "0")
 if [ "$COMMIT_COUNT" = "0" ]; then
   exit 0
 fi
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+# Non-empty only inside a git work tree; paths always come from ROOT.
+REPO_ROOT=""
+git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 && REPO_ROOT="$ROOT"
 
 # File paths ONLY (--format= suppresses commit subjects). The old
 # --oneline form mixed subject lines into the haystack, so a commit
@@ -148,19 +157,52 @@ if [ -n "$REPO_ROOT" ]; then
   # sides must derive the same filename from the same session_id.
   _marker_sid=$(printf '%s' "$_sid" | tr -cd 'A-Za-z0-9._-')
   SESSION_MARKER="$REPO_ROOT/.claude/.session-start-commit${_marker_sid:+.$_marker_sid}"
-  SESSION_START_SHA=""
+  SESSION_START_SHA="" SESSION_START_EPOCH=""
   if [ -f "$SESSION_MARKER" ]; then
-    SESSION_START_SHA=$(head -c 200 "$SESSION_MARKER" 2>/dev/null | tr -d '\r\n ')
+    # Line 1 = sha; line 2 (current writer) = started=<epoch>.
+    SESSION_START_SHA=$(head -n 1 "$SESSION_MARKER" 2>/dev/null | head -c 200 | tr -d '\r ')
+    SESSION_START_EPOCH=$(sed -n 's/^started=\([0-9][0-9]*\).*/\1/p' "$SESSION_MARKER" 2>/dev/null | head -n 1)
+    # Liveness: re-touch OUR marker every Stop so session-start-marker.sh's
+    # prune only removes markers of sessions with no turn for a week (the
+    # start time is read from the content above, never from the mtime).
+    touch "$SESSION_MARKER" 2>/dev/null || true
   fi
-  if [ -n "$SESSION_START_SHA" ] && git cat-file -e "${SESSION_START_SHA}^{commit}" 2>/dev/null; then
-    RECENT_FILES=$(git log --name-only --format= "${SESSION_START_SHA}..HEAD" 2>/dev/null)
+  if [ -n "$SESSION_START_SHA" ] && git -C "$ROOT" cat-file -e "${SESSION_START_SHA}^{commit}" 2>/dev/null; then
+    RECENT_FILES=$(git -C "$ROOT" log --name-only --relative --format= "${SESSION_START_SHA}..HEAD" 2>/dev/null)
     SESSION_SCOPED=1
   fi
 fi
 if [ "$SESSION_SCOPED" -eq 0 ]; then
-  RECENT_FILES=$(git log --name-only --format= -5 2>/dev/null)
+  RECENT_FILES=$(git -C "$ROOT" log --name-only --relative --format= -5 2>/dev/null)
 fi
-UNCOMMITTED=$(git diff --name-only HEAD 2>/dev/null; git diff --name-only --cached 2>/dev/null)
+# --relative: paths relative to ROOT and limited to ROOT's subtree (a no-op
+# when ROOT is the git toplevel; in a nested project another project's
+# TASKS.md no longer satisfies this one's gate).
+UNCOMMITTED=$(git -C "$ROOT" diff --name-only --relative HEAD 2>/dev/null; git -C "$ROOT" diff --name-only --relative --cached 2>/dev/null)
+
+# Dirty-before-this-session filter: a state file left UNCOMMITTED by an
+# earlier session is dirty vs HEAD without anyone touching it now, and used
+# to pre-satisfy this gate for every later session. When our marker
+# resolved AND carries its start time, an uncommitted path counts only if
+# it was modified at/after this session started (or no longer exists — a
+# deletion is a change). Any gap (legacy marker without started=, stat
+# unavailable) → no filtering, the previous behaviour (fail-open).
+_mtime() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null; }
+if [ "$SESSION_SCOPED" -eq 1 ] && [ -n "$SESSION_START_EPOCH" ] && [ -n "$UNCOMMITTED" ]; then
+  _fresh=""
+  while IFS= read -r _p; do
+    [ -n "$_p" ] || continue
+    _m=""
+    [ -e "$ROOT/$_p" ] && _m=$(_mtime "$ROOT/$_p")
+    case "$_m" in
+      ''|*[!0-9]*) _fresh="$_fresh$_p"$'\n' ;;   # deleted / unknown → counts
+      *) [ "$_m" -ge "$SESSION_START_EPOCH" ] && _fresh="$_fresh$_p"$'\n' ;;
+    esac
+  done <<EOF_UNCOMMITTED
+$UNCOMMITTED
+EOF_UNCOMMITTED
+  UNCOMMITTED="$_fresh"
+fi
 ALL_CHANGES="$UNCOMMITTED
 $RECENT_FILES"
 
@@ -193,7 +235,9 @@ if [ -n "$REPO_ROOT" ]; then
   # no-op at v2.1 (CORE-DESIGN §1: "the §3 path-swap rule applies to HOOKS
   # as well as commands"). Scrape review-findings.md once per session end.
   # Cheap, non-fatal.
-  if [ -x "${CLAUDE_PLUGIN_ROOT}/insights/scrape-review-findings.sh" ]; then
+  # `-f`, not `-x`: the script is run via `bash` and is committed as mode
+  # 100644 — an exec-bit gate silently skipped it on Linux/macOS.
+  if [ -f "${CLAUDE_PLUGIN_ROOT:-}/insights/scrape-review-findings.sh" ]; then
     bash "${CLAUDE_PLUGIN_ROOT}/insights/scrape-review-findings.sh" 2>/dev/null || true
   fi
 fi

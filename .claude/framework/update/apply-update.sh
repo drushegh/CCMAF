@@ -103,9 +103,19 @@ self_rel="${SCRIPT_DIR#"${PROJECT_ROOT}"/}"
 # root and state files (TASKS.md etc.) at root. migrate-layout.sh handles
 # the one-time git mv + commit + doctor check. Run it before anything else
 # so VERSION_FILE resolves to its new .claude/ location.
-if [ -d "$PROJECT_ROOT/00_framework" ] || [ -f "$PROJECT_ROOT/TASKS.md" ]; then
+#
+# A root TASKS.md only signals the old layout when .claude/TASKS.md is
+# ABSENT — a new-layout project may legitimately own a root TASKS.md of its
+# own, and treating that as "old layout" sent every update into
+# migrate-layout, whose `git mv TASKS.md .claude/TASKS.md` then dead-ended
+# on the existing destination. `-f`, not `-x`: the script is run via
+# `bash`, and the exec bit is not reliably preserved (core.fileMode=false,
+# archive extracts, Windows-made commits) — `-x` false-negatived into the
+# "not found" dead end on POSIX clones lacking the bit.
+if [ -d "$PROJECT_ROOT/00_framework" ] \
+  || { [ -f "$PROJECT_ROOT/TASKS.md" ] && [ ! -f "$PROJECT_ROOT/.claude/TASKS.md" ]; }; then
   MIGRATE="$SCRIPT_DIR/migrate-layout.sh"
-  if [ -x "$MIGRATE" ]; then
+  if [ -f "$MIGRATE" ]; then
     echo "apply-update: old layout detected — running migrate-layout.sh first..."
     # Propagate --yes so an automated apply-update run (the human already
     # confirmed via AskUserQuestion upstream of this) doesn't dead-end on
@@ -118,8 +128,11 @@ if [ -d "$PROJECT_ROOT/00_framework" ] || [ -f "$PROJECT_ROOT/TASKS.md" ]; then
     echo ""
   else
     echo "apply-update: ERROR — old layout detected but migrate-layout.sh not found." >&2
-    echo "Download and run it manually:" >&2
-    echo "  curl -fsSL https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh | bash" >&2
+    echo "Download it into the project, then run it from the project root:" >&2
+    echo "  mkdir -p .claude/framework/update" >&2
+    echo "  curl -fsSL -o .claude/framework/update/migrate-layout.sh \\" >&2
+    echo "    https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh" >&2
+    echo "  bash .claude/framework/update/migrate-layout.sh" >&2
     exit 1
   fi
 fi
@@ -158,10 +171,13 @@ FRAMEWORK_SOURCE_SUBDIR="${FRAMEWORK_SOURCE_SUBDIR%/}"
 # traversal — the forward-slash `..` arms above don't catch it; same guard
 # class as skills-sync.sh's skill-name check). A malicious/corrupt upstream
 # (or a hand-broken local manifest) must never be able to write outside
-# PROJECT_ROOT. NOTE the backslash arm is the QUOTED form `*'\'*`: the unquoted
-# `*\\*` collapses to `*\*` (a trailing literal `*`) during shell word-parsing
-# and never matches a backslash — so only the quoted form actually rejects a
-# Windows-traversal entry (pinned by update_system.bats' backslash-traversal case).
+# PROJECT_ROOT. NOTE the backslash arm is the QUOTED form `*'\'*` (same in
+# check-updates.sh and migrate-v2.sh). Read straight from a script file, an
+# unquoted `*\\*` also matches a literal backslash (checked on bash 5.3 and
+# dash), but it silently turns into `*\*` — which matches a trailing `*`
+# rather than a backslash — if the text is ever passed through a layer that
+# halves backslashes (a double-quoted string, an unquoted heredoc). The quoted
+# form has no such failure mode (pinned by update_system.bats' backslash case).
 _is_unsafe_manifest_path() {  # <path> → 0 (true) if unsafe
   case "$1" in
     /*|[A-Za-z]:*|../*|*/../*|*/..|..|*'\'*) return 0 ;;
@@ -256,10 +272,15 @@ phase2_started=0
 _rollback_framework_paths() {
   local mp
   for mp in "${final_paths[@]}"; do
-    # `HEAD:<path>` resolves to a blob (file) OR a tree (dir) when the path
-    # existed at HEAD; `cat-file -e` succeeds for either. The `ls-tree -d`
-    # arm is a belt-and-suspenders check for the dir case.
-    if git -C "$PROJECT_ROOT" cat-file -e "HEAD:$mp" 2>/dev/null \
+    # `HEAD:./<path>` resolves to a blob (file) OR a tree (dir) when the
+    # path existed at HEAD; `cat-file -e` succeeds for either. The `./`
+    # makes the lookup relative to PROJECT_ROOT (the -C dir): a bare
+    # `HEAD:<path>` is ALWAYS repository-root-relative, so for a project
+    # living in a SUBDIRECTORY of its git repo every tracked path "did not
+    # exist at HEAD" and fell into the rm -rf arm — rollback deleted tracked
+    # files instead of restoring them. The `ls-tree -d` arm (a pathspec,
+    # already cwd-relative) is a belt-and-suspenders check for the dir case.
+    if git -C "$PROJECT_ROOT" cat-file -e "HEAD:./$mp" 2>/dev/null \
        || git -C "$PROJECT_ROOT" ls-tree -d HEAD -- "$mp" 2>/dev/null | grep -q .; then
       git -C "$PROJECT_ROOT" checkout HEAD -- "$mp" 2>/dev/null || true
     else
@@ -806,8 +827,11 @@ if [ ${#file_collisions[@]} -gt 0 ]; then
     # the consumer added without committing it — normally caught by the
     # dirty-check above, but this stays honest even if that ever changes)
     # has nothing to `git show`. Check before claiming it.
-    if [ "$IS_GIT_REPO" = 1 ] && git -C "$PROJECT_ROOT" cat-file -e "HEAD:$c" 2>/dev/null; then
-      echo "                - $c   (your version is still at HEAD: git show \"HEAD:$c\")" >&2
+    # `HEAD:./<path>` is PROJECT_ROOT-relative (see _rollback_framework_paths
+    # — a bare HEAD:<path> misses in a subdirectory project); the printed
+    # command works when run from the project root.
+    if [ "$IS_GIT_REPO" = 1 ] && git -C "$PROJECT_ROOT" cat-file -e "HEAD:./$c" 2>/dev/null; then
+      echo "                - $c   (your version is still at HEAD: git show \"HEAD:./$c\")" >&2
     else
       echo "                - $c   (WARNING: no prior version found at HEAD — it is NOT" >&2
       echo "                  recoverable from git)" >&2

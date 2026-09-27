@@ -15,8 +15,14 @@
 #                    precedence over --yes if both are given. This is also
 #                    exactly the state an interactive decline leaves behind.
 #
-# Or, if the framework hasn't been updated yet, download and run directly:
-#   curl -fsSL https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh | bash
+# Or, if the framework hasn't been updated yet, download it into the project
+# and run it from the project root (download-then-run, NOT `curl | bash`: a
+# piped script has no file path, and its stdin is the pipe, so the
+# confirmation prompt could never be answered):
+#   mkdir -p .claude/framework/update
+#   curl -fsSL -o .claude/framework/update/migrate-layout.sh \
+#     https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh
+#   bash .claude/framework/update/migrate-layout.sh
 #
 # Exit codes:
 #   0 — already migrated (no-op) OR migration committed with no CRITICAL
@@ -33,8 +39,20 @@
 
 set -uo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+# Resolve the project root. Normal case: this file sits at
+# <root>/.claude/framework/update/, so root = three levels up. When the
+# script arrives WITHOUT a file path (piped: `curl ... | bash`), BASH_SOURCE
+# is empty — a bare ${BASH_SOURCE[0]} aborts under `set -u` ("unbound
+# variable") before doing anything — so fall back to the git top-level of
+# the current directory (the documented "run from the project root"
+# contract), then to the current directory itself.
+_self="${BASH_SOURCE[0]:-}"
+if [ -n "$_self" ] && [ -f "$_self" ]; then
+  SCRIPT_DIR="$(cd "$(dirname "$_self")" && pwd)"
+  PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+else
+  PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+fi
 cd "$PROJECT_ROOT" || exit 2
 
 AUTO_YES=0
@@ -52,9 +70,12 @@ for arg in "$@"; do
 done
 
 # --- Detection -----------------------------------------------------------
+# A root TASKS.md is only an old-layout signal when .claude/TASKS.md does
+# not already exist — a new-layout project may own an unrelated root
+# TASKS.md, and "migrating" it would dead-end on the existing destination.
 OLD_LAYOUT=false
-[ -d "00_framework" ]  && OLD_LAYOUT=true
-[ -f "TASKS.md" ]      && OLD_LAYOUT=true
+[ -d "00_framework" ] && OLD_LAYOUT=true
+[ -f "TASKS.md" ] && [ ! -f ".claude/TASKS.md" ] && OLD_LAYOUT=true
 
 if [ "$OLD_LAYOUT" = "false" ]; then
   echo "migrate-layout: already on new layout (.claude/framework/) — nothing to do."
@@ -83,7 +104,7 @@ echo ""
 # Best-effort cleanup of the pre-rewrite snapshots Steps 4-6 create (to
 # detect whether a sed pass actually changed anything) in case the script
 # is interrupted between creating one and removing it.
-trap 'rm -f "$PROJECT_ROOT/.gitignore.migrate-pre.tmp" "$PROJECT_ROOT/CLAUDE.md.migrate-pre.tmp" "$PROJECT_ROOT/CLAUDE.framework.md.migrate-pre.tmp"' EXIT
+trap 'rm -f "$PROJECT_ROOT/.gitignore.migrate-pre.tmp" "$PROJECT_ROOT/CLAUDE.md.migrate-pre.tmp" "$PROJECT_ROOT/CLAUDE.framework.md.migrate-pre.tmp" "$PROJECT_ROOT"/*.migrate-sed.tmp "$PROJECT_ROOT/.gitignore.migrate-sed.tmp"' EXIT
 
 # --- Require clean working tree in framework-owned paths ----------------
 # Porcelain v1 lines are "XY PATH" — two status chars, a space, then the
@@ -139,6 +160,14 @@ fi
 # --- Step 2: Move root state files --------------------------------------
 _mv_if_exists() {
   local src="$1" dst="$2"
+  if [ -f "$src" ] && [ -e "$dst" ]; then
+    # Both copies exist (a partial earlier migration, or a project-owned
+    # root file sharing the name) — `git mv` would refuse and dead-end the
+    # whole migration. Leave the root copy in place and say so; never
+    # overwrite either copy.
+    echo "  skip: $src — $dst already exists (root copy left in place; reconcile by hand)" >&2
+    return 0
+  fi
   if [ -f "$src" ]; then
     echo "  git mv $src → $dst"
     git mv "$src" "$dst" 2>&1 || { echo "ERROR: git mv $src failed" >&2; exit 2; }
@@ -166,19 +195,41 @@ _mv_if_exists claude-code-dev-framework.md .claude/claude-code-dev-framework.md
 # (audit M3: "never git add a user-owned file the migration didn't rewrite").
 _files_to_add=(".claude")
 
+# Portable in-place sed. GNU `sed -i` and BSD/macOS `sed -i` disagree
+# (BSD takes the next argument as a mandatory backup suffix), so plain
+# `sed -i -e ... file` fails on macOS — and the old `2>/dev/null || true`
+# hid that. Write to a temp file, then copy back with `cat >` so the
+# original's mode is preserved. Loud, not silent: a failure names the file
+# and leaves it unchanged; the pre-commit diff review shows the gap.
+_sed_inplace() {  # <file> <sed args...>
+  local file="$1" tmp="$1.migrate-sed.tmp"
+  shift
+  if sed "$@" "$file" > "$tmp" && cat "$tmp" > "$file"; then
+    rm -f "$tmp"
+    return 0
+  fi
+  rm -f "$tmp"
+  echo "migrate-layout: WARNING — could not rewrite $file (left unchanged); fix its path references by hand." >&2
+  return 0
+}
+
+# Token-boundary prefix for `00_framework/` as a portable ERE group: GNU
+# sed's `\b` does not exist in BSD/macOS sed. The reference must start a
+# token (line start or a non-word char before it), so `my00_framework/`
+# is left alone. Used with `sed -E` and a `\1` back-reference.
+_B='(^|[^A-Za-z0-9_])'
+
 # --- Step 4: Update .gitignore ------------------------------------------
 if [ -f ".gitignore" ]; then
   # Move temp flag gitignore entries to new paths (idempotent via check)
   if grep -q "^\.framework-update-available\.md" .gitignore 2>/dev/null; then
     cp .gitignore .gitignore.migrate-pre.tmp
-    sed -i \
+    # (Last expression: the 00_framework/self/README.md comment, if present.)
+    _sed_inplace .gitignore \
       -e 's|^\.framework-update-available\.md$|.claude/.framework-update-available.md|' \
       -e 's|^\.framework-insight-alert\.md$|.claude/.framework-insight-alert.md|' \
       -e 's|^\.framework-doctor-findings\.md$|.claude/.framework-doctor-findings.md|' \
-      .gitignore 2>/dev/null || true
-    # Update the 00_framework/self/README.md comment if present
-    sed -i 's|see 00_framework/self/README\.md|see .claude/framework/self/README.md|g' \
-      .gitignore 2>/dev/null || true
+      -e 's|see 00_framework/self/README\.md|see .claude/framework/self/README.md|g'
     if ! cmp -s .gitignore.migrate-pre.tmp .gitignore; then
       _files_to_add+=(".gitignore")
       echo "  updated: .gitignore (temp flag paths)"
@@ -192,18 +243,16 @@ fi
 # `00_framework/...` path reference, backticked or bare — old-layout files
 # predate any backtick convention and real content carries both shapes, so
 # a backtick-anchored sed under-matches and leaves stale references in a
-# file the agent loads at cold start. `\b` (GNU sed word boundary) stops
-# substrings of longer tokens (e.g. my00_framework/) from matching. sed
+# file the agent loads at cold start. The portable `$_B` boundary group
+# (above) stops substrings of longer tokens (my00_framework/) matching. sed
 # cannot semantically distinguish a bare path reference from prose that
 # merely names the path — that safety comes from Step 7's shown diff +
 # explicit confirmation gate before anything is COMMITTED: the audit's
 # requirement is that nothing is SILENTLY rewritten or committed.
 if [ -f "CLAUDE.md" ]; then
   cp CLAUDE.md CLAUDE.md.migrate-pre.tmp
-  sed -i \
-    -e 's|\b00_framework/self/|.claude/framework/self/|g' \
-    -e 's|\b00_framework/|.claude/framework/|g' \
-    CLAUDE.md 2>/dev/null || true
+  _sed_inplace CLAUDE.md -E \
+    -e "s#${_B}00_framework/#\\1.claude/framework/#g"
   if ! cmp -s CLAUDE.md.migrate-pre.tmp CLAUDE.md; then
     _files_to_add+=("CLAUDE.md")
     echo "  updated: CLAUDE.md (path references)"
@@ -220,19 +269,17 @@ fi
 # and stay as-is.
 if [ -f "CLAUDE.framework.md" ]; then
   cp CLAUDE.framework.md CLAUDE.framework.md.migrate-pre.tmp
-  sed -i \
-    -e 's|\b00_framework/self/|.claude/framework/self/|g' \
-    -e 's|\b00_framework/|.claude/framework/|g' \
-    -e 's|`\.framework-update-available\.md`|`.claude/.framework-update-available.md`|g' \
-    -e 's|`\.framework-insight-alert\.md`|`.claude/.framework-insight-alert.md`|g' \
-    -e 's|`\.framework-doctor-findings\.md`|`.claude/.framework-doctor-findings.md`|g' \
-    -e 's|Read `TASKS\.md`|Read `.claude/TASKS.md`|g' \
-    -e 's|Read `STATUS\.md`|Read `.claude/STATUS.md`|g' \
-    -e 's|Read `DECISIONS\.md`|Read `.claude/DECISIONS.md`|g' \
-    -e 's|Read `claude-progress\.txt`|Read `.claude/claude-progress.txt`|g' \
-    -e 's|Default: ECOSYSTEM\.md|Default: `.claude/ECOSYSTEM.md`|g' \
-    -e 's|Default: DECISIONS\.md|Default: `.claude/DECISIONS.md`|g' \
-    CLAUDE.framework.md 2>/dev/null || true
+  _sed_inplace CLAUDE.framework.md -E \
+    -e "s#${_B}00_framework/#\\1.claude/framework/#g" \
+    -e 's#`\.framework-update-available\.md`#`.claude/.framework-update-available.md`#g' \
+    -e 's#`\.framework-insight-alert\.md`#`.claude/.framework-insight-alert.md`#g' \
+    -e 's#`\.framework-doctor-findings\.md`#`.claude/.framework-doctor-findings.md`#g' \
+    -e 's#Read `TASKS\.md`#Read `.claude/TASKS.md`#g' \
+    -e 's#Read `STATUS\.md`#Read `.claude/STATUS.md`#g' \
+    -e 's#Read `DECISIONS\.md`#Read `.claude/DECISIONS.md`#g' \
+    -e 's#Read `claude-progress\.txt`#Read `.claude/claude-progress.txt`#g' \
+    -e 's#Default: ECOSYSTEM\.md#Default: `.claude/ECOSYSTEM.md`#g' \
+    -e 's#Default: DECISIONS\.md#Default: `.claude/DECISIONS.md`#g'
   if ! cmp -s CLAUDE.framework.md.migrate-pre.tmp CLAUDE.framework.md; then
     _files_to_add+=("CLAUDE.framework.md")
     echo "  updated: CLAUDE.framework.md (path references)"
@@ -300,7 +347,7 @@ fi
 echo ""
 echo "migrate-layout: running doctor check..."
 DOCTOR="$PROJECT_ROOT/.claude/framework/doctor/doctor.sh"
-if [ -x "$DOCTOR" ]; then
+if [ -f "$DOCTOR" ]; then  # -f, not -x: run via bash; the exec bit is not guaranteed
   bash "$DOCTOR" 2>&1
   FINDINGS_FILE="$PROJECT_ROOT/.claude/.framework-doctor-findings.md"
   if [ -f "$FINDINGS_FILE" ]; then

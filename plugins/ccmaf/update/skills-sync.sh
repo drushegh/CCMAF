@@ -19,7 +19,7 @@
 #   bash "${CLAUDE_PLUGIN_ROOT}/update/skills-sync.sh"             # sync selected skills
 #   bash "${CLAUDE_PLUGIN_ROOT}/update/skills-sync.sh" --suggest   # stack-detect suggestions only
 #
-# .claude/.skills-version (project-owned, sourceable shell):
+# .claude/.skills-version (project-owned KEY=VALUE lines — parsed, never sourced):
 #   SKILLS_UPSTREAM_URL=git@github.com:you/your-skills.git   # OPTIONAL — set to track
 #                                                            # a specific repo (clone mode);
 #                                                            # omit → vendored skills/ or the
@@ -47,6 +47,50 @@ set -uo pipefail
 PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
 VERSION_FILE="$PROJECT_ROOT/.claude/.skills-version"
 SKILLS_DIR="$PROJECT_ROOT/.claude/skills"
+
+# Parse .skills-version WITHOUT sourcing it (DA-M12, same rule as skills-check.sh
+# and the .framework-version readers): the file is project-owned and committed,
+# so sourcing it would execute arbitrary shell from any clone. Only the
+# allow-listed KEY=VALUE fields are read, via kv_file_get (CRLF-safe; quoted
+# values and trailing `# comments` handled as its header describes). A key
+# absent from the file leaves any existing value
+# (e.g. an env override) untouched.
+# (Canonical: hooks/lib/hook-common.sh — sourced when present.)
+_hc="$(dirname "${BASH_SOURCE[0]}")/../hooks/lib/hook-common.sh"
+# shellcheck source=/dev/null
+[ -f "$_hc" ] && . "$_hc"
+if ! declare -F kv_file_get >/dev/null 2>&1; then  # standalone: inline copy
+# >>> kv_file_get
+kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if absent
+  # Never sources the file (it may be project-owned and committed — sourcing
+  # would execute arbitrary shell from any clone). CRLF-safe; the LAST
+  # assignment wins; an optional `export ` prefix is accepted. A value that
+  # starts with a quote runs to its matching close quote (so `KEY="a b"  #
+  # note` is `a b`); an unquoted value ends at the first whitespace followed
+  # by `#` (`KEY=x   # OPTIONAL` is `x`), trailing whitespace trimmed.
+  local _line _val
+  _line=$(tr -d '\r' < "$1" 2>/dev/null \
+    | grep -E "^[[:space:]]*(export[[:space:]]+)?$2=" | tail -1)
+  [ -n "$_line" ] || return 1
+  _val="${_line#*=}"
+  case "$_val" in
+    \"*) _val="${_val#\"}"; _val="${_val%%\"*}" ;;
+    \'*) _val="${_val#\'}"; _val="${_val%%\'*}" ;;
+    *) _val="${_val%%[[:space:]]#*}"
+       _val="${_val%"${_val##*[![:space:]]}"}" ;;
+  esac
+  printf '%s' "$_val"
+}
+# <<< kv_file_get
+fi
+load_skills_version() {
+  local _sv_key _sv_val
+  for _sv_key in SKILLS_UPSTREAM_URL SKILLS_UPSTREAM_BRANCH SKILLS_PINNED_SHA SKILLS_SELECTED; do
+    if _sv_val=$(kv_file_get "$VERSION_FILE" "$_sv_key"); then
+      printf -v "$_sv_key" '%s' "$_sv_val"
+    fi
+  done
+}
 
 # This script's own real path, for the "re-run me" hint below. ${CLAUDE_PLUGIN_ROOT}
 # is literal text outside a hook/command invocation (e.g. a human re-running
@@ -153,8 +197,7 @@ suggest_skills() {
   echo "skills-sync: detected stack suggests skills: ${out% }"
   echo "skills-sync: cross-cutting (not stack-detected, always worth considering): secure-development, accessibility-development, read-the-damn-docs, git-workflow, systematic-debugging, technical-writing."
   if [ -f "$VERSION_FILE" ]; then
-    # shellcheck disable=SC1090
-    source <(tr -d '\r' < "$VERSION_FILE") 2>/dev/null || true
+    load_skills_version
     local missing=""
     for s in $out; do
       case " ${SKILLS_SELECTED:-} " in *" $s "*) ;; *) missing+="$s " ;; esac
@@ -175,8 +218,7 @@ suggest_skills() {
 list_catalogue() {
   local url="" branch="main" d err tmp bundled
   if [ -f "$VERSION_FILE" ]; then
-    # shellcheck disable=SC1090
-    source <(tr -d '\r' < "$VERSION_FILE") 2>/dev/null || true
+    load_skills_version
     url="${SKILLS_UPSTREAM_URL:-}"
     branch="${SKILLS_UPSTREAM_BRANCH:-main}"
   fi
@@ -240,9 +282,8 @@ EOF
   exit 2
 fi
 
-# CRLF-safe source (the file is project-owned; a Windows editor may save CRLF).
-# shellcheck disable=SC1090
-source <(tr -d '\r' < "$VERSION_FILE")
+# Parsed, never sourced (see load_skills_version above).
+load_skills_version
 SKILLS_SELECTED="${SKILLS_SELECTED:-}"
 
 if [ -z "${SKILLS_SELECTED// /}" ]; then
@@ -250,6 +291,9 @@ if [ -z "${SKILLS_SELECTED// /}" ]; then
   echo "skills-sync: add skill names (e.g. SKILLS_SELECTED=\"python-development\") to .claude/.skills-version." >&2
   exit 0
 fi
+# Split into an array ONCE, without pathname expansion: an unquoted
+# `for name in $SKILLS_SELECTED` would glob a `*` against the cwd.
+read -r -a SELECTED_NAMES <<< "$SKILLS_SELECTED"
 
 # --- Resolve the source catalogue ---------------------------------------
 # Modes, in precedence order (contract:skills-sync):
@@ -265,14 +309,22 @@ fi
 #     alone. Override with SKILLS_UPSTREAM_URL (your own fork, or your SSH host
 #     alias on a multi-account machine).
 BUNDLED_SKILLS="$PROJECT_ROOT/skills"
+# A bundle is recognised only by skill dirs carrying a SKILL.md — any
+# unrelated top-level skills/ folder (docs, app code) used to hijack the
+# default public-catalogue path into bundle mode.
 if [ -z "${SKILLS_UPSTREAM_URL:-}" ] \
-   && ! { [ -d "$BUNDLED_SKILLS" ] && compgen -G "$BUNDLED_SKILLS/*/" >/dev/null 2>&1; }; then
+   && ! { [ -d "$BUNDLED_SKILLS" ] && compgen -G "$BUNDLED_SKILLS/*/SKILL.md" >/dev/null 2>&1; }; then
   SKILLS_UPSTREAM_URL="${SKILLS_DEFAULT_UPSTREAM_URL:-https://github.com/drushegh/CCMAF---Skills.git}"
   : "${SKILLS_UPSTREAM_BRANCH:=main}"
   echo "skills-sync: no upstream configured — defaulting to the public CCMAF catalogue ($SKILLS_UPSTREAM_URL)."
 fi
 if [ -n "${SKILLS_UPSTREAM_URL:-}" ]; then
-  : "${SKILLS_UPSTREAM_BRANCH:?SKILLS_UPSTREAM_BRANCH missing in .skills-version}"
+  # Explicit check, not ${VAR:?}: that expansion error exits with an
+  # undocumented status (127 under bash), not the documented setup code 2.
+  if [ -z "${SKILLS_UPSTREAM_BRANCH:-}" ]; then
+    echo "skills-sync: SKILLS_UPSTREAM_BRANCH missing in .skills-version (required with SKILLS_UPSTREAM_URL). Nothing was changed." >&2
+    exit 2
+  fi
   tmp_clone="$(mktemp -d)"
   trap 'rm -rf "$tmp_clone"' EXIT
   echo "skills-sync: fetching $SKILLS_UPSTREAM_URL ($SKILLS_UPSTREAM_BRANCH)..."
@@ -292,7 +344,7 @@ if [ -n "${SKILLS_UPSTREAM_URL:-}" ]; then
   fi
   upstream_sha=$(git -C "$tmp_clone" rev-parse HEAD)
   SRC_ROOT="$tmp_clone"
-elif [ -d "$BUNDLED_SKILLS" ] && compgen -G "$BUNDLED_SKILLS/*/" >/dev/null 2>&1; then
+elif [ -d "$BUNDLED_SKILLS" ] && compgen -G "$BUNDLED_SKILLS/*/SKILL.md" >/dev/null 2>&1; then
   SRC_ROOT="$BUNDLED_SKILLS"
   upstream_sha="bundled"
   echo "skills-sync: sourcing from the bundled catalogue at skills/ (in-repo bundle mode)."
@@ -307,7 +359,8 @@ fi
 # --- Per-skill selective copy -------------------------------------------
 synced=0
 refused=0
-for name in $SKILLS_SELECTED; do
+missing=0
+for name in "${SELECTED_NAMES[@]}"; do
   name="${name%$'\r'}"
   [ -z "$name" ] && continue
   # Defensive: a skill name is a plain dir name, never a path. Reject forward
@@ -324,7 +377,11 @@ for name in $SKILLS_SELECTED; do
   dst="$SKILLS_DIR/$name"
 
   if [ ! -d "$src" ]; then
-    echo "  - $name: not in upstream yet — skipped."
+    # Not necessarily "yet": a typo in SKILLS_SELECTED or a skill removed
+    # upstream looks identical. Say so, and hold the pin (below) so the
+    # gap is not silently recorded as "in sync".
+    echo "  - $name: not in upstream yet — skipped. WARNING: no such skill in the upstream catalogue; check SKILLS_SELECTED for a typo, or it may have been removed upstream." >&2
+    missing=$((missing + 1))
     continue
   fi
 
@@ -373,7 +430,9 @@ done
 # would then report "up to date" while they sit behind upstream). Atomic write:
 # mktemp alongside the destination so the final `mv` is a same-filesystem rename
 # (a bare mktemp in the system temp + cross-drive mv can truncate on interrupt).
-if [ "$synced" -gt 0 ] && [ "$refused" -eq 0 ]; then
+# Likewise held when a selected skill was not found upstream (missing > 0):
+# the selection names something the pinned catalogue does not have.
+if [ "$synced" -gt 0 ] && [ "$refused" -eq 0 ] && [ "$missing" -eq 0 ]; then
   tmp_version="$(mktemp "$(dirname "$VERSION_FILE")/.skills-version.XXXXXX")"
   awk -v sha="$upstream_sha" '
     BEGIN { set = 0 }
@@ -399,7 +458,7 @@ if [ "$synced" -gt 0 ]; then
     catalogue_dirs+=("$(basename "$d")")
   done
   companions=""
-  for name in $SKILLS_SELECTED; do
+  for name in "${SELECTED_NAMES[@]}"; do
     name="${name%$'\r'}"
     [ -d "$SKILLS_DIR/$name" ] || continue
     for ref in "${catalogue_dirs[@]}"; do
@@ -423,6 +482,7 @@ if [ "$synced" -gt 0 ]; then
 fi
 
 echo ""
-echo "skills-sync: $synced skill(s) synced, $refused refused/failed (upstream ${upstream_sha:0:7})."
+echo "skills-sync: $synced skill(s) synced, $refused refused/failed, $missing not found upstream (upstream ${upstream_sha:0:7})."
+[ "$missing" -gt 0 ] && [ "$synced" -gt 0 ] && echo "skills-sync: pin NOT advanced — fix or remove the not-found name(s) in SKILLS_SELECTED, then re-run." >&2
 [ "$refused" -gt 0 ] && exit 1
 exit 0

@@ -1,14 +1,13 @@
 # Decision Log
 
 <!-- Newest decisions at the top. During Cold Start, agents read only the last 10 entries. -->
-<!-- When this file exceeds ~50 entries, move older decisions to .claude/archive/decisions-archive.md -->
+<!-- When this file exceeds ~50 entries, run /ccmaf:housekeeping — rotate-state.sh moves older decisions to .claude/archive/DECISIONS-archive.md -->
 <!-- Number from DEC-001. Entry template (the <…> tokens are literal examples,
      filled in when a real decision is recorded — never by /ccmaf:init):
 
 ## DEC-XXX — Short decision title
 
-**Date:** <date>
-**Status:** Adopted | Superseded by DEC-YYY
+**Date:** <date> · **Status:** Adopted | Superseded by DEC-YYY
 
 **Decision:** What was decided, concretely.
 

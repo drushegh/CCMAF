@@ -267,10 +267,12 @@ audit_instructions() {
     # Byte-level UTF-8 match under LC_ALL=C instead of grep -P: PCRE grep
     # is absent on BSD/macOS AND git-bash, so the old -P probe was silently
     # dead on both (DA-C8). Ranges: U+200B-200F (e2 80 8b-8f), U+202A-202E
-    # (e2 80 aa-ae), U+2060-2064 (e2 81 a0-a4). U+FEFF (ef bb bf) is only
-    # checked PAST byte 3 so a legitimate leading UTF-8 BOM (common from
-    # Windows editors) doesn't false-fire.
-    if LC_ALL=C grep -qE $'\xe2\x80[\x8b-\x8f\xaa-\xae]|\xe2\x81[\xa0-\xa4]' "$f" 2>/dev/null \
+    # (e2 80 aa-ae), U+2060-2064 (e2 81 a0-a4), the bidi isolates
+    # U+2066-2069 (e2 81 a6-a9), and the Unicode Tag block U+E0000-E007F
+    # (f3 a0 80-81 xx: invisible "ASCII smuggling" characters). U+FEFF
+    # (ef bb bf) is only checked PAST byte 3 so a legitimate leading UTF-8
+    # BOM (common from Windows editors) doesn't false-fire.
+    if LC_ALL=C grep -qE $'\xe2\x80[\x8b-\x8f\xaa-\xae]|\xe2\x81[\xa0-\xa4\xa6-\xa9]|\xf3\xa0[\x80\x81]' "$f" 2>/dev/null \
        || tail -c +4 "$f" 2>/dev/null | LC_ALL=C grep -q $'\xef\xbb\xbf' 2>/dev/null; then
       add "CRITICAL" "instructions" "$f" "Instruction file contains zero-width or bidirectional control characters — a known vector for smuggling hidden instructions past human review. Inspect with a hex viewer (e.g. \`od -c\`) and strip them."
     fi
@@ -300,7 +302,7 @@ now_iso=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 # --- Emit -------------------------------------------------------------
 if [ "$FORMAT" = "json" ]; then
   if [ "$HAS_JQ" = "1" ]; then
-    printf '%s\n' "${findings[@]:-}" | jq -R 'select(length>0) | split("|") | {severity:.[0],surface:.[1],location:.[2],message:.[3]}' \
+    printf '%s\n' "${findings[@]:-}" | jq -R 'select(length>0) | split("|") | {severity:.[0],surface:.[1],location:.[2],message:(.[3:]|join("|"))}' \
       | jq -s "{scanned_at:\"$now_iso\",summary:{critical:$crit,warning:$warn,info:$info},findings:.}"
   else
     echo "{\"error\":\"jq required for --format json\"}"

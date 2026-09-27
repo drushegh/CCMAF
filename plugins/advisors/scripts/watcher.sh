@@ -70,9 +70,12 @@ degrade() {  # <reason>
 }
 
 # The task's code diff = the evidence. Exclude .claude/ framework bookkeeping (same filter the
-# /review runbook uses to brief the Claude reviewer).
-diff="$(cd "$repo" && git log -p --no-color --grep="$task_id" -- . ':(exclude).claude' 2>/dev/null || true)"
-files="$(cd "$repo" && git log --name-only --oneline --grep="$task_id" -- . ':(exclude).claude' 2>/dev/null || true)"
+# /review runbook uses to brief the Claude reviewer). The grep is ANCHORED on a non-digit (or
+# end of message) after the id, so TASK-17 does not also pull in TASK-170..179's commits; the id
+# is ERE-escaped first so it is matched literally.
+task_re="$(printf '%s' "$task_id" | sed 's/[][\.*^$+?(){}|/]/\\&/g')([^0-9]|\$)"
+diff="$(cd "$repo" && git log -p --no-color -E --grep="$task_re" -- . ':(exclude).claude' 2>/dev/null || true)"
+files="$(cd "$repo" && git log --name-only --oneline -E --grep="$task_re" -- . ':(exclude).claude' 2>/dev/null || true)"
 if [[ -z "${diff// }" ]]; then
   degrade "no evidence — no commits/diff found for $task_id (excluding .claude/). Cannot review without evidence."
   exit 4

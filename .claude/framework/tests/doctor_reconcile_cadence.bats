@@ -49,13 +49,20 @@ _commit_doc() {  # <message>
   git -C "$DOC" commit -qm "$1"
 }
 
+# Portable "set mtime to <epoch>": GNU touch takes -d @epoch; BSD/macOS
+# touch does not, so fall back to POSIX -t with a BSD `date -r` stamp.
+_touch_epoch() {  # <epoch> <file>
+  touch -d "@$1" "$2" 2>/dev/null && return 0
+  touch -t "$(date -r "$1" +%Y%m%d%H%M.%S)" "$2"
+}
+
 # Sets .claude/telemetry/.last-reconcile's mtime to <epoch seconds>,
 # creating the watermark (and its parent dir) if absent.
 _set_watermark_epoch() {  # <epoch>
   mkdir -p "$DOC/.claude/telemetry"
   local wm="$DOC/.claude/telemetry/.last-reconcile"
   : > "$wm"
-  touch -d "@$1" "$wm"
+  _touch_epoch "$1" "$wm"
 }
 
 # --- Check 14: Reconcile cadence ------------------------------------------
@@ -68,7 +75,7 @@ _set_watermark_epoch() {  # <epoch>
   _write_tasks_done 4                            # +3 new vs. baseline, working tree only
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 14: at-threshold new-Done count fires NAG [reconcile]" {
@@ -88,7 +95,7 @@ _set_watermark_epoch() {  # <epoch>
   _write_tasks_done 9   # comfortably over threshold if the guard clause were missing
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 14: watermark present but TASKS.md absent — silent, no crash" {
@@ -97,7 +104,7 @@ _set_watermark_epoch() {  # <epoch>
   # deliberately no TASKS.md at all
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q '\[reconcile\]' "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 14: watermark predates all TASKS.md history — still NAGs, no crash (regression: silent-never-nag)" {

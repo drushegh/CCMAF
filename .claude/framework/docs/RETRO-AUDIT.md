@@ -57,10 +57,12 @@ warrants a one-time sweep.
 # Network calls hit npm.org + pypi.org; cargo/go/nuget get a "manual"
 # entry. Takes 5-30s depending on dep count.
 rm -f .claude/.dep-verification-issues.md
-for f in $(git ls-files | grep -E '(^|/)(package\.json|pyproject\.toml|requirements.*\.txt|Cargo\.toml|go\.mod|.*\.csproj)$'); do
-  echo "{\"tool_input\":{\"file_path\":\"$f\"}}" \
-    | VERIFY_DEPS_RETRO=1 bash .claude/hooks/verify-deps.sh
-done
+# A read loop (not `for f in $(...)`) so paths containing spaces stay whole.
+git ls-files | grep -E '(^|/)(package\.json|pyproject\.toml|requirements.*\.txt|Cargo\.toml|go\.mod|.*\.csproj)$' \
+  | while IFS= read -r f; do
+      printf '{"tool_input":{"file_path":"%s"}}\n' "$f" \
+        | VERIFY_DEPS_RETRO=1 bash .claude/hooks/verify-deps.sh
+    done
 cat .claude/.dep-verification-issues.md 2>/dev/null || echo "(clean — no issues)"
 ```
 
@@ -179,7 +181,8 @@ grep -rIn $TEST_DIRS \
 # 5. Pre-existing test flakiness signals from your CI history (manual)
 # Look for tests that have been retried, skipped, or marked xfail in
 # the last 30 days. Adapt to your CI system.
-git log --since="30 days ago" --oneline --grep -E '(flaky|retry|xfail|skip)' 2>/dev/null
+# (-E is its own flag: `--grep -E` would take "-E" as the pattern and error.)
+git log --since="30 days ago" --oneline -i -E --grep='(flaky|retry|xfail|skip)'
 ```
 
 **Triage:**
@@ -254,9 +257,14 @@ rule only fires on *new* introductions.
 # 1. Unused imports (Python) — run ruff if installed
 command -v ruff >/dev/null && ruff check --select=F401 .
 
-# 2. Unused imports (JS/TS) — eslint if configured
+# 2. Unused imports (JS/TS) — eslint if configured. Runs with the project's
+# own ESLint config so TS parsing/plugins load (ESLint 9 flat config removed
+# the old `--no-eslintrc` flag). TS projects: use
+# `--rule '@typescript-eslint/no-unused-vars: error'` instead. Add
+# `--rule 'unused-imports/no-unused-imports: error'` only if
+# eslint-plugin-unused-imports is installed AND registered in that config.
 [ -f package.json ] && command -v npx >/dev/null && \
-  npx eslint --no-eslintrc --rule 'no-unused-vars: error' --rule 'unused-imports/no-unused-imports: error' .
+  npx eslint --rule 'no-unused-vars: error' .
 
 # 3. Unused vars (cross-language smell)
 # Stack-specific. Run your project's linter with the strictest config

@@ -11,6 +11,10 @@
 #
 # Throttled by INSIGHTS_CHECK_INTERVAL_DAYS in thresholds.conf.
 #
+# Per-project overrides: .claude/insights-thresholds.conf (same KEY=VALUE
+# format, any subset of keys) is read FIRST, key by key; the shipped
+# thresholds.conf next to this script supplies everything it omits.
+#
 # Exit codes:
 #   0 — up to date (no findings, OR skipped due to throttle, OR insufficient data)
 #   0 — findings written to flag file (cold start continues)
@@ -30,9 +34,12 @@ METRICS="$TELEMETRY_DIR/.hook-metrics"
 LAST_CHECK="$TELEMETRY_DIR/.last-analysed"
 FLAG="$PROJECT_ROOT/.claude/.framework-insight-alert.md"
 THRESHOLDS="$SCRIPT_DIR/thresholds.conf"
+# Project-owned override file: never overwritten by a framework update
+# (the shipped thresholds.conf is framework-owned and gets replaced).
+THRESHOLDS_LOCAL="$PROJECT_ROOT/.claude/insights-thresholds.conf"
 
-# Always remove stale flag — we recompute from scratch each run.
-rm -f "$FLAG"
+# NB: the stale flag is removed only once the throttle has passed (below).
+# Removing it up here erased alerts no cold start had surfaced yet.
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "analyse: jq required." >&2
@@ -51,25 +58,42 @@ fi
 # (healthcheck weekly / --force). Pull only the known KEY=VALUE keys this
 # script uses, and fall back to the documented default when a key is
 # missing or its value doesn't parse as a non-negative int/float.
-_thr_get() {
-  sed -n "s/^[[:space:]]*$1=\\([^#[:space:]]*\\).*/\\1/p" "$THRESHOLDS" 2>/dev/null | tail -1
+# Keys used in bash integer arithmetic ($((...)), -lt/-ge) are read with
+# _thr_int, which also rejects fractions (a "7.5" there crashed the run).
+# Each file is tried in turn (override first); an invalid value in one
+# falls through to the next, then to the documented default.
+_thr_get() {  # $1 = key, $2 = file
+  sed -n "s/^[[:space:]]*$1=\\([^#[:space:]]*\\).*/\\1/p" "$2" 2>/dev/null | tail -1
 }
-_thr_num() {
-  local v; v="$(_thr_get "$1")"; v="${v%$'\r'}"
-  case "$v" in
-    ''|*[!0-9.]*) printf '%s' "$2" ;;   # empty/missing or non-numeric char
-    *.*.*)        printf '%s' "$2" ;;   # more than one '.' — not a number
-    *)            printf '%s' "$v" ;;
-  esac
+_thr_read() {  # $1 = key, $2 = default, $3 = int|num
+  local f v
+  for f in "$THRESHOLDS_LOCAL" "$THRESHOLDS"; do
+    [ -f "$f" ] || continue
+    v="$(_thr_get "$1" "$f")"; v="${v%$'\r'}"
+    case "$v" in
+      ''|.|*[!0-9.]*) continue ;;   # empty/missing or non-numeric char
+      *.*.*)          continue ;;   # more than one '.' - not a number
+    esac
+    if [ "$3" = int ]; then
+      case "$v" in *.*) continue ;; esac
+      printf '%s' "$((10#$v))"      # 10#: "08" is decimal, not bad octal
+    else
+      printf '%s' "$v"
+    fi
+    return 0
+  done
+  printf '%s' "$2"
 }
-INSIGHTS_CHECK_INTERVAL_DAYS=$(_thr_num INSIGHTS_CHECK_INTERVAL_DAYS 7)
-INSIGHTS_MIN_EVENTS=$(_thr_num INSIGHTS_MIN_EVENTS 50)
+_thr_num() { _thr_read "$1" "$2" num; }
+_thr_int() { _thr_read "$1" "$2" int; }
+INSIGHTS_CHECK_INTERVAL_DAYS=$(_thr_int INSIGHTS_CHECK_INTERVAL_DAYS 7)
+INSIGHTS_MIN_EVENTS=$(_thr_int INSIGHTS_MIN_EVENTS 50)
 DRIFT_GUARD_FIRE_RATE_HIGH=$(_thr_num DRIFT_GUARD_FIRE_RATE_HIGH 0.30)
 DRIFT_GUARD_FIRE_RATE_LOW=$(_thr_num DRIFT_GUARD_FIRE_RATE_LOW 0.02)
 STOP_HOOK_BLOCK_RATE_HIGH=$(_thr_num STOP_HOOK_BLOCK_RATE_HIGH 0.20)
 DANGEROUS_CMD_BLOCK_RATE_HIGH=$(_thr_num DANGEROUS_CMD_BLOCK_RATE_HIGH 0.05)
 FORMAT_LINT_FIRE_RATE_LOW=$(_thr_num FORMAT_LINT_FIRE_RATE_LOW 0.01)
-INSIGHTS_MIN_SESSIONS=$(_thr_num INSIGHTS_MIN_SESSIONS 5)
+INSIGHTS_MIN_SESSIONS=$(_thr_int INSIGHTS_MIN_SESSIONS 5)
 STOP_BLOCK_SESSION_RATE_HIGH=$(_thr_num STOP_BLOCK_SESSION_RATE_HIGH 0.50)
 
 # Freshen the rollup so we're always analysing current data.
@@ -80,13 +104,20 @@ force=0
 [ "${1:-}" = "--force" ] && force=1
 
 if [ $force -eq 0 ] && [ -f "$LAST_CHECK" ]; then
-  last_epoch=$(date -u -d "$(cat "$LAST_CHECK")" +%s 2>/dev/null || echo 0)
+  last_ts_raw="$(tr -d '\r\n' < "$LAST_CHECK")"
+  # GNU date -d first; BSD/macOS date -j -f fallback (no -d there).
+  last_epoch=$(date -u -d "$last_ts_raw" +%s 2>/dev/null \
+    || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_ts_raw" +%s 2>/dev/null \
+    || echo 0)
   now_epoch=$(date -u +%s)
   interval_seconds=$((INSIGHTS_CHECK_INTERVAL_DAYS * 86400))
   if [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
     exit 0
   fi
 fi
+
+# Throttle passed: this run recomputes from scratch, so drop the stale flag.
+rm -f "$FLAG"
 
 # Record this run's timestamp regardless of outcome below.
 date -u +%Y-%m-%dT%H:%M:%SZ > "$LAST_CHECK"
@@ -156,12 +187,30 @@ if [ "$bash_total" -gt 0 ]; then
 fi
 
 # --- Format / Lint wiring check ---
-if [ "$total_events" -ge "$INSIGHTS_MIN_EVENTS" ]; then
+# v2: format/lint hooks ship only in the OPTIONAL devhooks plugin, so a zero
+# count is expected wherever devhooks isn't enabled. Only check wiring when
+# devhooks is enabled in a settings file, or when either hook has fired at
+# least once (proof it is installed).
+devhooks_enabled() {
+  local f
+  for f in "$PROJECT_ROOT/.claude/settings.local.json" \
+           "$PROJECT_ROOT/.claude/settings.json" \
+           "${HOME:-/nonexistent}/.claude/settings.json"; do
+    [ -f "$f" ] || continue
+    jq -e '[(.enabledPlugins // {}) | to_entries[]
+            | select((.key | startswith("devhooks@")) and .value == true)]
+           | length > 0' "$f" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+fmt_lint_seen=$(( $(hook_total format) + $(hook_total lint) ))
+if [ "$total_events" -ge "$INSIGHTS_MIN_EVENTS" ] \
+   && { [ "$fmt_lint_seen" -gt 0 ] || devhooks_enabled; }; then
   for h in format lint; do
     h_total=$(hook_total "$h")
     h_rate=$(rate "$h_total" "$total_events")
     if lte "$h_rate" "$FORMAT_LINT_FIRE_RATE_LOW"; then
-      findings+=("**Hook \`$h\` almost never fires** ($h_total events out of $total_events total). **Consider:** verify the hook is wired in .claude/settings.json, its matcher is correct, and the target toolchain is installed.")
+      findings+=("**Hook \`$h\` almost never fires** ($h_total events out of $total_events total). **Consider:** verify the devhooks plugin is enabled and loading, its matcher covers your edits, and the target toolchain is installed.")
     fi
   done
 fi
@@ -216,21 +265,26 @@ last_ts=$(jq -r '.last_ts // "unknown"' "$METRICS")
   # resolvable — this very script used them to find its own thresholds.conf
   # above), and only fall back to a resolve-it-yourself hint if somehow
   # neither is available.
+  # Threshold tuning is per-project: the shipped thresholds.conf lives in the
+  # plugin cache (replaced on every plugin update), so the hint names the
+  # project-owned override file, with the shipped one as the key/default
+  # reference.
   report_hint="bash \"$SCRIPT_DIR/report.sh\""
-  thresholds_hint="$THRESHOLDS"
+  thresholds_ref="$THRESHOLDS"
   if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
     report_hint="bash \"$CLAUDE_PLUGIN_ROOT/insights/report.sh\""
-    thresholds_hint="$CLAUDE_PLUGIN_ROOT/insights/thresholds.conf"
+    thresholds_ref="$CLAUDE_PLUGIN_ROOT/insights/thresholds.conf"
   elif [ ! -f "$SCRIPT_DIR/report.sh" ]; then
     report_hint="the ccmaf plugin's insights/report.sh (resolve via claude plugin list --json installPath)"
-    thresholds_hint="the ccmaf plugin's insights/thresholds.conf (resolve via claude plugin list --json installPath)"
+    thresholds_ref="the ccmaf plugin's insights/thresholds.conf (resolve via claude plugin list --json installPath)"
   fi
   echo "1. Read the full rollup: \`$report_hint\`"
   echo "2. If a finding deserves follow-up, append it to FRAMEWORK-SUGGESTIONS.md."
   echo "3. To dismiss for now: \`rm .claude/.framework-insight-alert.md\`. Analysis"
   echo "   reruns after $INSIGHTS_CHECK_INTERVAL_DAYS days (or on \`analyse.sh --force\`)."
   echo
-  echo "Tune thresholds in \`$thresholds_hint\` if any of"
+  echo "Tune thresholds in \`.claude/insights-thresholds.conf\` (KEY=VALUE, any"
+  echo "subset of keys; defaults and key list: \`$thresholds_ref\`) if any of"
   echo "these are false positives for your workflow."
 } > "$FLAG"
 

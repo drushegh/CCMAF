@@ -8,6 +8,13 @@ setup() {
   init_repo
 }
 
+# Portable "set mtime to <epoch>": GNU touch takes -d @epoch; BSD/macOS
+# touch does not, so fall back to POSIX -t with a BSD `date -r` stamp.
+_touch_epoch() {  # <epoch> <file>
+  touch -d "@$1" "$2" 2>/dev/null && return 0
+  touch -t "$(date -r "$1" +%Y%m%d%H%M.%S)" "$2"
+}
+
 # --- block-dangerous-commands.py (PreToolUse, safety tier) -----------
 
 @test "block-dangerous: blocks rm -rf / with exit 2" {
@@ -345,7 +352,7 @@ EOF
   command -v jq >/dev/null 2>&1 || skip "jq not available"
   ( cd "$REPO" && touch code.txt && git add -A && git commit -qm seed )
   echo stale > "$REPO/.claude/.session-start-commit.dead-session"
-  touch -d '10 days ago' "$REPO/.claude/.session-start-commit.dead-session"
+  _touch_epoch "$(( $(date +%s) - 10*86400 ))" "$REPO/.claude/.session-start-commit.dead-session"
   run hookrun "$HOOKS/session-start-marker.sh" '{"source":"startup","session_id":"sess-live"}'
   [ "$status" -eq 0 ]
   [ ! -f "$REPO/.claude/.session-start-commit.dead-session" ]
@@ -513,7 +520,7 @@ EOF
   run hookrun "$HOOKS/auto-lint.sh" '{"tool_input":{"file_path":"probe.sh"}}'
   [ "$status" -eq 0 ]
   grep -q '"hook":"lint","outcome":"ran"' "$REPO/.claude/telemetry/events.jsonl"
-  ! grep -q '"reason":"no-tool"' "$REPO/.claude/telemetry/events.jsonl"
+  ! grep -q '"reason":"no-tool"' "$REPO/.claude/telemetry/events.jsonl" || false
 }
 
 @test "auto-format: no file path skip carries reason=tool-ineligible" {
@@ -576,7 +583,7 @@ EOF
   command -v jq >/dev/null 2>&1 || skip "jq not available"
   CLAUDE_DISABLED_HOOKS=format run dispatchrun '{"tool_input":{"file_path":"src/app.xyz"}}'
   [ "$status" -eq 0 ]
-  ! grep -q '"hook":"format"' "$REPO/.claude/telemetry/events.jsonl"
+  ! grep -q '"hook":"format"' "$REPO/.claude/telemetry/events.jsonl" || false
   grep -q '"hook":"lint"' "$REPO/.claude/telemetry/events.jsonl"
 }
 
@@ -600,7 +607,10 @@ EOF
   # which this framework's own layout never has (the real npm root is
   # console/) — the gate was silently dead for exactly this repo. Prove
   # the fix by intercepting npx with a fake binary that records its cwd.
-  mkdir -p "$REPO/console/src"
+  # Prettier must be a LOCAL install (gate mirrors auto-lint's eslint gate),
+  # so the fixture provides console/node_modules/.bin/prettier.
+  mkdir -p "$REPO/console/src" "$REPO/console/node_modules/.bin"
+  touch "$REPO/console/node_modules/.bin/prettier"
   echo '{"name":"fixture"}' > "$REPO/console/package.json"
   printf 'const x=1\n' > "$REPO/console/src/app.ts"
   mkdir -p "$BATS_TEST_TMPDIR/fakebin"
@@ -615,7 +625,25 @@ EOF
   [ "$status" -eq 0 ]
   grep -q "cwd=$REPO/console" "$BATS_TEST_TMPDIR/npx-calls.log"
   grep -q "prettier" "$BATS_TEST_TMPDIR/npx-calls.log"
+  grep -q -- "--no prettier" "$BATS_TEST_TMPDIR/npx-calls.log"
   grep -q "$REPO/console/src/app.ts" "$BATS_TEST_TMPDIR/npx-calls.log"
+}
+
+@test "auto-format: package.json but NO local prettier → npx is never invoked (no registry fetch)" {
+  mkdir -p "$REPO/console/src"
+  echo '{"name":"fixture"}' > "$REPO/console/package.json"
+  printf 'const x=1\n' > "$REPO/console/src/app.ts"
+  mkdir -p "$BATS_TEST_TMPDIR/fakebin"
+  cat > "$BATS_TEST_TMPDIR/fakebin/npx" <<EOF
+#!/bin/sh
+printf 'cwd=%s args=%s\n' "\$PWD" "\$*" >> "$BATS_TEST_TMPDIR/npx-calls.log"
+exit 0
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/fakebin/npx"
+  PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" run hookrun "$HOOKS/auto-format.sh" \
+    "{\"tool_input\":{\"file_path\":\"$REPO/console/src/app.ts\"}}"
+  [ "$status" -eq 0 ]
+  [ ! -e "$BATS_TEST_TMPDIR/npx-calls.log" ]
 }
 
 @test "auto-lint: an edit under console/ (nested npm root) triggers eslint via the NEAREST package.json" {
@@ -911,7 +939,7 @@ EOF
   # In Progress task present → Indicator 3 (no-task-claimed) stays quiet.
   printf '# Task Board\n## Feature Lane\n### In Progress\n#### [TASK-1] active\nx\n' > "$REPO/.claude/TASKS.md"
   fired=0
-  for t in 1 2 3 4 5 6 7 8; do
+  for _ in 1 2 3 4 5 6 7 8; do
     out=$(hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}')
     echo "$out" | grep -q "Framework check-in" && fired=1
   done
@@ -923,10 +951,10 @@ EOF
 @test "drift-guard: a board write resets staleness (check-in suppressed)" {
   command -v jq >/dev/null 2>&1 || skip "jq not available"
   printf '# Task Board\n## Feature Lane\n### In Progress\n#### [TASK-1] active\nx\n' > "$REPO/.claude/TASKS.md"
-  for t in 1 2 3 4 5 6 7 8; do
+  for _ in 1 2 3 4 5 6 7 8; do
     hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}' >/dev/null
   done
-  touch -d "@$(( $(date +%s) + 120 ))" "$REPO/.claude/TASKS.md"   # a board write
+  _touch_epoch "$(( $(date +%s) + 120 ))" "$REPO/.claude/TASKS.md"   # a board write
   out=$(hookrun "$HOOKS/framework-drift-guard.sh" '{"session_id":"s1"}')
-  ! echo "$out" | grep -q "Framework check-in"
+  ! echo "$out" | grep -q "Framework check-in" || false
 }

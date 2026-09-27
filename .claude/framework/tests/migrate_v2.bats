@@ -160,7 +160,9 @@ migrate() { ( cd "$CONSUMER" && bash .claude/framework/update/migrate-v2.sh "$@"
   # bash opens the file (MSYS-path-aware); python reads stdin — a
   # Windows-native python cannot open /tmp/... MSYS paths itself.
   # python3-first: bare `python` doesn't exist on every distro (WSL Ubuntu).
-  pybin=python3; command -v python3 >/dev/null 2>&1 || pybin=python
+  # Probe by EXECUTING: on Windows `python3` may be the Microsoft Store stub
+  # (exits 49), which `command -v` alone would pick (BUG-032).
+  pybin=python3; python3 -c 'import sys' >/dev/null 2>&1 || pybin=python
   "$pybin" -c "
 import json, sys
 s = json.load(sys.stdin)
@@ -173,7 +175,7 @@ assert s['permissions']['deny'] == ['Read(./.env)']
 assert s['statusLine']['command'] == 'bash .claude/statusline.sh', s['statusLine']
 " < "$CONSUMER/.claude/settings.json"
   # CLAUDE.md's dangling import was commented out, project notes survive.
-  ! grep -Eq '^@CLAUDE\.framework\.md' "$CONSUMER/CLAUDE.md"
+  ! grep -Eq '^@CLAUDE\.framework\.md' "$CONSUMER/CLAUDE.md" || false
   grep -q "retired by migrate-v2" "$CONSUMER/CLAUDE.md"
   grep -q "Project notes." "$CONSUMER/CLAUDE.md"
   # v2 line written exactly once (upsert, no duplicates); one clean commit.

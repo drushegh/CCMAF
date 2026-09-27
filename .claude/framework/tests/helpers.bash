@@ -8,9 +8,20 @@
 # repo and vanishes with it, never touching the real working tree.
 
 FW_REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# shellcheck disable=SC2034  # consumed by the .bats files that load this helper
 HOOKS="$FW_REPO_ROOT/.claude/hooks"
+# shellcheck disable=SC2034  # consumed by the .bats files that load this helper
 AUDIT="$FW_REPO_ROOT/.claude/framework/audit"
-PYTHON="$(command -v python3 || command -v python || true)"
+# Probe each candidate by EXECUTING it — on Windows `python3` often resolves to
+# the Microsoft Store stub (exits 49), so `command -v` alone picks a dead one
+# and python-gated tests fail instead of running/skipping (BUG-032).
+PYTHON=""
+for _py_cand in python3 python; do
+  if command -v "$_py_cand" >/dev/null 2>&1 && "$_py_cand" -c 'import sys' >/dev/null 2>&1; then
+    PYTHON="$(command -v "$_py_cand")"; break
+  fi
+done
+unset _py_cand
 
 # Create the per-test throwaway git repo. Call from a file's setup().
 init_repo() {

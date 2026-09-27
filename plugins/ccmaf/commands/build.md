@@ -90,8 +90,17 @@ throughout (digest banner + `agent_docs/OPERATIONS.md`).
       their own state updates, and a committed change is invisible to
       `git diff HEAD` (review-swarm catch). The session-start-marker hook
       recorded HEAD at session start as
-      `.claude/.session-start-commit.<session_id>`:
-      `BASE=$(cat .claude/.session-start-commit.* 2>/dev/null | head -1)`
+      `.claude/.session-start-commit.<session_id>` (bare
+      `.claude/.session-start-commit` when the hook got no session id; line 1
+      is the sha). Select THIS session's marker — a bare `*` glob can read
+      another concurrent session's marker — falling back to the newest by
+      mtime:
+      ```bash
+      M=".claude/.session-start-commit.${CLAUDE_SESSION_ID}"
+      [ -f "$M" ] || M=$(ls -t .claude/.session-start-commit .claude/.session-start-commit.* 2>/dev/null | grep -v '\.tmp' | head -1)
+      BASE=$(sed -n 1p "$M" 2>/dev/null)
+      git rev-parse -q --verify "${BASE:-none}^{commit}" >/dev/null || BASE=
+      ```
       then `git status --short && git diff --stat ${BASE:-HEAD~3} -- .claude/TASKS.md .claude/STATUS.md .claude/claude-progress.txt`
       — confirm the three state files moved; read ONLY the changed hunks
       (`git diff ${BASE:-HEAD~3} -- <file>`) to check: task → Ready for
@@ -123,9 +132,12 @@ throughout (digest banner + `agent_docs/OPERATIONS.md`).
 
 10. **Verify handback (NON-NEGOTIABLE).** Each delivered feature = its own
     board task (decompose retroactively if a batch bundled them — the
-    procedure in `agent_docs/verify-handback.md`). Run `/ccmaf:test` so the
-    Tester emits one verify seed per task (`.claude/console/verify/<ID>.json`,
-    gated on `.claude/console/` existing).
+    procedure in `agent_docs/verify-handback.md`). Run `/ccmaf:test`: the
+    Tester emits one verify seed per task **on PASS, as it moves the task from
+    Ready for Test to Verify** (`.claude/console/verify/<ID>.json`, write-once,
+    gated on `.claude/console/` existing) — never earlier, while the task still
+    sits in Ready for Test. (Retroactively decomposed tasks created straight in
+    Verify get their seeds from the decomposition step itself.)
 
 11. **Batch-completion coherence gate.** After step 10 run
     `bash ${CLAUDE_PLUGIN_ROOT}/doctor/doctor.sh` and read its

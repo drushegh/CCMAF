@@ -37,8 +37,9 @@ Then:
    call after acceptance), and failing ones back to "In Progress"?
    b. Read STATUS.md — does it reflect test results?
    c. Read claude-progress.txt — is there a session entry?
-   d. **Commit linkage check:** verify `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'` returns at
-   least one commit for the implementation (excludes framework bookkeeping commits). A task cannot advance to Verify without one.
+   d. **Commit linkage check:** verify `git log --oneline -E --grep='TASK-XXX([^0-9]|$)' -- . ':(exclude).claude'` returns at
+   least one commit for the implementation (excludes framework bookkeeping commits; the `([^0-9]|$)`
+   anchor stops TASK-17 also matching TASK-170..179). A task cannot advance to Verify without one.
    e. **Seed check:** if `.claude/console/` exists, confirm
    `.claude/console/verify/<TASK-ID>.json` was written for each passing task (`items[]` =
    use-cases). If missing, emit it yourself per verify-handback.md (write-once). If

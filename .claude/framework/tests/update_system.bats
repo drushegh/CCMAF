@@ -90,7 +90,7 @@ load update_helpers
   run apply_update
   [ "$status" -eq 0 ]
   grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V2_SHA" "$CVERSION"
-  ! grep -q "1970-01-01" "$CVERSION"
+  ! grep -q "1970-01-01" "$CVERSION" || false
   [ ! -f "$CFLAG" ]
 }
 
@@ -235,7 +235,7 @@ load update_helpers
   grep -q "hook v1"  "$CONSUMER/.claude/hooks/sample-hook.sh"
   grep -q "^FRAMEWORK_PINNED_SHA=$UPSTREAM_V1_SHA" "$CVERSION"
   # trap cleanup removed the staging dir
-  ! ls "$CONSUMER/.claude"/.update-staging.* 2>/dev/null
+  ! ls "$CONSUMER/.claude"/.update-staging.* 2>/dev/null || false
 }
 
 @test "apply-update: customised command file → loud collision notice (TASK-039)" {
@@ -440,7 +440,7 @@ load update_helpers
   run check_updates
   [ "$status" -eq 0 ]
   [ ! -f "$CFLAG" ]
-  ! grep -q "1970-01-01" "$CVERSION"
+  ! grep -q "1970-01-01" "$CVERSION" || false
 }
 
 @test "check-updates: update available writes a sane flag file" {
@@ -529,7 +529,7 @@ load update_helpers
   [ ! -f "$OLDC/.framework-version" ]; [ -f "$OLDC/.claude/.framework-version" ]
   # Reference rewrites
   grep -q ".claude/framework/" "$OLDC/CLAUDE.md"
-  ! grep -q "00_framework" "$OLDC/CLAUDE.md"
+  ! grep -q "00_framework" "$OLDC/CLAUDE.md" || false
   grep -q ".claude/.framework-update-available.md" "$OLDC/.gitignore"
   grep -q ".claude/framework/self/README.md" "$OLDC/.gitignore"
   # Migration commit exists
@@ -554,8 +554,8 @@ load update_helpers
   run migrate_layout
   [ "$status" -eq 0 ]
   # Not in the migration commit, not tracked, still on disk.
-  ! git -C "$OLDC" show --name-only --format= HEAD | grep -q ".env.local"
-  ! git -C "$OLDC" ls-files | grep -q ".env.local"
+  ! git -C "$OLDC" show --name-only --format= HEAD | grep -q ".env.local" || false
+  ! git -C "$OLDC" ls-files | grep -q ".env.local" || false
   [ -f "$OLDC/.env.local" ]
 }
 
@@ -595,7 +595,7 @@ load update_helpers
   # Prose mention rewritten too — by design: sed cannot tell it apart, and
   # the adopter explicitly confirmed after seeing the diff.
   grep -q 'the .claude/framework/ layout held these files' "$OLDC/CLAUDE.md"
-  ! grep -q "00_framework" "$OLDC/CLAUDE.md"
+  ! grep -q "00_framework" "$OLDC/CLAUDE.md" || false
   # The pre-commit diff listed CLAUDE.md as a change (shown before the gate).
   [[ "$output" == *"CLAUDE.md"* ]]
   [[ "$output" == *"will be committed"* ]]
@@ -631,7 +631,7 @@ load update_helpers
   cmp -s "$BATS_TEST_TMPDIR/claude-md.orig" "$OLDC/CLAUDE.md"
   # ...and the index/worktree entirely clean (fixture starts committed-clean).
   [ -z "$(git -C "$OLDC" status --porcelain)" ]
-  ! git -C "$OLDC" log --oneline | grep -q "layout migration"
+  ! git -C "$OLDC" log --oneline | grep -q "layout migration" || false
 }
 
 @test "migrate-layout: decline semantics via --stage-only — coherent migration staged, references rewritten, nothing committed (audit M3, corrected)" {
@@ -651,12 +651,12 @@ load update_helpers
   # ...references REWRITTEN (bare + backticked; no stale refs anywhere)...
   grep -q '^See .claude/framework/self/README.md$' "$OLDC/CLAUDE.md"
   grep -q 'Read `.claude/framework/insights/notes.txt`' "$OLDC/CLAUDE.md"
-  ! grep -q "00_framework" "$OLDC/CLAUDE.md"
+  ! grep -q "00_framework" "$OLDC/CLAUDE.md" || false
   # ...everything staged, including the rewritten CLAUDE.md...
   git -C "$OLDC" diff --cached --name-only | grep -qx "CLAUDE.md"
   ( cd "$OLDC" && ! git diff --cached --quiet )
   # ...nothing committed, and the staged-review notice was printed.
-  ! git -C "$OLDC" log --oneline | grep -q "layout migration"
+  ! git -C "$OLDC" log --oneline | grep -q "layout migration" || false
   [[ "$output" == *"nothing was committed"* ]]
   [[ "$output" == *"git diff --staged"* ]]
 }
@@ -671,7 +671,7 @@ load update_helpers
   # Tolerate environment-dependent findings (gnu-toolchain WARNING on
   # BSD/macOS, jq-missing INFO) — but never a CRITICAL.
   if [ -f "$DOCFLAG" ]; then
-    ! grep -q "CRITICAL" "$DOCFLAG"
+    ! grep -q "CRITICAL" "$DOCFLAG" || false
   fi
   if command -v jq >/dev/null 2>&1 && sed --version 2>/dev/null | grep -q GNU; then
     [ ! -f "$DOCFLAG" ]
@@ -688,7 +688,7 @@ load update_helpers
   run run_doctor
   [ "$status" -eq 0 ]
   if [ -f "$DOCFLAG" ]; then
-    ! grep -q "child-hook.sh" "$DOCFLAG"
+    ! grep -q "child-hook.sh" "$DOCFLAG" || false
   fi
 }
 
@@ -763,7 +763,7 @@ GOTCHA
   run run_doctor
   [ "$status" -eq 0 ]
   if [ -f "$DOCFLAG" ]; then
-    ! grep -q "state-files" "$DOCFLAG"
+    ! grep -q "state-files" "$DOCFLAG" || false
   fi
 }
 
@@ -774,7 +774,7 @@ GOTCHA
   seed_doctor_state_files
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 13: bracketed IDs in their lane are clean (control)" {
@@ -791,7 +791,7 @@ GOTCHA
 EOF
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 13: bare (unbracketed) IDs → WARNING [state-structure]" {
@@ -892,7 +892,7 @@ EOF
   printf '# Decision Log\n\n## DEC-007 — a dec-n decision\n\nbody\n\n## 2026-06-26 — a date-headed decision\n\nbody\n' > "$DOC/.claude/DECISIONS.md"
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 13: task ID at heading level 3 → WARNING (entry would vanish)" {
@@ -956,7 +956,7 @@ EOF
 EOF
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 13: DECISIONS meta line with a hyphen instead of the middot → WARNING" {
@@ -972,7 +972,7 @@ EOF
   printf '# Decision Log\n\n## DEC-001 — A decision\n\n**Date:** 2026-06-26 · **Status:** active\n' > "$DOC/.claude/DECISIONS.md"
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 13: GOTCHAS single-asterisk Confidence marker → WARNING" {
@@ -1004,7 +1004,7 @@ EOF
   printf '# Eco\n\n<!-- tasks reference contract:user-registration by ID -->\n\n### C\n\n<!-- contract:foo status:stable -->\n' > "$DOC/.claude/ECOSYSTEM.md"
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q "state-structure" "$DOCFLAG" || false; fi
 }
 
 @test "doctors carry no bare '|| return' — under set -e it kills the run silently (BUG-031)" {

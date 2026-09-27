@@ -5,8 +5,19 @@ packaged as a Claude Code plugin so **no per-project files are ever needed**.
 Install once per machine; every repo gets:
 
 - **A safety floor** — the framework's dangerous-command guard as a blocking
-  PreToolUse hook (recursive deletes of roots/home, raw disk writes,
-  filesystem formats, fork bombs).
+  PreToolUse hook on the Bash, PowerShell and Monitor tools. It blocks
+  commands aimed at a protected location — a filesystem or drive root, your
+  home directory or anything above it (`/home`, `/Users`, `C:\Users`), a core
+  system directory at the root (`/etc`, `/usr`, `/bin`, `/sbin`, `/lib`,
+  `/lib64`, `/var`, `/boot`, `/opt`, macOS `/System`, `/Library`,
+  `/Applications`, `/private`, `C:\Windows`, `C:\Program Files*`,
+  `C:\ProgramData`), or a whole block device — by recursive delete, move,
+  recursive chmod/chown/ACL rewrite, raw disk write or filesystem format;
+  plus fork bombs. It also judges strings re-run through `eval`, `bash -c`,
+  `pwsh -Command` and `cmd /c`. It deliberately does NOT judge git
+  (`push --force`, `reset --hard`, `clean -fdx`) or deletes of deeper or
+  project paths (`rm -rf build`, `/usr/local/src/app`). Heuristic
+  defence in depth, not a security boundary.
 - **A spend bound** — a PostToolUse tool-call counter that reminds the model
   at 30/60/120+ calls to stop and report if the stated done-check isn't green.
 - **The kernel discipline** — injected at session start ([KERNEL.md](KERNEL.md)):
@@ -20,24 +31,41 @@ claude plugin marketplace add drushegh/CCMAF
 claude plugin install ccmaf-kernel@ccmaf --scope user
 ```
 
-Update later with `claude plugin marketplace update ccmaf`.
+Update later — refresh the marketplace catalogue, then update the plugin
+itself (`marketplace update` alone only refreshes the catalogue), then
+restart Claude Code to load the new version:
+
+```bash
+claude plugin marketplace update ccmaf
+claude plugin update ccmaf-kernel@ccmaf
+```
 
 ## Behaviour in full-CCMAF projects
 
 In a project scaffolded with the full framework (marked by
 `.claude/.framework-version`), the kernel **self-defers**: context injection
 and the budget counter become silent no-ops (the framework's own instruction
-set and lifecycle hooks take over), while the guard stays live — it is
-byte-identical to the framework's own, and double-running it never changes
-the blocking decision (both copies see the same input). The double run is
-not free, though: each Bash command pays the guard's subprocess cost twice,
-and bash-guard telemetry totals count every command double.
+set and lifecycle hooks take over), while the guard stays live.
+
+- **v2 projects** (`FRAMEWORK_LINE=v2` — the `ccmaf` core plugin): this
+  plugin is the **sole** owner of the dangerous-command guard; core ships no
+  guard of its own and only monitors this one (its SessionStart
+  interpreter check). The kernel also warns at session start if the core
+  plugin shows no recent activity.
+- **Legacy v1 projects** (the framework's hooks vendored into
+  `.claude/hooks/` and registered in `.claude/settings.json`): the project
+  registers its own byte-identical copy, so the guard runs twice. That never
+  changes the blocking decision (both copies see the same input), but each
+  screened command pays the guard's subprocess cost twice and bash-guard
+  telemetry totals count every command double.
 
 Per-project opt-out, if you ever need one: add
 `"enabledPlugins": {"ccmaf-kernel@ccmaf": false}` to that project's
 `.claude/settings.json` — the key must be marketplace-qualified
 (`plugin-name@marketplace-name`); a bare `"ccmaf-kernel"` is silently
 ignored. The interactive equivalent is `/plugin disable ccmaf-kernel@ccmaf`.
+In a v2 project this removes the **only** dangerous-command guard, so do it
+deliberately.
 
 ## Maintenance invariants
 

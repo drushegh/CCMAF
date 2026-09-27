@@ -22,6 +22,43 @@
 
 set -uo pipefail
 
+# Portable timeout (review P1): stock macOS ships no GNU `timeout` (only
+# Homebrew coreutils' `gtimeout`) and a bare `timeout` there is exit 127 for
+# EVERY call.
+# (Same helper as boot/cold-start.sh — keep in sync.)
+# Resolve once: timeout -> gtimeout -> a perl fork/alarm
+# fallback (kills the child, exits 124 like GNU) -> unbounded.
+# (Canonical: hooks/lib/hook-common.sh — sourced when present.)
+_hc="$(dirname "${BASH_SOURCE[0]}")/../hooks/lib/hook-common.sh"
+# shellcheck source=/dev/null
+[ -f "$_hc" ] && . "$_hc"
+if ! declare -F run_tmo >/dev/null 2>&1; then  # standalone: inline copy
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+fi
+
 # v2 adaptation: the old fallback (a BASH_SOURCE-relative SCRIPT_DIR/../../..)
 # assumed a fixed depth
 # under a consumer's .claude/framework/ tree — under the plugin layout that no
@@ -68,7 +105,7 @@ check_plugin_installed() {
   # CORE-DESIGN §11) — still timeout-bounded per the standing "every
   # external/network-capable call in the cold-start chain is bounded" rule.
   local list_json enabled
-  list_json="$(timeout 10 claude plugin list --json 2>/dev/null)" || return 0
+  list_json="$(run_tmo 10 claude plugin list --json 2>/dev/null)" || return 0
   [ -n "$list_json" ] || return 0
 
   enabled="$(printf '%s' "$list_json" | jq -r '.[]? | select(.id == "console@ccmaf") | .enabled' 2>/dev/null)"

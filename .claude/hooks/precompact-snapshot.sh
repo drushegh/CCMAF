@@ -20,6 +20,7 @@
 INPUT=$(cat 2>/dev/null || true)
 
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 if command -v hook_enabled >/dev/null 2>&1 && ! hook_enabled precompact-snapshot normal; then
   exit 0

@@ -136,6 +136,7 @@ if _has_v2_line; then
       exit 0
     fi
     say "FINALIZE: v2 line present but the migration did not finish (update/ still on disk and/or uncommitted changes)."
+    say "  (only migration paths are committed; any unrelated uncommitted edits are left in the working tree)"
     FINALIZE=1
   else
     say "already on the v2 line (FRAMEWORK_LINE=v2 present) — nothing to migrate."
@@ -155,10 +156,10 @@ if [ -n "$status_out" ] && [ "$FINALIZE" = 0 ]; then
   if [ -f "$TOMBSTONE" ]; then
     # Tombstone + dirty tree = an interrupted earlier run. Resuming IS the
     # fix — every step is idempotent and the final commit sweeps the whole
-    # migration into one revert unit. NOTE: any unrelated edits made since
-    # the interruption will be swept into that migration commit too.
+    # migration into one revert unit. Unrelated edits made since the
+    # interruption are NOT swept in: Step 7 stages only migration paths.
     say "RESUME: tombstone found with a dirty tree — continuing the interrupted migration."
-    say "  (any unrelated uncommitted edits will land in the migration commit — abort now if that matters)"
+    say "  (only migration paths are committed; any unrelated uncommitted edits are left in the working tree)"
   elif [ "$DRY" = 1 ]; then
     say "note: working tree is dirty — a real run will refuse until it is clean."
   else
@@ -168,10 +169,12 @@ fi
 
 # Parse + validate the retired list. Same escape-guard arms as
 # apply-update.sh's _is_unsafe_manifest_path (absolute, parent-escape,
-# tilde, drive-letter, backslash, empty).
+# tilde, drive-letter, backslash, empty). The backslash arm uses the QUOTED
+# form `*'\'*`, as apply-update.sh does — see the note there on why it is
+# preferred over the backslash-halving-fragile unquoted `*\\*`.
 _is_unsafe_path() {  # <path> → 0 (true) if unsafe
   case "$1" in
-    /*|*..*|*'~'*|[A-Za-z]:*|*\\*|'') return 0 ;;
+    /*|*..*|*'~'*|[A-Za-z]:*|*'\'*|'') return 0 ;;
   esac
   return 1
 }
@@ -413,21 +416,34 @@ PYEOF
   # dangle forever (/ccmaf:init never edits an existing CLAUDE.md).
   if [ -f "$PROJECT_ROOT/CLAUDE.md" ] && grep -q "@CLAUDE\.framework\.md" "$PROJECT_ROOT/CLAUDE.md"; then
     "$PYBIN" - "$PROJECT_ROOT/CLAUDE.md" <<'PYEOF'
-import os, sys
+import os, re, sys
 p = sys.argv[1]
 with open(p, encoding="utf-8") as f:
     lines = f.read().split("\n")
+# Only the import TOKEN is retired — never the rest of the line. A line that
+# is nothing but the import becomes the retirement comment (as before); an
+# import sharing a line with other content (e.g. "Rules: @CLAUDE.framework.md
+# plus my notes") keeps that content and gets an inline marker in place of
+# the token. Mentions inside a `code span` are not imports and stay as-is.
+TOKEN = re.compile(r"(?<![`\w@/.])@CLAUDE\.framework\.md(?![\w`.-])")
+FULL = "<!-- retired by migrate-v2: @CLAUDE.framework.md import — always-on rules now live in the ccmaf plugin digest -->"
+INLINE = "<!-- retired by migrate-v2: CLAUDE.framework.md import -->"
 out = []
 for l in lines:
-    if "@CLAUDE.framework.md" in l and not l.lstrip().startswith("<!--"):
-        out.append("<!-- retired by migrate-v2: @CLAUDE.framework.md import — always-on rules now live in the ccmaf plugin digest -->")
-    else:
+    if l.lstrip().startswith("<!--") or not TOKEN.search(l):
         out.append(l)
+    elif l.strip() == "@CLAUDE.framework.md":
+        out.append(FULL)
+    else:
+        out.append(TOKEN.sub(INLINE, l))
+if out == lines:
+    print("migrate-v2:   CLAUDE.md — no live @CLAUDE.framework.md import (only comments/code-span mentions); left unchanged.")
+    sys.exit(0)
 tmp = p + ".migrate-tmp"
 with open(tmp, "w", encoding="utf-8", newline="\n") as f:
     f.write("\n".join(out))
 os.replace(tmp, p)
-print("migrate-v2:   CLAUDE.md — commented out the @CLAUDE.framework.md import.")
+print("migrate-v2:   CLAUDE.md — commented out the @CLAUDE.framework.md import (rest of the line kept).")
 PYEOF
   fi
 
@@ -478,8 +494,48 @@ if [ -d "$PROJECT_ROOT/.claude/framework/update" ]; then
   say "retired .claude/framework/update/ (this script's own directory — the final deletion)."
 fi
 
-git -C "$PROJECT_ROOT" add -A
-if [ -z "$(git -C "$PROJECT_ROOT" status --porcelain)" ]; then
+# Stage ONLY the migration's own paths. A blanket `git add -A` swept any
+# unrelated uncommitted edit (made after an interrupted run, before a
+# FINALIZE/RESUME) silently into the migration commit. The migration set =
+# every tombstoned path (the full retirement set, update/ included) plus
+# the fixed files this script rewrites/creates. Everything else that is
+# dirty is unstaged again and reported, never committed.
+_migration_prefixes=(
+  ".claude/.migrate-v2-tombstone"
+  ".claude/.framework-version"
+  ".claude/settings.json"
+  ".claude/settings.local.json"
+  ".claude/statusline.sh"
+  ".claude/hooks/statusline.sh"
+  "CLAUDE.md"
+)
+if [ -f "$TOMBSTONE" ]; then
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    _is_unsafe_path "${line%/}" && continue
+    _migration_prefixes+=("${line%/}")
+  done < "$TOMBSTONE"
+fi
+_is_migration_path() {  # <repo-root-relative path> → 0 if the migration owns it
+  local rel="$1" m
+  for m in "${_migration_prefixes[@]}"; do
+    [ "$rel" = "$m" ] && return 0
+    case "$rel" in "$m"/*) return 0 ;; esac
+  done
+  return 1
+}
+git -C "$PROJECT_ROOT" add -A -- .
+unrelated=()
+while IFS= read -r -d '' f; do
+  _is_migration_path "$f" && continue
+  unrelated+=("$f")
+done < <(git -C "$PROJECT_ROOT" diff --cached --name-only --no-renames --relative -z)
+if [ ${#unrelated[@]} -gt 0 ]; then
+  git -C "$PROJECT_ROOT" reset -q -- "${unrelated[@]}" 2>/dev/null \
+    || fail "could not unstage unrelated changes — commit manually; review 'git diff --cached' first." 5
+fi
+if git -C "$PROJECT_ROOT" diff --cached --quiet; then
   # A finalize run whose only work was deleting never-committed strays can
   # end on an already-clean tree — success, nothing left to commit.
   say "tree is clean — nothing left to commit."
@@ -490,6 +546,14 @@ else
     || fail "git commit failed — the tree still holds the migration; commit manually as one commit." 5
   commit_sha="$(git -C "$PROJECT_ROOT" rev-parse --short HEAD)"
   say "committed as $commit_sha. Revert with: git revert $commit_sha"
+fi
+if [ ${#unrelated[@]} -gt 0 ]; then
+  say "NOT committed — ${#unrelated[@]} unrelated uncommitted change(s) left in your working tree (not part of the migration):"
+  _shown=0
+  for f in "${unrelated[@]}"; do
+    if [ "$_shown" -ge 20 ]; then echo "    …"; break; fi
+    echo "    $f"; _shown=$((_shown + 1))
+  done
 fi
 
 echo ""

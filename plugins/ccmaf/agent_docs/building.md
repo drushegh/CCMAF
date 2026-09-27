@@ -1,7 +1,14 @@
 # Building & Development
 
-<!-- TEMPLATE: Populate this with your project's specific build commands and dev setup. -->
-<!-- Examples below show a few stacks; delete the ones that don't apply and fill in your own. -->
+> **Template — don't edit this copy.** This file ships inside the ccmaf
+> plugin, which is installed once per machine and shared by every project;
+> a plugin update overwrites it. To record *your* project's build commands,
+> copy it to the project's own `docs/building.md` and populate that copy
+> (the agents read the project copy when it exists — see `OPERATIONS.md`,
+> "Reference Documents"). Until then, the stack examples below are generic
+> starting points, not this project's commands.
+
+<!-- Examples below show a few stacks; in your project copy, delete the ones that don't apply and fill in your own. -->
 
 ## Dev Environment Setup
 

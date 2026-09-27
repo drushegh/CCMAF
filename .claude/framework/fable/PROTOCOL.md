@@ -1,9 +1,15 @@
 # Fable Consultation Protocol — workbench crib sheet
 
-This `_fable/` workbench runs **advisory** design / architecture / workflow consultations
-with a Fable subagent, with GUARANTEED model integrity. It is git-ignored (an entry in the
-repo's committed `.gitignore`) — scratch space, never shipped state. `/fable` drives it;
-this file is the reference it instantiates alongside `verify-turn.sh`.
+The shared `_advisors/` workbench runs **advisory** design / architecture / workflow
+consultations with a Fable subagent, with GUARANTEED model integrity. It is git-ignored (an
+entry in the repo's committed `.gitignore`) — scratch space, never shipped state.
+`/advisors:fable` (v1 line: `/fable`) drives it, and `/advisors:consult` (v1: `/consult`)
+reuses the same workbench for its Fable seat; this file is the reference it cites alongside
+`verify-turn.sh`, which Step 0 of that command copies to `_advisors/verify-turn.sh`.
+
+(Legacy: consultations started under the old `_fable/` workbench with `*-response.md` turn
+files finish there, verified with `_fable/verify-turn.sh`; new topics always use
+`_advisors/`.)
 
 ## Two load-bearing facts about any model-overridden subagent
 
@@ -27,13 +33,15 @@ this file is the reference it instantiates alongside `verify-turn.sh`.
 
 ## One turn
 
-1. **Stage** the question + all needed context into `_fable/<topic>/conversation.md` (the
-   fresh agent has no memory — include prior turns if continuing).
+1. **Stage** the question + all needed context into `_advisors/<topic>/conversation.md`
+   (the fresh agent has no memory — include prior turns if continuing).
 2. **Spawn** a FRESH Fable agent (`model: fable`) whose prompt: pastes the guard clause
-   (below); points it at `_fable/<topic>/conversation.md`; names its output
-   `_fable/<topic>/turns/<NNN>-response.md`; embeds a unique NONCE to echo.
-3. **Verify:** `FABLE_MODEL=… bash _fable/verify-turn.sh <topic> <NONCE>`. PASS → append the
-   response into `conversation.md` (promote). FAIL → discard.
+   (below); points it at `_advisors/<topic>/conversation.md`; names its output
+   `_advisors/<topic>/turns/<NNN>-fable.md`; embeds a unique NONCE to echo.
+3. **Verify:** `FABLE_MODEL=… bash _advisors/verify-turn.sh <topic> <NONCE> _advisors/<topic>/turns/<NNN>-fable.md`.
+   **Always pass the response path explicitly** — the script's no-argument fallback looks
+   for the legacy `turns/*-response.md` name and will not find `-fable.md` turns. PASS →
+   append the response into `conversation.md` (promote). FAIL → discard.
 4. Next turn = a NEW spawn + NEW nonce. Never resume.
 
 ## Mandatory guard clause (paste into every spawn prompt)

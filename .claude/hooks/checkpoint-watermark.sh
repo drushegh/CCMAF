@@ -16,14 +16,18 @@
 #   CLAUDE_CONTEXT_WINDOW_TOKENS   window size (default 200000; set 1000000 for
 #                                  a [1m] session or the nudge never fires)
 #   CLAUDE_CHECKPOINT_WATERMARK_PCT  nudge threshold % (default 75)
-# Throttle: PostToolUse parses usage only every 5th fire; nudges at most once
-#   per session (state resets on session_id change). UserPromptSubmit evaluates
-#   every turn (it is already a once-per-turn event — cheap).
+# Throttle: PostToolUse parses usage only every 5th fire; UserPromptSubmit
+#   evaluates every turn (it is already a once-per-turn event — cheap). Nudges
+#   once per crossing: after a nudge the hook stays quiet until usage falls back
+#   below the watermark by REARM_GAP points (i.e. after a compaction / clear),
+#   then re-arms — so the 2nd, 3rd… approach to auto-compaction in one long
+#   session is nudged too. State resets on session_id change.
 # Fail-open: emit the event-appropriate empty output and exit 0 on any gap.
 
 INPUT=$(cat 2>/dev/null || true)
 
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 
 # UserPromptSubmit expects a JSON object on stdout; PostToolUse tolerates empty.
@@ -69,9 +73,6 @@ _save_state() {
     && mv -f "$_tmp" "$STATEF" 2>/dev/null || rm -f "$_tmp" 2>/dev/null
 }
 
-# Already nudged this session → stay quiet (cheap fast-path).
-[ "$NUDGED" = "1" ] && { _save_state; _emit_empty "$EVENT"; exit 0; }
-
 # Cost throttle: on PostToolUse, only parse usage every 5th fire.
 if [ "$EVENT" = "PostToolUse" ] && [ $((FIRES % 5)) -ne 0 ]; then
   _save_state; _emit_empty "$EVENT"; exit 0
@@ -85,11 +86,32 @@ case "$WM" in ''|*[!0-9]*) WM=75 ;; esac
 
 # --- prefer the REAL context signal persisted by statusline.sh (TASK-134) -----
 # statusline caches context_window.used_percentage (+ a 1M-derived window) to
-# .claude/telemetry/.context-pct; a fresh cache lets this hook use the true %
-# instead of estimating against a guessed window. An explicit
-# CLAUDE_CONTEXT_WINDOW_TOKENS still wins the estimate path.
+# .claude/telemetry/.context-pct.<session_id>; a fresh cache lets this hook use
+# the true % instead of estimating against a guessed window. Keyed per session
+# so two concurrent sessions in one repo never read each other's %. The
+# unkeyed .context-pct is a legacy (pre-keying statusline) fallback only. An
+# explicit CLAUDE_CONTEXT_WINDOW_TOKENS still wins the estimate path.
 PCT_REAL=""
-PCTF=""; [ -n "$ROOT" ] && PCTF="$ROOT/.claude/telemetry/.context-pct"
+PCTF=""
+if [ -n "$ROOT" ]; then
+  PCTF="$ROOT/.claude/telemetry/.context-pct"
+  case "$SID" in
+    ''|*[!A-Za-z0-9_-]*) : ;;
+    *)
+      if [ -f "$PCTF.$SID" ]; then
+        PCTF="$PCTF.$SID"
+      else
+        # A keying statusline is in use (some .context-pct.<sid> exists) but has
+        # not rendered for THIS session yet → the unkeyed file is another
+        # session's %; don't use it. Only a pre-keying statusline (no keyed
+        # files at all) leaves the unkeyed file as this session's signal.
+        for _k in "$PCTF".*; do
+          [ -f "$_k" ] && { PCTF=""; break; }
+        done
+      fi
+      ;;
+  esac
+fi
 if [ -n "$PCTF" ] && [ -f "$PCTF" ]; then
   P_PCT=$(sed -n 's/^PCT=//p' "$PCTF" 2>/dev/null | tail -1); P_PCT="${P_PCT%$'\r'}"
   P_WIN=$(sed -n 's/^WIN=//p' "$PCTF" 2>/dev/null | tail -1); P_WIN="${P_WIN%$'\r'}"
@@ -121,9 +143,17 @@ elif [ -n "$TPATH" ] && [ -f "$TPATH" ] && [ "$WIN" -gt 0 ] 2>/dev/null; then
   [ "$USED" -gt 0 ] && PCT=$(( USED * 100 / WIN ))
 fi
 
+REARM_GAP=10
 if [ -z "$PCT" ] || [ "$PCT" -lt "$WM" ]; then
+  # Well below the watermark again (compaction / clear) → re-arm the nudge.
+  if [ "$NUDGED" = "1" ] && [ -n "$PCT" ] && [ "$PCT" -lt $((WM - REARM_GAP)) ]; then
+    NUDGED=0
+  fi
   _save_state; _emit_empty "$EVENT"; exit 0
 fi
+
+# Over the watermark but already nudged for this crossing → stay quiet.
+[ "$NUDGED" = "1" ] && { _save_state; _emit_empty "$EVENT"; exit 0; }
 
 # --- over the watermark → nudge once, mark, emit -----------------------------
 NUDGED=1; _save_state

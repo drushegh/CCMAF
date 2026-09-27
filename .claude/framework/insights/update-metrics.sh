@@ -156,7 +156,7 @@ awk -v block_file="$snapshot_tmp" '
   # Detect the first line AFTER the heading+comments block in the
   # Auto-Generated Snapshots section. Anchor: an empty line that
   # follows the last "<!-- ... -->" comment of that section.
-  /^### [0-9]{4}-/ {
+  /^### [0-9][0-9][0-9][0-9]-/ {
     if (!inserted) {
       while ((getline line < block_file) > 0) print line
       close(block_file)

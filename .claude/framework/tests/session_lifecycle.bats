@@ -99,7 +99,7 @@ _write_cold_transcript() {
   grep -q "code.txt" "$REPO"/.claude/.precompact-snapshot/status-*.txt
   # Security pin: NO content patch is ever written (a diff could carry a secret
   # out of a tracked file into a model-readable path).
-  ! ls "$REPO"/.claude/.precompact-snapshot/*.patch >/dev/null 2>&1
+  ! ls "$REPO"/.claude/.precompact-snapshot/*.patch >/dev/null 2>&1 || false
 }
 
 @test "precompact: clean committed tree → marker still written, exit 0" {

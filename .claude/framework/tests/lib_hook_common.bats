@@ -111,7 +111,9 @@ EOF
 exit 9
 EOF
   chmod +x "$BATS_TEST_TMPDIR/fakebin/brokenpython"
-  result=$(resolve_python brokenpython "$PYTHON")
+  # The stub MUST be on PATH — otherwise it is skipped as "not found" and the
+  # non-functional-candidate branch this test exists for is never exercised.
+  result=$(PATH="$BATS_TEST_TMPDIR/fakebin:$PATH" resolve_python brokenpython "$PYTHON")
   [ "$result" = "$PYTHON" ]
 }
 

@@ -9,10 +9,13 @@ set -euo pipefail
 # ephemeral CODEX_HOME (minimal config + a FRESH copy of the sub auth.json, always current),
 # a read-only sandbox, an empty working dir, and the brief inlined via STDIN so it needs zero
 # file access. Model + effort are pinned PER-INVOCATION from the registry (never the shared
-# ~/.codex/config.toml). The ephemeral home (which holds a token copy) is SCRUBBED on exit by
-# a trap. This NEVER mutates the owner's ~/.codex. Writes:
+# ~/.codex/config.toml). The ephemeral home (which holds a token copy) lives in a private
+# `mktemp -d` dir OUTSIDE the repo tree and is SCRUBBED by a trap on EXIT and on INT/TERM/HUP.
+# This NEVER mutates the owner's ~/.codex. Writes:
 #   .run-<advisor>/{last.txt (the answer), events.jsonl (--json), session.jsonl (for verify),
-#                   status (OK|TIMEOUT|ERROR|UNAVAILABLE + rc)}
+#                   status (RUNNING while in flight, then OK|TIMEOUT|ERROR|UNAVAILABLE + rc)}
+# `status` is reset to RUNNING before anything can fail, and an ERR trap records any unexpected
+# strict-mode death — a previous run's OK can never be mistaken for this run's result.
 #
 # Meant to be launched in the BACKGROUND by the /sol runbook (an xhigh consult can exceed the
 # Bash tool's 600s cap — Fable amendment A1); the script's own `timeout` is the hard kill.
@@ -34,6 +37,16 @@ conversation="$topic_dir/conversation.md"
 status() { printf '%s\n' "$1" > "$run_dir/status"; printf 'codex-run: %s\n' "$1"; }
 
 mkdir -p "$run_dir"
+# Reset FIRST — a stale OK from an earlier run must never survive a run that dies early.
+status "RUNNING started $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+# Any unexpected strict-mode death still leaves a truthful, non-OK status behind.
+# shellcheck disable=SC2154  # _rc is assigned inside the trap body itself
+trap '_rc=$?; status "ERROR unexpected failure (rc=$_rc) near line $LINENO — see stderr"' ERR
+# Signals from here on (registry/preflight included) leave a non-RUNNING status; the EXIT
+# trap installed below still scrubs the token home because these handlers call exit.
+trap 'status "ERROR interrupted (SIGHUP) — consult aborted"; exit 129' HUP
+trap 'status "ERROR interrupted (SIGINT) — consult aborted"; exit 130' INT
+trap 'status "ERROR interrupted (SIGTERM) — consult aborted"; exit 143' TERM
 
 # ── Registry bootstrap (first use) + resolution ─────────────────────────────────────────
 # Standalone repos start with NO registry anywhere; create the live one from the shipped
@@ -58,15 +71,37 @@ if ! bash "$CODEX_PREFLIGHT" > "$run_dir/preflight.txt" 2>&1; then
   cat "$run_dir/preflight.txt"
   status "UNAVAILABLE preflight FAILED — see $run_dir/preflight.txt (codex not ready)"; exit 3
 fi
-# Resolve the binary the same way the preflight just did (CODEX_BIN wins, else PATH).
-CODEX="${CODEX_BIN:-$(command -v codex)}"
+# Resolve the binary EXACTLY as the preflight just did: CODEX_BIN → PATH → the ~/.codex cache
+# copy (the preflight passes, with a WARN, on the cache copy alone — so must we).
+CODEX="${CODEX_BIN:-}"
+[[ -n "$CODEX" ]] || CODEX="$(command -v codex 2>/dev/null || true)"
+if [[ -z "$CODEX" && -x "${CODEX_HOME:-$HOME/.codex}/.sandbox-bin/codex.exe" ]]; then
+  CODEX="${CODEX_HOME:-$HOME/.codex}/.sandbox-bin/codex.exe"
+fi
+if [[ -z "$CODEX" ]]; then
+  status "UNAVAILABLE codex binary not resolvable (CODEX_BIN unset, not on PATH, no cache copy)"; exit 3
+fi
+# The hard kill: GNU `timeout` (Linux, Git Bash) or coreutils' `gtimeout` (Homebrew macOS —
+# stock macOS ships neither). Refuse an unbounded consult rather than die without a status.
+TIMEOUT_BIN="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null || true)"
+if [[ -z "$TIMEOUT_BIN" ]]; then
+  status "UNAVAILABLE no 'timeout' or 'gtimeout' on PATH (macOS: brew install coreutils)"; exit 3
+fi
 
-# ── Empty world: ephemeral CODEX_HOME (scrubbed on exit) + empty cwd ─────────────────────
-home="$run_dir/home"
-cwd="$run_dir/cwd"
-rm -rf "$home" "$cwd"; mkdir -p "$home" "$cwd"
-# Trap GUARANTEES the token copy is removed even on error/timeout.
-trap 'rm -rf "$home"' EXIT
+# ── Empty world: ephemeral CODEX_HOME + empty cwd, OUTSIDE the repo tree ─────────────────
+# The home holds a copy of the OAuth token, so it must never sit where git (or a sync tool)
+# could pick it up: a private mktemp dir, scrubbed on EXIT and on INT/TERM/HUP.
+eph_root="$(mktemp -d "${TMPDIR:-/tmp}/codex-run.XXXXXX")"
+chmod 700 "$eph_root" 2>/dev/null || true
+_scrub() { rm -rf "$eph_root"; }
+trap _scrub EXIT
+home="$eph_root/home"
+cwd="$eph_root/cwd"
+mkdir -p "$home" "$cwd"
+# codex is a native binary on Windows: hand it Windows-form paths (Git Bash's cygpath).
+if command -v cygpath >/dev/null 2>&1; then
+  home="$(cygpath -m "$home")"; cwd="$(cygpath -m "$cwd")"
+fi
 printf 'model = "%s"\n' "$model" > "$home/config.toml"
 # Same CODEX_HOME resolution the preflight uses — a green preflight must never precede a
 # status-less death here on a non-default CODEX_HOME.
@@ -75,6 +110,7 @@ if [[ ! -f "$auth_src" ]]; then
   status "ERROR codex auth missing: $auth_src (run 'codex login')"; exit 2
 fi
 cp "$auth_src" "$home/auth.json"
+chmod 600 "$home/auth.json" 2>/dev/null || true
 
 # ── Build the prompt: guard clause + the staged brief, inlined via stdin ─────────────────
 prompt="$(cat <<GUARD
@@ -91,8 +127,9 @@ prompt+=$'\n'"$(cat "$conversation")"
 
 # ── Run: background-safe, hard timeout, per-invocation pins, read-only, empty cwd ────────
 : > "$run_dir/last.txt"
+rm -f "$run_dir/session.jsonl"
 rc=0
-printf '%s' "$prompt" | timeout "${timeout_min}m" env CODEX_HOME="$home" "$CODEX" exec \
+printf '%s' "$prompt" | "$TIMEOUT_BIN" "${timeout_min}m" env CODEX_HOME="$home" "$CODEX" exec \
   -m "$model" \
   -c "model_reasoning_effort=$effort" \
   -s read-only \
@@ -103,7 +140,7 @@ printf '%s' "$prompt" | timeout "${timeout_min}m" env CODEX_HOME="$home" "$CODEX
   - > "$run_dir/events.jsonl" 2>"$run_dir/err.txt" || rc=$?
 
 # ── Copy the session OUT of the ephemeral home before the trap scrubs it ─────────────────
-sess="$(find "$home/sessions" -name '*.jsonl' -type f 2>/dev/null | sort | tail -1)"
+sess="$(find "$home/sessions" -name '*.jsonl' -type f 2>/dev/null | sort | tail -1 || true)"
 if [[ -n "$sess" && -f "$sess" ]]; then
   cp "$sess" "$run_dir/session.jsonl"
 fi

@@ -115,15 +115,23 @@ load update_helpers
   grep -q "PENDING-SUGGESTION" "$SCONSUMER/.claude/.skills-suggestion.md"
 }
 
-@test "skills-check: no URL, no bundle (default public mode) is SILENT, exit 0" {
+@test "skills-check: no URL, no bundle (default public mode) polls the default upstream" {
   build_skills_upstream
   build_skills_consumer "python"
-  # No URL and no vendored skills/ is DEFAULT mode now (skills-sync pulls from the
-  # public catalogue). skills-check has no pinned remote to poll here → silent, exit 0.
+  # No URL and no vendored skills/ is DEFAULT mode (skills-sync pulls the public
+  # catalogue and pins its HEAD), so skills-check polls that catalogue —
+  # redirected to the local fixture via SKILLS_DEFAULT_UPSTREAM_URL (hermetic).
   printf 'SKILLS_SELECTED="python"\n' > "$SVERSION"
-  run skills_check
+  SKILLS_DEFAULT_UPSTREAM_URL="$SKILLS_UPSTREAM" run skills_check
+  [ "$status" -eq 0 ]
+  [ -f "$(SFLAG)" ]
+  # Pinned to the default upstream's HEAD → up to date: flag cleared, silent.
+  printf 'SKILLS_PINNED_SHA=%s\n' "$SKILLS_UPSTREAM_SHA" >> "$SVERSION"
+  rm -f "$SCONSUMER/.claude/telemetry/.last-skills-check"
+  SKILLS_DEFAULT_UPSTREAM_URL="$SKILLS_UPSTREAM" run skills_check
   [ "$status" -eq 0 ]
   [ -z "$output" ]
+  [ ! -f "$(SFLAG)" ]
 }
 
 @test "skills-check: bundle mode (no URL, bundled skills/ present) is SILENT, exit 0 (Phase-B)" {
@@ -157,12 +165,14 @@ load update_helpers
   [ ! -f "$(SFLAG)" ]
 }
 
-@test "skills-check: live up-to-date run bumps SKILLS_LAST_CHECKED" {
+@test "skills-check: live up-to-date run bumps the gitignored throttle marker, never .skills-version" {
   build_skills_upstream
   build_skills_consumer "python"
   set_skills_pin "$SKILLS_UPSTREAM_SHA"
+  before="$(cat "$SVERSION")"
   run skills_check
   [ "$status" -eq 0 ]
-  grep -q "^SKILLS_LAST_CHECKED=" "$SVERSION"
-  ! grep -q "1970-01-01" "$SVERSION"
+  [ -f "$SCONSUMER/.claude/telemetry/.last-skills-check" ]
+  [ "$(cat "$SVERSION")" = "$before" ]
+  ! grep -q "^SKILLS_LAST_CHECKED=" "$SVERSION" || false
 }

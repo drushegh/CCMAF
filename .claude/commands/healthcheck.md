@@ -88,7 +88,7 @@ Read `CLAUDE.md` "Commands" section. Match common patterns:
 `npm test`, `pytest`, `go test`, `cargo test`, `dotnet test`,
 `npm run lint`, `ruff check`, `eslint`, `golangci-lint`.
 
-If neither found, Parts 4 auto-skip with a note in the findings.
+If neither found, Part 5 (automated checks) auto-skips with a note in the findings.
 
 **0.4. Detect contracts.**
 
@@ -133,9 +133,18 @@ if it appears; include the report summary either way.
 last `HEALTHCHECK_FW_WINDOW` commits (default 10):
 
 ```bash
-git diff --name-only HEAD~${HEALTHCHECK_FW_WINDOW:-10} -- \
+# Clamp the window to the history that exists: HEAD~N on a repo with <= N
+# commits is an unknown revision, and a swallowed git error must never read
+# as "no changes" (that silently skipped the deep audit on young repos).
+win="${HEALTHCHECK_FW_WINDOW:-10}"
+total="$(git rev-list --count HEAD 2>/dev/null)" || total=0
+if [ "$total" -gt "$win" ]; then base="HEAD~$win"
+else base="$(git hash-object -t tree /dev/null)"   # empty tree: every commit is in the window
+fi
+git diff --name-only "$base" -- \
   .claude/agents/framework/ .claude/hooks/ .claude/commands/ \
-  .claude/framework/ CLAUDE.framework.md 2>/dev/null
+  .claude/framework/ CLAUDE.framework.md \
+  || echo "HEALTHCHECK-FW-WINDOW: git diff failed — treat as CHANGED"
 ```
 
 **If changes detected → deep framework audit via reviewer subagent:**
@@ -221,7 +230,9 @@ shape context only, never findings):
 > - **STALE** (exists and is referenced but content is outdated)
 > - **OK** (checked, no issues)
 
-**If no framework changes detected → skip the deep audit.** Doctor +
+**If no framework changes detected (the command above succeeded with
+empty output) → skip the deep audit.** A git failure (the `treat as
+CHANGED` line) is NOT "no changes" — run the deep audit instead. Doctor +
 insights output alone is sufficient — the framework hasn't moved.
 
 **1.4. PERSIST.** Append findings to `.claude/review-findings.md`
@@ -373,11 +384,20 @@ the command produces.
 memory.** The ephemeral-context rule applies to YOU as much as to any
 other agent.
 
-1. **CRITICAL / BROKEN / MISMATCH / MISALIGNMENT** → create P0 tasks
-   in `TASKS.md` (feature lane or Bug-Fix Lane as appropriate).
-   Each task includes a reference back to the findings file entry.
-2. **STALE** → fix state files directly, commit separately.
-3. **ORPHANED / REDUNDANT** → flag for the next architect session;
+Each part reports in its own vocabulary — Part 1: BROKEN / CONFLICT /
+ORPHANED / REDUNDANT / STALE / OK; Part 2: CRITICAL / HIGH / MEDIUM / LOW;
+Part 3: MISMATCH / MISSING / DRIFT (+ the reconciler's own categories);
+Part 4: MISALIGNMENT / STALE. Map every label onto one of three **tiers**
+(these tiers are also what `--verify` counts):
+
+1. **Blocking** — **CRITICAL / BROKEN / CONFLICT / MISMATCH /
+   MISALIGNMENT** → create P0 tasks in `TASKS.md` (feature lane or
+   Bug-Fix Lane as appropriate). Each task includes a reference back to
+   the findings file entry.
+   **Should-fix** — **HIGH / MEDIUM / MISSING / DRIFT** → create tasks at
+   normal priority (same back-reference rule).
+2. **STALE** (Advisory) → fix state files directly, commit separately.
+3. **LOW / ORPHANED / REDUNDANT** (Advisory) → flag for the next architect session;
    log entries in `FRAMEWORK-SUGGESTIONS.md` if they're
    framework-level, otherwise in `GOTCHAS.md`.
 4. After each batch of fixes, update `TASKS.md` and `STATUS.md` —
@@ -447,7 +467,7 @@ characterise more precisely.
    at the start of every run. Each of the N runs starts from a clean
    `review-findings.md`. Confirm this is happening before run 2 starts.
 4. **Capture per-run counts.** After each run, snapshot the finding
-   counts by category (CRITICAL / WARNING / SUGGESTION / by part) to
+   counts by Part 7 tier (Blocking / Should-fix / Advisory) and by part to
    a temp summary. Note: you (the orchestrator) WILL hold prior runs'
    results in context by the comparison step — that is expected and
    unavoidable. The anchoring defenses that actually work are the
@@ -479,8 +499,8 @@ sort it visibly at top). Format:
 # /healthcheck --verify N=<N> — <ISO>
 
 ## Per-run totals
-| Run | CRITICAL | WARNING | SUGGESTION | TOTAL |
-| --- | -------- | ------- | ---------- | ----- |
+| Run | Blocking | Should-fix | Advisory | TOTAL |
+| --- | -------- | ---------- | -------- | ----- |
 | 1   | …        | …       | …          | …     |
 | 2   | …        | …       | …          | …     |
 | N   | …        | …       | …          | …     |

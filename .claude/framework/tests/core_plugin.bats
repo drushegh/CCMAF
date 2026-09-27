@@ -252,7 +252,7 @@ old_version_file() { touch -t 202601010000 "$REPO/.claude/.framework-version"; }
   fake_claude '[{"id":"ccmaf-kernel@ccmaf","version":"0.2.0","scope":"user","enabled":true}]'
   ( cd "$REPO" && PATH="$REPO/fakebin:$PATH" CLAUDE_PLUGIN_ROOT="$CORE" bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
   if [ -f "$REPO/.claude/.framework-doctor-findings.md" ]; then
-    ! grep -q 'kernel-absent' "$REPO/.claude/.framework-doctor-findings.md"
+    ! grep -q 'kernel-absent' "$REPO/.claude/.framework-doctor-findings.md" || false
   fi
 }
 
@@ -270,7 +270,13 @@ old_version_file() { touch -t 202601010000 "$REPO/.claude/.framework-version"; }
   mkdir -p "$REPO/slowbin"
   printf '#!/usr/bin/env bash\nsleep 5\nexit 1\n' > "$REPO/slowbin/grep"
   chmod +x "$REPO/slowbin/grep"
-  ( cd "$REPO" && PATH="$REPO/slowbin:$PATH" CLAUDE_PLUGIN_ROOT="$CORE" timeout 0.5 bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
+  # Without `timeout` the subshell failed with "command not found", doctor
+  # never ran, and the untouched sentinel made the test pass vacuously.
+  # Require the tool, and assert the run was actually KILLED (124).
+  command -v timeout >/dev/null 2>&1 || skip "timeout not available"
+  rc=0
+  ( cd "$REPO" && PATH="$REPO/slowbin:$PATH" CLAUDE_PLUGIN_ROOT="$CORE" timeout 0.5 bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || rc=$?
+  [ "$rc" -eq 124 ]
   [ -f "$REPO/.claude/.framework-doctor-findings.md" ]
   command grep -q 'SENTINEL-OLD-VERDICT' "$REPO/.claude/.framework-doctor-findings.md"
 }
@@ -282,7 +288,7 @@ old_version_file() { touch -t 202601010000 "$REPO/.claude/.framework-version"; }
   # fixture reliably yields findings, so a completed run must REPLACE.
   ( cd "$REPO" && CLAUDE_PLUGIN_ROOT="$CORE" bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
   [ -f "$REPO/.claude/.framework-doctor-findings.md" ]
-  ! grep -q 'SENTINEL-OLD-VERDICT' "$REPO/.claude/.framework-doctor-findings.md"
+  ! grep -q 'SENTINEL-OLD-VERDICT' "$REPO/.claude/.framework-doctor-findings.md" || false
   grep -q '## Findings' "$REPO/.claude/.framework-doctor-findings.md"
 }
 
@@ -292,7 +298,7 @@ old_version_file() { touch -t 202601010000 "$REPO/.claude/.framework-version"; }
   touch "$REPO/.claude/telemetry/.kernel-present"
   ( cd "$REPO" && CLAUDE_PLUGIN_ROOT="$CORE" bash "$CORE/doctor/doctor.sh" >/dev/null 2>&1 ) || true
   if [ -f "$REPO/.claude/.framework-doctor-findings.md" ]; then
-    ! grep -q 'kernel-absent' "$REPO/.claude/.framework-doctor-findings.md"
+    ! grep -q 'kernel-absent' "$REPO/.claude/.framework-doctor-findings.md" || false
   fi
 }
 

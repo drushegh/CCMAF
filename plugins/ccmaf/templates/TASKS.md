@@ -24,7 +24,7 @@ Last updated: {{date}} by {{agent}}
 
 ### Done
 
-<!-- When Done exceeds ~20 items, move older entries to .claude/archive/tasks-archive.md -->
+<!-- When Done exceeds ~20 items, run /housekeeping — rotate-state.sh moves older entries to .claude/archive/TASKS-archive.md -->
 
 ---
 

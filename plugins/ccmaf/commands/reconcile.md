@@ -1,3 +1,6 @@
+---
+description: Reconcile changed code against the existing codebase and contracts - duplicates, seam mismatches, contract and convention drift (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -33,12 +36,24 @@ Then:
 
 3. **Gather the delta (scoped mode only).** Before delegating, resolve what
    changed:
+   `.claude/telemetry/` is gitignored, so the watermark file has no git
+   history of its own — resolve the watermark commit from the file's
+   CONTENT (the ISO timestamp written by the last scoped/full run), never
+   from its mtime (a copy, checkout or clone resets mtimes):
    ```bash
-   git log --oneline --name-only HEAD -- .claude/telemetry/.last-reconcile   # confirm watermark file itself isn't the only diff
-   git diff --name-only <watermark-commit-or-first-commit>..HEAD -- . ':(exclude).claude'   # excludes framework bookkeeping paths
+   wm="$(tr -d '[:space:]' < .claude/telemetry/.last-reconcile)"
+   # a bare `touch`ed (empty) watermark carries no content: last resort, its mtime
+   [ -n "$wm" ] || wm="@$(date -u -r .claude/telemetry/.last-reconcile +%s 2>/dev/null || stat -c %Y .claude/telemetry/.last-reconcile)"
+   if git rev-parse -q --verify "${wm}^{commit}" >/dev/null 2>&1; then
+     base="$wm"                                                   # already a commit SHA
+   else
+     base="$(git log -1 --before="$wm" --format=%H)"              # nearest commit at or before the timestamp
+   fi
+   # empty $base (watermark predates the first commit) → treat as a first run: whole repo
+   # (diff against the empty tree — a bare `""..HEAD` is HEAD..HEAD and lists nothing)
+   [ -n "$base" ] || base="$(git hash-object -t tree /dev/null)"
+   git diff --name-only "$base"..HEAD -- . ':(exclude).claude'    # excludes framework bookkeeping paths
    ```
-   If `.last-reconcile` holds a timestamp rather than a commit SHA, resolve
-   the nearest commit at or before it: `git log -1 --before="@<epoch-of-watermark-mtime>" --format=%H`.
    Pass the resulting file list to the subagent — do not make it re-derive
    the delta itself.
 

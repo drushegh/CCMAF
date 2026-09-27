@@ -1,3 +1,6 @@
+---
+description: Framework maintenance — rolling summary, state archiving and distillation, feedback reconciliation (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -24,7 +27,7 @@ last Rolling Summary update:
    covering key decisions, tasks completed, patterns established, and
    current trajectory
 3. If detailed entries exceed ~30, move older ones to
-   `.claude/docs/archives/progress-archive.txt` and keep the most
+   `.claude/archive/progress-archive.txt` and keep the most
    recent 15
 
 ## Framework Metrics
@@ -44,12 +47,15 @@ Update framework-metrics.md:
 
 ## State File Archiving
 
-Check if any state files need archiving:
+Every archive lives under ONE directory, `.claude/archive/` — the same place
+`rotate-state.sh` writes. Check if any state files need archiving:
 
-- TASKS.md Done section > ~20 items → archive older (see semantic-decay below)
-- DECISIONS.md > ~50 entries (or per-file `decisions/`, per project CLAUDE.md) → move older to `.claude/docs/archives/decisions-archive.md`
-- review-findings.md fully resolved cycles → move to `.claude/docs/archives/findings-archive.md`
-- test-findings.md fully resolved cycles → move to `.claude/docs/archives/findings-archive.md`
+- TASKS.md Done section > ~20 items → distil first (see semantic-decay below),
+  then rotate with the script (see "Rotate TASKS.md and DECISIONS.md" below) → `.claude/archive/TASKS-archive.md`
+- DECISIONS.md > ~50 entries (or per-file `decisions/`, per project CLAUDE.md) →
+  rotate with the script → `.claude/archive/DECISIONS-archive.md`
+- review-findings.md fully resolved cycles → move to `.claude/archive/findings-archive.md`
+- test-findings.md fully resolved cycles → move to `.claude/archive/findings-archive.md`
 - STATUS.md > ~50 KB (or large enough that the Read tool refuses it at cold-start step 8) → STATUS is *current* state, not a log: prune superseded session-claim / "Next session" prose, keeping only the active session, Next Up, and the recent Recently-Completed rows. The chronological record lives in `claude-progress.txt` — don't duplicate it here. (Distil any still-relevant constraint forward per semantic-decay before pruning.)
 
 ### Semantic decay (don't just move — distil first)
@@ -69,13 +75,31 @@ forward** so the knowledge survives in active state, not just cold storage:
      get distilled.
    - A still-relevant constraint or direction → fold into STATUS.md
      "Next Up" or the claude-progress Rolling Summary.
-3. THEN move the raw entries to `.claude/docs/archives/tasks-archive.md`, prefixed with a one-line
-   header pointing at where their distilled lesson now lives.
+3. THEN rotate the raw entries out with the script below — never by hand-editing
+   (a hand move can drop or alter an entry; the script conservation-checks every
+   block). Afterwards add a one-line note under the newest rotation header in
+   `.claude/archive/TASKS-archive.md` pointing at where their distilled lesson
+   now lives.
 
 The test: after archiving, a fresh session reading only the *live* state
 files should still know what those completed tasks taught — the archive is
 provenance, not the only copy of the lesson. Skip distillation only for
 purely mechanical tasks that taught nothing (a rename, a version bump).
+
+### Rotate TASKS.md and DECISIONS.md with the script
+
+```bash
+bash "${CLAUDE_PLUGIN_ROOT}/housekeeping/rotate-state.sh" --dry-run   # review the counts
+bash "${CLAUDE_PLUGIN_ROOT}/housekeeping/rotate-state.sh"             # perform the rotation
+```
+
+It moves whole entry blocks verbatim into `.claude/archive/TASKS-archive.md` /
+`.claude/archive/DECISIONS-archive.md` (keeping the newest `KEEP_TASKS_DONE`,
+default 10, Done entries per lane and the newest `KEEP_DECISIONS`, default 30,
+decisions), leaves an `Archived entries:` pointer in the live file, and aborts
+without writing if any entry would be lost. Archived IDs stay reserved: `/bug`,
+`/board-heal` and the Console's id allocators must still count them when picking
+the next `TASK-`/`BUG-` number.
 
 ## Adopted-Feedback Reconciliation
 

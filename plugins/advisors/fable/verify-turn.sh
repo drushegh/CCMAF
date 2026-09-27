@@ -57,12 +57,20 @@ glob="${FABLE_TRANSCRIPT_GLOB:-$default_glob}"
 
 # Newest transcript that contains the nonce. Portable newest-by-mtime via bash `-nt`
 # (no `ls` parsing); with a unique nonce there is normally exactly one match anyway.
+# Expand the glob with IFS=newline: pathname expansion still runs, but a space in
+# the path (e.g. a Windows/macOS home like "C:/Users/Jane Doe") no longer splits
+# it into bogus words (which made this a false FAIL). nullglob → no literal pattern.
+_old_ifs="$IFS"; IFS=$'\n'; shopt -s nullglob
+# shellcheck disable=SC2206  # deliberate unquoted expansion: $glob is a glob to expand
+_cands=( $glob )
+shopt -u nullglob; IFS="$_old_ifs"
 transcript=""
-# shellcheck disable=SC2086  # deliberate word-splitting: $glob is a shell glob to expand
-while IFS= read -r _f; do
-  [ -f "$_f" ] || continue
-  if [ -z "$transcript" ] || [ "$_f" -nt "$transcript" ]; then transcript="$_f"; fi
-done < <(grep -lF -- "$nonce" $glob 2>/dev/null || true)
+if [ "${#_cands[@]}" -gt 0 ]; then
+  while IFS= read -r _f; do
+    [ -f "$_f" ] || continue
+    if [ -z "$transcript" ] || [ "$_f" -nt "$transcript" ]; then transcript="$_f"; fi
+  done < <(grep -lF -- "$nonce" "${_cands[@]}" 2>/dev/null || true)
+fi
 [ -n "$transcript" ] || die "no subagent transcript containing nonce '$nonce' under: $glob (set FABLE_TRANSCRIPT_GLOB if your layout differs)"
 
 # 4) Histogram the per-message model over assistant records.

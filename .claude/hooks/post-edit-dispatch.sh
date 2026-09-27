@@ -39,6 +39,7 @@ HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # --- Resolve once -----------------------------------------------------
 _lib="$HOOK_DIR/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 
 file="" _sid="" _tuid=""

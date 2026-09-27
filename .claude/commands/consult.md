@@ -38,8 +38,11 @@ seat). Never restage per advisor. Ensure `_advisors/` is git-ignored and (if a f
 ## Step 4 — Launch all seats CONCURRENTLY
 For a **codex** seat (`provider=codex`): run in the BACKGROUND (Bash `run_in_background: true`)
 `bash .claude/framework/advisors/codex-run.sh <advisor> <topic> <nonce>`.
-For the **fable** seat: **execute `/fable` Steps 3-4 by reference** (do NOT restate them) — a FRESH
+For the **fable** seat: **execute `/fable` Step 3 by reference** (do NOT restate it) — a FRESH
 `Agent(model: fable)` spawn writing `_advisors/<topic>/turns/<NNN>-fable.md`, guard clause + nonce.
+Do **NOT** run `/fable` Step 4 here: its promote-into-`conversation.md` + relay-to-user would
+happen before this runbook's verify-before-read gate and would mutate the shared brief. The fable
+seat is verified ONLY (no promote, no relay) in Step 5 below, like every other seat.
 Also run the codex preflight once (`codex-preflight.sh`) if any codex seat is in the roster; heed
 the A5 opt-out gate if the task stages repo internals.
 Launch them all, then wait for every seat to finish.

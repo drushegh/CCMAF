@@ -34,7 +34,7 @@ _lib="${CLAUDE_PLUGIN_ROOT:-}/hooks/lib/hook-common.sh"
 if ! command -v core_active >/dev/null 2>&1; then
   core_active() {
     local f="${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version"
-    [ -f "$f" ] && grep -q '^FRAMEWORK_LINE=v2' "$f" 2>/dev/null
+    [ -f "$f" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$f" 2>/dev/null
   }
 fi
 
@@ -63,7 +63,11 @@ command -v jq >/dev/null 2>&1 || { _emit_empty "$EVENT"; exit 0; }
 
 TPATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true); TPATH="${TPATH%$'\r'}"
 SID=$(printf '%s' "$INPUT" | jq -r '.session_id // empty' 2>/dev/null || true); SID="${SID%$'\r'}"
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
+# Root = the project dir core_active gated on — NOT the git toplevel: with
+# no git repo the throttle state never persisted (re-nudging every prompt,
+# PostToolUse's every-5th throttle dead), and in a nested project it wrote
+# into a different .claude/ than the rest of core.
+ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
 
 # --- per-session throttle state (best-effort; absence never blocks) ----------
 # Parsed without sourcing (DA-M12: never execute a state file as shell).

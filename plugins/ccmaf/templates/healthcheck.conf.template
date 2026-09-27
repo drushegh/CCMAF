@@ -39,9 +39,3 @@
 # attention — use this for known-hot areas of the codebase.
 
 # HEALTHCHECK_REVIEW_FOCUS="thread safety in stage_0_ingest.py; async correctness in llm/api.py"
-
-# --- Cold-start reminder interval ------------------------------------
-# After this many days since the last successful /healthcheck run,
-# cold start prompts the user to run one. Default 14.
-
-# HEALTHCHECK_REMIND_DAYS=14

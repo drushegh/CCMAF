@@ -19,9 +19,10 @@
 # Transcript resolution (first hit wins):
 #   1. --transcript <file>
 #   2. $CLAUDE_TRANSCRIPT_FILE (a .jsonl file) or $CLAUDE_TRANSCRIPT_DIR (a dir)
-#   3. Auto-discover: newest *.jsonl under ~/.claude/projects/<dir matching
-#      this repo's basename>/  (robust, platform-independent — matches on
-#      the repo folder name, not a mangled absolute path).
+#   3. Auto-discover: newest *.jsonl under ~/.claude/projects/<dir>/, where
+#      <dir> is this repo's absolute path mangled the way Claude Code does
+#      (every non-alphanumeric char -> '-'), falling back to a mangled-
+#      basename suffix match. >1 match at any tier -> skip.
 #
 # Transcript JSONL schema (characterised 2026-06-12 against live Claude Code
 # transcripts, 5 files across versions — TASK-033 AC0). One JSON object per
@@ -95,24 +96,51 @@ if [ -z "$TRANSCRIPT" ]; then
   else
     search_dir="${CLAUDE_TRANSCRIPT_DIR:-}"
     if [ -z "$search_dir" ]; then
-      repo_base="$(basename "$REPO_ROOT")"
       projects="$HOME/.claude/projects"
       if [ -d "$projects" ]; then
-        # Suffix-anchored match first (project dirs are mangled absolute
-        # paths ending in the repo basename), then glob fallback. If the
-        # glob is AMBIGUOUS, skip rather than guess — first-match picked
-        # the wrong repo when basenames overlapped, e.g. myapp vs
-        # myapp-v2, silently mining another project's transcript (DA-M7).
-        search_dir="$(find "$projects" -maxdepth 1 -type d -name "*${repo_base}" 2>/dev/null | head -1)"
-        if [ -z "$search_dir" ]; then
-          matches="$(find "$projects" -maxdepth 1 -type d -name "*${repo_base}*" 2>/dev/null)"
-          match_count=$(printf '%s\n' "$matches" | grep -c . || true)
-          if [ "$match_count" -gt 1 ]; then
-            echo "instinct-miner: ${match_count} project dirs match '*${repo_base}*' — ambiguous; refusing to guess." >&2
+        # Claude Code names each project dir after the session's ABSOLUTE
+        # path with every non-alphanumeric char replaced by '-'
+        # (C:\Git\my.app -> C--Git-my-app; /home/u/app -> -home-u-app).
+        # Mangle the full path exactly and match that first; only fall back
+        # to basename matching when no exact dir exists. At EVERY tier more
+        # than one match is ambiguous -> refuse rather than guess: a
+        # first-match pick mined another project's transcript when names
+        # overlapped, e.g. myapp vs myapp-v2 (DA-M7).
+        _mangle() { printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g'; }
+        exact_names=("$(_mangle "$REPO_ROOT")")
+        # Git Bash / MSYS: REPO_ROOT is /c/Git/..., but Claude Code (a
+        # native Windows process) records C:\Git\... -> "C--Git-...".
+        if command -v cygpath >/dev/null 2>&1; then
+          win_root="$(cygpath -m "$REPO_ROOT" 2>/dev/null || true)"
+          if [ -n "$win_root" ]; then exact_names+=("$(_mangle "$win_root")"); fi
+        fi
+        repo_base_m="$(_mangle "$(basename "$REPO_ROOT")")"
+        # stdin = candidate dirs; prints the single match (or nothing);
+        # returns 3 when more than one dir matches ($1 = tier label).
+        _pick_dir() {
+          local found count
+          found="$(sort -u | grep . || true)"
+          count=$(printf '%s\n' "$found" | grep -c . || true)
+          if [ "$count" -gt 1 ]; then
+            echo "instinct-miner: ${count} project dirs match ${1} — ambiguous; refusing to guess." >&2
             echo "instinct-miner: pass --transcript <file> or set CLAUDE_TRANSCRIPT_DIR. Skipping." >&2
-            exit 0
+            return 3
           fi
-          search_dir="$matches"
+          printf '%s' "$found"
+        }
+        # Tier 1: exact mangled name; tier 2: same, case-insensitive (the
+        # Windows drive letter is recorded as both C-- and c--); tier 3:
+        # mangled-basename SUFFIX (repo opened via another path). No
+        # substring tier: '*myapp*' is how myapp mined myapp-v2's transcript.
+        search_dir="$(for n in "${exact_names[@]}"; do find "$projects" -mindepth 1 -maxdepth 1 -type d -name "$n" 2>/dev/null; done \
+          | _pick_dir "the exact mangled repo path")" || exit 0
+        if [ -z "$search_dir" ]; then
+          search_dir="$(for n in "${exact_names[@]}"; do find "$projects" -mindepth 1 -maxdepth 1 -type d -iname "$n" 2>/dev/null; done \
+            | _pick_dir "the mangled repo path (case-insensitive)")" || exit 0
+        fi
+        if [ -z "$search_dir" ]; then
+          search_dir="$(find "$projects" -mindepth 1 -maxdepth 1 -type d -name "*-${repo_base_m}" 2>/dev/null \
+            | _pick_dir "'*-${repo_base_m}'")" || exit 0
         fi
       fi
     fi

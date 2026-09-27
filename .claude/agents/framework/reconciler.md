@@ -87,8 +87,8 @@ the feature** — findings here block the same way a reviewer CRITICAL does.
 
 **`full`** (inside `/healthcheck`). Whole-repo sweep, all four categories,
 no delta — this absorbs and extends `/healthcheck` Part 3 (contract
-verification); see the target repo's `WIRING-PLAN.md` for the exact
-integration point.
+verification); the integration point is `/healthcheck`'s "Part 3 — Contract
+verification & horizontal reconciliation".
 
 ## Method
 
@@ -232,8 +232,10 @@ JSON: .claude/console/reconcile/<scope-id>.json (or "not written — .claude/con
 [GAP] / [ASSUMED] / [INFERRED]: anything you couldn't establish and why
 ```
 
-If `scoped` or `full` and the write succeeds, also touch
-`.claude/telemetry/.last-reconcile` with this run's ISO timestamp
+If `scoped` or `full` and the run's status is `complete`, also touch
+`.claude/telemetry/.last-reconcile` with this run's ISO timestamp — keyed on
+the run completing, NOT on the Console JSON write (that write is skipped
+whenever `.claude/console/` is absent, and the watermark must still advance)
 (`mkdir -p .claude/telemetry` first — the directory is not guaranteed to
 exist) — this is what `/reconcile`'s default invocation and the doctor
 nag check both read. Do NOT touch the watermark in `advisory` mode or on

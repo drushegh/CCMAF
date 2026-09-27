@@ -262,3 +262,55 @@ node_project_dir_for() {
   fi
   nearest_package_json_dir "$(dirname "$f")" "$ceiling"
 }
+
+# Portable timeout — canonical copy of this block (and kv_file_get below).
+# Scripts source this file when they can and keep a byte-identical inline
+# fallback when they must run standalone; tests/shared_helpers_drift.bats
+# enforces every copy identical to this one.
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+
+# >>> kv_file_get
+kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if absent
+  # Never sources the file (it may be project-owned and committed — sourcing
+  # would execute arbitrary shell from any clone). CRLF-safe; the LAST
+  # assignment wins; an optional `export ` prefix is accepted. A value that
+  # starts with a quote runs to its matching close quote (so `KEY="a b"  #
+  # note` is `a b`); an unquoted value ends at the first whitespace followed
+  # by `#` (`KEY=x   # OPTIONAL` is `x`), trailing whitespace trimmed.
+  local _line _val
+  _line=$(tr -d '\r' < "$1" 2>/dev/null \
+    | grep -E "^[[:space:]]*(export[[:space:]]+)?$2=" | tail -1)
+  [ -n "$_line" ] || return 1
+  _val="${_line#*=}"
+  case "$_val" in
+    \"*) _val="${_val#\"}"; _val="${_val%%\"*}" ;;
+    \'*) _val="${_val#\'}"; _val="${_val%%\'*}" ;;
+    *) _val="${_val%%[[:space:]]#*}"
+       _val="${_val%"${_val##*[![:space:]]}"}" ;;
+  esac
+  printf '%s' "$_val"
+}
+# <<< kv_file_get

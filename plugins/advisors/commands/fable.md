@@ -24,11 +24,14 @@ they want Fable's take on before proceeding.
   (`verify-turn.sh` reads the model the API returned), the strong end of the attestation scale.
 
 ## Step 0 — Ensure the workbench
-If `_advisors/verify-turn.sh` does not exist, instantiate the shared workbench:
+Run this EVERY time, even when the workbench already exists:
 - If inside a git repo, append `_advisors/` to the repo's **committed** `.gitignore` if absent
   (idempotent; create `.gitignore` if the repo has none). Not in a git repo → skip this bullet.
-- `mkdir -p _advisors && cp "${CLAUDE_PLUGIN_ROOT}/fable/verify-turn.sh" _advisors/verify-turn.sh && chmod +x _advisors/verify-turn.sh` — the
+- `mkdir -p _advisors && cp -f "${CLAUDE_PLUGIN_ROOT}/fable/verify-turn.sh" _advisors/verify-turn.sh && chmod +x _advisors/verify-turn.sh` — the
   script is used byte-unchanged; it just needs to live in the workbench root it verifies.
+  Always overwrite it — never "copy only if absent": the workbench copy must track the
+  installed plugin, or a verifier fix shipped in a plugin update never reaches a workbench
+  created by an earlier version (and a stale fail-open verifier would keep passing turns).
 Never commit `_advisors/` contents. **Grandfather rule:** an in-flight consultation already
 living under `_fable/` finishes its life there (verify it with `_fable/verify-turn.sh` as
 before); **new** topics — and every `/advisors:consult` seat — go to `_advisors/`. Never migrate a

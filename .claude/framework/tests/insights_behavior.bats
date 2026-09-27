@@ -69,12 +69,12 @@ EOF
   grep -q "actually use the helper instead" "$FLAG"
   grep -q "don t commit directly to main" "$FLAG"
   # None of the noise classes leaked through.
-  ! grep -qi "doctor" "$FLAG"            # tool_result
-  ! grep -qi "stop hook" "$FLAG"         # isMeta skill expansion
-  ! grep -qi "grep directly" "$FLAG"     # sidechain
-  ! grep -qi "hardcode" "$FLAG"          # ide-injected item
-  ! grep -qi "stale lock" "$FLAG"        # fenced paste
-  ! grep -qi "without approval" "$FLAG"  # system-reminder range
+  ! grep -qi "doctor" "$FLAG" || false            # tool_result
+  ! grep -qi "stop hook" "$FLAG" || false         # isMeta skill expansion
+  ! grep -qi "grep directly" "$FLAG" || false     # sidechain
+  ! grep -qi "hardcode" "$FLAG" || false          # ide-injected item
+  ! grep -qi "stale lock" "$FLAG" || false        # fenced paste
+  ! grep -qi "without approval" "$FLAG" || false  # system-reminder range
 }
 
 @test "session-summary: counts only events after the last cost-tracker marker (TASK-034)" {

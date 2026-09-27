@@ -24,6 +24,12 @@ say()  { printf '%s\n' "$*"; }
 ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 warn() { printf '  \033[33m⚠\033[0m %s\n' "$*"; WARN=$((WARN + 1)); }
 bad()  { printf '  \033[31m✗\033[0m %s\n' "$*"; FAIL=$((FAIL + 1)); }
+# First semver-shaped token (MAJOR.MINOR[.PATCH][-pre|+build]) in a string; empty if none.
+# The pin is compared on this EXACT token — never a substring (a pin of "0.14" must not
+# pass codex 0.144.1), and an unreadable version never passes.
+semver_token() {
+  printf '%s\n' "$1" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.+-]*)?' | head -1 || true
+}
 
 CODEX_HOME_DIR="${CODEX_HOME:-$HOME/.codex}"
 AUTH_JSON="$CODEX_HOME_DIR/auth.json"
@@ -54,20 +60,37 @@ fi
 # ── A4: version + pin (LOCAL --version call only) ────────────────────────────────────────
 VERSION=""
 if [[ -n "$CODEX" ]]; then
-  if VERSION="$("$CODEX" --version 2>/dev/null | head -1 | tr -d '\r')"; then
+  if VERSION="$("$CODEX" --version 2>/dev/null | head -1 | tr -d '\r')" && [[ -n "$VERSION" ]]; then
     ok "A4 version: $VERSION"
   else
+    VERSION=""
     bad "A4 version: '$CODEX --version' failed — binary present but not runnable."
   fi
   PIN="$(registry_get providers.codex version_pin || true)"
   if [[ -z "$PIN" ]]; then
     warn "A4 pin: [providers.codex] version_pin is BLANK. Record '$VERSION' in $(advisors_registry_path)"
     warn "   once you have proven a consult, so the verifier can fail-closed on future drift."
-  elif [[ -n "$VERSION" && "$VERSION" != *"$PIN"* ]]; then
-    bad "A4 pin: version '$VERSION' != pinned '$PIN' — codex drifted. Re-run the smoke test + re-pin before trusting a consult."
-  elif [[ -n "$VERSION" ]]; then
-    ok "A4 pin: matches version_pin ($PIN)"
+  elif [[ -z "$VERSION" ]]; then
+    bad "A4 pin: no codex version could be read, so the pin '$PIN' cannot be checked."
+  else
+    VER_TOK="$(semver_token "$VERSION")"
+    PIN_TOK="$(semver_token "$PIN")"
+    if [[ -z "$PIN_TOK" ]]; then
+      bad "A4 pin: version_pin '$PIN' holds no MAJOR.MINOR[.PATCH] version — fix it in $(advisors_registry_path)."
+    elif [[ "$VER_TOK" != "$PIN_TOK" ]]; then
+      bad "A4 pin: version '$VERSION' (${VER_TOK:-unparseable}) != pinned '$PIN_TOK' — codex drifted. Re-run the smoke test + re-pin before trusting a consult."
+    else
+      ok "A4 pin: matches version_pin ($PIN_TOK)"
+    fi
   fi
+fi
+
+# ── Hard-kill wrapper for codex-run.sh (GNU timeout, or gtimeout on Homebrew macOS) ──────
+if command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1; then
+  ok "timeout: $(command -v timeout 2>/dev/null || command -v gtimeout)"
+else
+  warn "timeout: neither 'timeout' nor 'gtimeout' on PATH — advisory consults (codex-run.sh) will"
+  warn "   refuse to run unbounded. macOS: brew install coreutils. (Image generation is unaffected.)"
 fi
 
 # ── A7: auth is the ChatGPT sub, not the API key ─────────────────────────────────────────

@@ -10,7 +10,10 @@
 # an ADDITIVE merge: every hook registration in the canonical settings.json that
 # the consumer is missing is inserted into the consumer's settings.json, keyed by
 # (event, matcher, command). It NEVER removes or rewrites existing entries, and
-# never touches permissions / env / the consumer's own hooks.
+# never touches permissions / env / the consumer's own hooks. When the PINNED
+# canonical is supplied (3rd arg), only registrations NEW since that version are
+# inserted — one the pinned framework already shipped and the consumer no longer
+# has was deliberately removed, and is not resurrected.
 #
 # Source of truth = the canonical settings.json shipped in the update (DEC: no
 # separate hooks-registry.json — the canonical settings IS the registry; zero
@@ -81,10 +84,29 @@ fi
 # already registered under that event, into a group with the matching matcher
 # (creating the group when absent). jq preserves object key order, so untouched
 # settings keep their layout; additions land at the end of the relevant arrays.
-merged="$(jq --slurpfile fw "$CANON" '
+#
+# Deliberate removals are respected (needs the pinned canonical): a tuple the
+# PINNED framework already shipped — same (event, matcher, command) — that the
+# consumer's settings no longer carry was REMOVED BY THE CONSUMER on purpose;
+# re-adding it on every update silently undid that choice. Only tuples that are
+# NEW since the pinned version are inserted. Without a usable pinned canonical
+# we cannot tell "removed" from "never received", so every missing tuple is
+# added (the original additive behaviour). The doctor's "unregistered hook" check
+# stays the backstop for a registration a consumer never actually received.
+_pinned_arg="null"
+if [ -n "$PINNED" ] && [ -f "$PINNED" ] && jq -e . "$PINNED" >/dev/null 2>&1; then
+  _pinned_arg="$(jq -c '.hooks // {}' "$PINNED" 2>/dev/null)" || _pinned_arg="null"
+  [ -n "$_pinned_arg" ] || _pinned_arg="null"
+fi
+merged="$(jq --slurpfile fw "$CANON" --argjson pinned "$_pinned_arg" '
   ($fw[0].hooks // {}) as $fwhooks
+  | ( if $pinned == null then []
+      else [ $pinned | to_entries[] as $e | ($e.value // [])[]? as $g | ($g.hooks // [])[]?
+             | [$e.key, ($g.matcher // null), .command] ]
+      end ) as $pinned_keys
   | [ $fwhooks | to_entries[] as $e | $e.value[] as $g | $g.hooks[] as $h
-      | {ev: $e.key, m: ($g.matcher // null), h: $h, cmd: $h.command} ] as $tuples
+      | {ev: $e.key, m: ($g.matcher // null), h: $h, cmd: $h.command}
+      | select( ([.ev, .m, .cmd] as $k | $pinned_keys | index([$k])) == null ) ] as $tuples
   | reduce $tuples[] as $t (
       .;
       # Matcher-aware dedup (audit minor c): "already registered" means the
@@ -119,7 +141,7 @@ after="$(printf '%s' "$merged" | _count)"; after="${after:-0}"
 added=$(( after - before ))
 
 if [ "$added" -le 0 ]; then
-  echo "merge-hook-registrations: all framework hook registrations already present — no change."
+  echo "merge-hook-registrations: all framework hook registrations already present (or deliberately removed) — no change."
   exit 0
 fi
 

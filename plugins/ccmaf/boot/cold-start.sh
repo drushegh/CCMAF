@@ -21,8 +21,10 @@ set -uo pipefail
 #       Unlike the other checks, update-nudge.sh has no flag-file convention
 #       — it prints its nudge line(s) directly to stdout — so its output is
 #       captured and surfaced below the table instead of discarded.
-#   (c) every wrapped check is timeout-bounded (`timeout 10`) — a filtered
-#       network, or any other hang, must never hang session start.
+#   (c) every wrapped check is timeout-bounded (run_tmo: GNU `timeout`, or
+#       `gtimeout` / a perl-alarm fallback where it is absent, e.g. stock
+#       macOS) — a filtered network, or any other hang, must never hang
+#       session start.
 #   (d) this hook ALWAYS exits 0. A wrapped check "failing" (a raised flag)
 #       was already normal in v1 (exit 0/2/3 by design) and did not
 #       propagate; v2 goes further — even a genuinely CRASHED check or
@@ -44,8 +46,50 @@ FW="${CLAUDE_PLUGIN_ROOT:-$ROOT/.claude/framework}"
 # nanosecond-scale). Accept exactly 13 digits, else whole-second fallback.
 now_ms() { local t; t=$(date +%s%3N 2>/dev/null); case "$t" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) printf '%s' "$t" ;; *) printf '%s' "$(( $(date +%s) * 1000 ))" ;; esac; }
 
+# Portable timeout (review P1): stock macOS ships no GNU `timeout` (only
+# Homebrew coreutils' `gtimeout`) and a bare `timeout` there is exit 127 for
+# EVERY check. Resolve once: timeout -> gtimeout -> a perl fork/alarm
+# fallback (kills the child, exits 124 like GNU) -> unbounded, with a note.
+# (Canonical: hooks/lib/hook-common.sh — sourced when present.)
+_hc="$(dirname "${BASH_SOURCE[0]}")/../hooks/lib/hook-common.sh"
+# shellcheck source=/dev/null
+[ -f "$_hc" ] && . "$_hc"
+if ! declare -F run_tmo >/dev/null 2>&1; then  # standalone: inline copy
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+fi
+
 echo "cold-start checks — $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "-----------------------------------------------"
+if [ -z "$_TMO_BIN" ]; then
+  if command -v perl >/dev/null 2>&1; then
+    echo "note: no timeout/gtimeout binary — checks bounded via a perl alarm fallback (brew install coreutils for gtimeout)"
+  else
+    echo "note: no timeout/gtimeout/perl — checks run UNBOUNDED (brew install coreutils for gtimeout)"
+  fi
+fi
 
 # Silent checks: the flag file they may write IS the signal; live stdout is
 # discarded (matches v1 behaviour). timeout 10 per (c) above.
@@ -59,7 +103,7 @@ run_check() { # <label> <timeout-secs> <interpreter> <script> [args...]
   # test the script, not the interpreter (the "(missing)" bug).
   [ -f "${2:-}" ] || { printf '%-16s %8s   (missing)\n' "$label" "-"; return 0; }
   local s e rc; s=$(now_ms)
-  timeout "$tmo" "$@" >/dev/null 2>&1; rc=$?; e=$(now_ms)
+  run_tmo "$tmo" "$@" >/dev/null 2>&1; rc=$?; e=$(now_ms)
   # exit=124 means the check was KILLED at its budget — say so explicitly;
   # for doctor that would leave the LAST COMPLETED verdict flag in place
   # (its lifecycle is completion-gated), so a kill is loud-but-safe.
@@ -71,7 +115,11 @@ run_check() { # <label> <timeout-secs> <interpreter> <script> [args...]
 }
 
 # update-nudge.sh: no flag-file convention (b) — capture its stdout so the
-# nudge line(s) actually reach the model instead of being thrown away.
+# nudge line(s) actually reach the model instead of being thrown away. Same
+# for console-check.sh: its "opted in but the console plugin is not
+# installed" nudge is a stdout line with no flag file, and its 7-day throttle
+# is spent when it prints — discarding that stdout (run_check) meant the
+# nudge was never seen and then stayed silent for a week (review P2).
 un_output=""
 run_check_capture() { # <label> <timeout-secs> <interpreter> <script> [args...]
   local label="$1" tmo="$2"; shift 2
@@ -81,9 +129,11 @@ run_check_capture() { # <label> <timeout-secs> <interpreter> <script> [args...]
   fi
   [ -f "${2:-}" ] || { printf '%-16s %8s   (missing)\n' "$label" "-"; return 0; }
   local s e rc out; s=$(now_ms)
-  out="$(timeout "$tmo" "$@" 2>&1)"; rc=$?; e=$(now_ms)
+  out="$(run_tmo "$tmo" "$@" 2>&1)"; rc=$?; e=$(now_ms)
   printf '%-16s %6s ms   exit=%s\n' "$label" "$((e - s))" "$rc"
-  un_output="$out"
+  [ -n "$out" ] && un_output="${un_output:+$un_output
+}$out"
+  return 0
 }
 
 # Aggregate deadline (round-3 review P1): the per-check budgets sum past the
@@ -104,7 +154,7 @@ over_deadline() { [ "$SECONDS" -ge "$CHAIN_DEADLINE_S" ]; }
 run_check "doctor"         30 bash "$FW/doctor/doctor.sh"
 run_check_capture "update-nudge" 10 bash "$FW/update/update-nudge.sh"
 run_check "skills-check"   10 bash "$FW/update/skills-check.sh"
-run_check "console-check"  10 bash "$FW/update/console-check.sh"
+run_check_capture "console-check" 10 bash "$FW/update/console-check.sh"
 run_check "insights"       10 bash "$FW/insights/analyse.sh"
 echo "-----------------------------------------------"
 
@@ -142,7 +192,7 @@ echo
 # boot-view.sh) — but per (d) above, that exit code must not propagate out of
 # THIS hook. A non-zero exit becomes a printed content line instead of an
 # exit-code handoff.
-bv_out="$(timeout 10 bash "$FW/boot/boot-view.sh" 2>&1)"
+bv_out="$(run_tmo 10 bash "$FW/boot/boot-view.sh" 2>&1)"
 bv=$?
 if [ "$bv" -eq 0 ]; then
   printf '%s\n' "$bv_out"

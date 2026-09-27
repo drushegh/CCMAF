@@ -33,6 +33,7 @@
 INPUT=$(cat 2>/dev/null || true)
 
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 
 # Profile gate (auto-off in minimal; explicit disable always wins).

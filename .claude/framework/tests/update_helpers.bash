@@ -105,6 +105,7 @@ build_upstream_subdir() {  # <subdir>
   echo "rules v2"  > "$UPSTREAM/$sub/CLAUDE.framework.md"
   git -C "$UPSTREAM" add -A
   git -C "$UPSTREAM" commit -qm "v2: framework changes"
+  # shellcheck disable=SC2034  # consumed by the .bats files that load this helper
   UPSTREAM_V2_SHA=$(git -C "$UPSTREAM" rev-parse HEAD)
 }
 
@@ -127,6 +128,7 @@ build_consumer() {
   echo "project hook — must survive updates" > "$CONSUMER/.claude/hooks/project-hook.sh"
 
   CVERSION="$CONSUMER/.claude/.framework-version"
+  # shellcheck disable=SC2034  # consumed by the .bats files that load this helper
   CFLAG="$CONSUMER/.claude/.framework-update-available.md"
   cat > "$CVERSION" <<EOF
 FRAMEWORK_UPSTREAM_URL=$UPSTREAM
@@ -199,6 +201,7 @@ migrate_layout_noconfirm() { ( cd "$OLDC" && bash .claude/framework/update/migra
 # Sets: DOC, DOCFLAG.
 build_doctor_consumer() {
   DOC="$BATS_TEST_TMPDIR/doctor-consumer"
+  # shellcheck disable=SC2034  # consumed by the .bats files that load this helper
   DOCFLAG="$DOC/.claude/.framework-doctor-findings.md"
   mkdir -p "$DOC/.claude/framework/doctor" \
            "$DOC/.claude/framework/update" \
@@ -312,6 +315,7 @@ build_skills_upstream() {
   printf -- '---\nname: rust\n---\nrust skill v1\n' > "$SKILLS_UPSTREAM/rust/SKILL.md"
   git -C "$SKILLS_UPSTREAM" add -A
   git -C "$SKILLS_UPSTREAM" commit -qm "skills v1"
+  # shellcheck disable=SC2034  # consumed by the .bats files that load this helper
   SKILLS_UPSTREAM_SHA=$(git -C "$SKILLS_UPSTREAM" rev-parse HEAD)
 }
 
@@ -338,7 +342,12 @@ EOF
 }
 
 skills_sync() { ( cd "$SCONSUMER" && bash .claude/framework/update/skills-sync.sh "$@" ); }
-skills_check() { ( cd "$SCONSUMER" && bash .claude/framework/update/skills-check.sh "$@" ); }
+# Hermetic: DEFAULT mode (no URL, no bundle) polls the public catalogue, so pin
+# the default upstream to a local (dead unless a test overrides it) path — a
+# test must never reach github.com.
+skills_check() { ( cd "$SCONSUMER" &&
+  SKILLS_DEFAULT_UPSTREAM_URL="${SKILLS_DEFAULT_UPSTREAM_URL:-$BATS_TEST_TMPDIR/no-default-upstream}" \
+    bash .claude/framework/update/skills-check.sh "$@" ); }
 SFLAG() { echo "$SCONSUMER/.claude/.skills-update-available.md"; }
 
 # Replace/append one FIELD=VALUE line in the consumer's .skills-version.

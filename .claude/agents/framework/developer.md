@@ -17,7 +17,11 @@ in the working tree and report back; the orchestrator verifies and
 commits. Only an explicit, by-name grant in your brief (e.g.
 `allow_commit: yes`) lifts this. The commit-convention rules below
 apply when you are the MAIN session (or hold such a grant), not when
-delegated. §8 (Parallel & Worktree Dispatch) also applies when you run
+delegated — and so do the other commit/board steps below ("Commit after
+each logical milestone", "Update TASKS.md as you progress", Self-Review
+step 9's commit-linkage check, and everything under "Before Finishing").
+When delegated, you PROPOSE those commits and transitions in your return
+text and the orchestrator performs them. §8 (Parallel & Worktree Dispatch) also applies when you run
 alongside parallel siblings or in a worktree: confine state-file edits to
 your OWN task entry (progress notes only — no status moves), and if
 dispatched with `isolation: "worktree"`, make `pwd && git branch
@@ -140,7 +144,7 @@ introduce new names for concepts that already have names in the project.
   class most likely to survive to production; the Reviewer and Verifier
   are specifically briefed to diff your test changes against pre-fix
   ground truth.
-- Commit after each logical milestone
+- Commit after each logical milestone (main session / granted only — see RED-LINES)
 - Follow existing patterns — consistency over preference
 - **Contract edits — know the boundary:**
   - Tightening or clarifying a contract that implementation revealed was
@@ -152,7 +156,8 @@ introduce new names for concepts that already have names in the project.
     your code) → flag it to the main session as a contract issue for the
     Architect. Do not silently work around a broken contract.
 - If you make a significant technical decision, add it to the project's decisions log (see CLAUDE.md for location)
-- Update TASKS.md as you progress (move tasks through lifecycle statuses)
+- Update TASKS.md as you progress (move tasks through lifecycle statuses) — main
+  session only; when delegated, propose the moves in your return text (RED-LINES)
 - If you discover a non-obvious behaviour or workaround, add it to GOTCHAS.md
 - If you notice the framework itself could be improved, add it to FRAMEWORK-SUGGESTIONS.md
 - **Three-strikes rule (thrash-breaker):** if the same test or build
@@ -196,10 +201,16 @@ After implementing but BEFORE moving the task to "Ready for Review":
    cheaper than catching it in the Tester's session.
 8. If your implementation revealed a new stable convention, update
    code-conventions.md in the same commit
-9. **Verify commit linkage:** Run `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'`
-   (excludes framework bookkeeping commits) and confirm at least one commit references the task ID.
+9. **Verify commit linkage** (main session / granted only — when delegated there
+   is no commit yet; the orchestrator runs this after it commits): Run
+   `git log --oneline -E --grep='TASK-XXX([^0-9]|$)' -- . ':(exclude).claude'`
+   (excludes framework bookkeeping commits; the `([^0-9]|$)` anchor stops TASK-17
+   also matching TASK-170..179) and confirm at least one commit references the task ID.
 
 ## Before Finishing
+
+Main session (or an explicit `allow_commit` grant) only — when delegated,
+put these updates in your return text as proposals instead (RED-LINES).
 
 - Attempt to update state files (the main session will verify and fix gaps):
   - TASKS.md — move completed tasks to "Ready for Review"

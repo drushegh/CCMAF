@@ -30,14 +30,30 @@ run_gate() {
     if grep -q '"build"[[:space:]]*:' package.json; then
       npm run build --if-present || return 1
     fi
-    if grep -q '"test"[[:space:]]*:' package.json; then
+    # npm init's placeholder ("echo \"Error: no test specified\" && exit 1")
+    # always fails — it means "no tests", not "tests failed". Skip it and say
+    # so on the PASS line instead of failing every fresh npm project.
+    if grep -Eq '"test"[[:space:]]*:.*Error: no test specified' package.json; then
+      echo "package.json test script is npm's placeholder — tests skipped"
+      GATE_NOOP_NOTE="NOTE: package.json \"test\" is npm's placeholder (no tests) — only the build step, if any, was gated."
+    elif grep -q '"test"[[:space:]]*:' package.json; then
       npm test || return 1
     fi
     return 0
   fi
   if [ -f pyproject.toml ] || [ -f setup.py ]; then
     if command -v pytest >/dev/null 2>&1; then
-      pytest -x -q || return 1
+      local prc=0
+      pytest -x -q || prc=$?
+      if [ "$prc" -eq 5 ]; then
+        # pytest exit 5 = no tests collected: nothing ran, nothing failed.
+        # Fall back to the compile check and flag the pass as a NO-OP.
+        echo "pytest collected no tests (exit 5) — falling back to compileall"
+        python -m compileall -q . || return 1
+        GATE_NOOP_NOTE="NO-OP: pytest collected no tests (exit 5) — compile check only. This pass proves little."
+      elif [ "$prc" -ne 0 ]; then
+        return 1
+      fi
     else
       python -m compileall -q . || return 1
     fi
@@ -58,6 +74,13 @@ run_gate() {
     dotnet build --nologo -v q || return 1
     return 0
   fi
+  # Subdir app manifests are computed BEFORE the shell branch: a monorepo
+  # with root helper scripts used to take the shell branch and return
+  # before the deeper-manifest NO-OP notice below was ever reached.
+  local deeper
+  deeper=$(find . -mindepth 2 -maxdepth 3 \
+      \( -name package.json -o -name pyproject.toml -o -name go.mod -o -name Cargo.toml -o -name '*.csproj' \) \
+      -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n 1)
   # Shell-first project (this framework's own case): syntax-check the tree.
   # Round-3 review P1 (live-reproduced): `.claude/*` MUST be excluded — every
   # scaffolded project carries .claude/statusline.sh, which made this branch
@@ -68,6 +91,9 @@ run_gate() {
     while IFS= read -r f; do
       bash -n "$f" || rc=1
     done < <(find . -name '*.sh' -not -path '*/.git/*' -not -path './.claude/*' -not -path '*/node_modules/*' 2>/dev/null)
+    if [ -n "$deeper" ]; then
+      GATE_NOOP_NOTE="NO-OP for subdir apps: only shell syntax was checked, but $deeper exists below — root-only dispatch cannot gate subdir apps; add .claude/integration-gate.local.sh."
+    fi
     return "$rc"
   fi
   # No recognised stack at the ROOT: the gate cannot claim truth — pass
@@ -76,9 +102,6 @@ run_gate() {
   # never reaches the orchestrator — set GATE_NOOP_NOTE instead (run_gate
   # executes in the current shell, so the variable survives) and the final
   # PASS line carries it.
-  deeper=$(find . -mindepth 2 -maxdepth 3 \
-      \( -name package.json -o -name pyproject.toml -o -name go.mod -o -name Cargo.toml -o -name '*.csproj' \) \
-      -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | head -n 1)
   if [ -n "$deeper" ]; then
     GATE_NOOP_NOTE="NO-OP: no root stack manifest but $deeper exists below — root-only dispatch cannot gate subdir apps; add .claude/integration-gate.local.sh. This pass proves NOTHING."
   else

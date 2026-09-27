@@ -37,10 +37,23 @@ procedure) and the `contract:board-coherence` + `contract:verify-handback` block
   context >= 90%, tell the user and offer a fresh session.
 
 ## Step 0 — Open a board task for the heal itself
-Create `#### [TASK-N]` (next free numeric id = max existing TASK number + 1) in the Feature lane's
+Create `#### [TASK-N]` (next free numeric id — see "Allocating a free id" below) in the Feature lane's
 `### In Progress`: `Board heal — reconcile board with reality (run <YYYY-MM-DD>)`. Every commit this
 command makes carries that ID (commit convention is non-negotiable), and the heal earns its own
 Verify story.
+
+**Allocating a free id** (here and in Steps 1 and 4): the next free number is the highest
+`TASK-<n>` / `BUG-<n>` ever issued **+ 1** — counted across the live board, the archives
+housekeeping rotates entries into, and the verify-seed filenames, not just the live
+`TASKS.md`. An archived id is still taken, and a reused id would inherit a stale
+`.claude/console/verify/<ID>.json` seed and its verdicts:
+
+    { cat .claude/TASKS.md .claude/archive/*.md .claude/docs/archives/*.md \
+          .claude/framework/docs/archives/*.md 2>/dev/null
+      ls .claude/console/verify/ 2>/dev/null; } \
+      | grep -oE 'TASK-[0-9]+' | sed 's/^TASK-0*//' | sort -n | tail -1
+
+(swap `TASK` for `BUG` for a bug id). Allocate sequentially from there within one heal.
 
 ## Step 1 — Renumber suffixed sub-IDs → distinct numeric IDs
 Doctor lists them (`[TASK-Na]` bracketed, or bare `TASK-Na`). The canonical ID is numeric; a
@@ -118,7 +131,8 @@ decompose — skip this step.**
   findings are gone (explain any that remain by design). **A second `/board-heal` must be a no-op.**
 
 ## Result
-The board reflects reality: every Verify/Ready-for-Test task has a seed, IDs are numeric, stranded
+The board reflects reality: every Verify task has a seed (Ready-for-Test tasks stay seedless until
+`/test` seeds them on PASS, moving to Verify), IDs are numeric, stranded
 tasks sit at their truthful status, and the whole change is one reviewable commit. On a
 Console-opted-in project the Verify tab now renders one story per delivered feature — the per-feature
 review surface the batch build never produced.

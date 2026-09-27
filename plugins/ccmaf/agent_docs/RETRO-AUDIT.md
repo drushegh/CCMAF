@@ -7,7 +7,9 @@ of scans to run after each framework pull, so existing code gets
 held to the same standard as new code.
 
 **When to use:**
-- After every framework `apply-update.sh` that introduced new gates.
+- After every CCMAF plugin update (`claude plugin update <name>@ccmaf`)
+  that introduced new gates. (Legacy v1-line projects: after every
+  `apply-update.sh` that did.)
 - During a periodic sweep of consumers (e.g., before a release, or
   on the same cadence as `/security`).
 
@@ -27,11 +29,30 @@ held to the same standard as new code.
 
 **Per-project workflow:**
 
-1. `git pull` on the consumer (or `bash .claude/framework/update/apply-update.sh`).
+1. Update the plugins (`claude plugin marketplace update ccmaf`, then
+   `claude plugin update <name>@ccmaf` for each installed CCMAF plugin, then
+   restart). Legacy v1-line projects: `bash .claude/framework/update/apply-update.sh`.
 2. Open this file. Identify the most recent section since your last audit.
 3. Run each scan recipe. Triage findings.
 4. File tasks for actionable findings.
 5. Note the audit completion in your `claude-progress.txt`.
+
+**Locating plugin scripts (v2).** Recipes that drive a shipped script need
+its path inside the plugin cache — `${CLAUDE_PLUGIN_ROOT}` is not set in a
+plain shell. Resolve it once per shell (needs `jq`):
+
+```bash
+plugin_root() {  # usage: plugin_root devhooks  -> install dir, or empty
+  claude plugin list --json 2>/dev/null \
+    | jq -r --arg p "$1@ccmaf" '[.[] | select(.id == $p and .enabled != false)][0].installPath // empty' \
+    | tr '\\' '/'
+}
+DEVHOOKS=$(plugin_root devhooks)   # verify-deps.sh lives in the devhooks plugin
+CCMAF=$(plugin_root ccmaf)         # doctor.sh lives in the ccmaf core plugin
+```
+
+On a legacy v1-line project the same scripts live under `.claude/hooks/`
+and `.claude/framework/` instead; each recipe below notes the v1 fallback.
 
 ---
 
@@ -56,12 +77,37 @@ warrants a one-time sweep.
 # Drive verify-deps.sh in retro mode against every manifest in the repo.
 # Network calls hit npm.org + pypi.org; cargo/go/nuget get a "manual"
 # entry. Takes 5-30s depending on dep count.
-rm -f .claude/.dep-verification-issues.md
-for f in $(git ls-files | grep -E '(^|/)(package\.json|pyproject\.toml|requirements.*\.txt|Cargo\.toml|go\.mod|.*\.csproj)$'); do
-  echo "{\"tool_input\":{\"file_path\":\"$f\"}}" \
-    | VERIFY_DEPS_RETRO=1 bash .claude/hooks/verify-deps.sh
-done
-cat .claude/.dep-verification-issues.md 2>/dev/null || echo "(clean — no issues)"
+# The hook is deliberately silent when it can't run (script missing, no
+# jq, or disabled via CLAUDE_DISABLED_HOOKS), so the preconditions are
+# checked up front — otherwise "no issues file" would look like "clean".
+VD="${DEVHOOKS:+$DEVHOOKS/hooks/verify-deps.sh}"   # v2 (see "Locating plugin scripts")
+[ -f "${VD:-}" ] || VD=.claude/hooks/verify-deps.sh # legacy v1-line fallback
+if [ ! -f "$VD" ]; then
+  echo "ABORT: verify-deps.sh not found (install/enable devhooks@ccmaf) — Gate 1 NOT run"
+elif ! command -v jq >/dev/null 2>&1; then
+  echo "ABORT: jq missing — verify-deps.sh would no-op silently; Gate 1 NOT run"
+else
+  [ "${CLAUDE_DEP_VERIFY:-1}" = "0" ]     && echo "NOTE: CLAUDE_DEP_VERIFY=0 — registry lookups skipped; deps report as UNVERIFIED"
+  # v2 reports findings on stdout (PostToolUse additionalContext JSON) and
+  # only also writes the issues file where .claude/ exists; v1 writes the
+  # file only. Collect both.
+  rm -f .claude/.dep-verification-issues.md
+  n=0; hits=0
+  while IFS= read -r f; do
+    out=$(printf '{"tool_input":{"file_path":"%s"}}\n' "$f" \
+      | CLAUDE_PROJECT_DIR="$PWD" VERIFY_DEPS_RETRO=1 bash "$VD")
+    n=$((n + 1))
+    if [ -n "$out" ]; then
+      hits=$((hits + 1))
+      printf '%s\n' "$out" | jq -r '.hookSpecificOutput.additionalContext // .' 2>/dev/null \
+        || printf '%s\n' "$out"
+    fi
+  done < <(git ls-files | grep -E '(^|/)(package\.json|pyproject\.toml|requirements.*\.txt|Cargo\.toml|go\.mod|.*\.csproj)$')
+  [ "$hits" -eq 0 ] && [ -f .claude/.dep-verification-issues.md ] \
+    && cat .claude/.dep-verification-issues.md && hits=1
+  echo "Gate 1: $n manifest(s) scanned with $VD; $hits with findings"
+  [ "$hits" -eq 0 ] && echo "(clean — unless CLAUDE_DISABLED_HOOKS lists verify-deps)"
+fi
 ```
 
 **Triage:**
@@ -290,33 +336,44 @@ why.
 
 ### Gate 6: Hook registration drift
 
-**Why it now flags.** The framework pulled `verify-deps.sh` into the
-hooks/ directory and updated the manifest. Each consumer needs to also
-register the hook in their own `settings.json` PostToolUse block.
-Doctor Check 1 already warns about this on cold start, but a one-time
-verification across all consumers is worth doing after this release.
+**Why it now flags.** `verify-deps.sh` only protects a project if it is
+actually registered. In v2 it ships in the **devhooks** plugin, whose own
+`hooks/hooks.json` registers it (PostToolUse, `Write|Edit|MultiEdit`, via
+`post-edit-dispatch.sh`) — so the check is "is devhooks installed and
+enabled", not a `settings.json` entry. (Legacy v1-line projects vendor the
+hook into `.claude/hooks/` and must register it in their own
+`settings.json`.)
 
 **Scan recipe (run from project root):**
 
 ```bash
-# Confirm the hook file exists.
-test -f .claude/hooks/verify-deps.sh && echo "  hook present" || echo "  HOOK MISSING — re-run apply-update.sh"
+# v2: the devhooks plugin must be installed AND enabled.
+claude plugin list --json 2>/dev/null \
+  | jq -e '.[] | select(.id == "devhooks@ccmaf" and .enabled != false)' >/dev/null \
+  && echo "  devhooks@ccmaf installed + enabled (verify-deps registered by the plugin)" \
+  || echo "  devhooks@ccmaf MISSING or disabled — see Triage below"
+grep -q '"devhooks@ccmaf"[[:space:]]*:[[:space:]]*false' .claude/settings.json 2>/dev/null \
+  && echo "  NOTE: this project disables devhooks@ccmaf in .claude/settings.json"
 
-# Confirm settings.json references it.
-grep -q 'verify-deps\.sh' .claude/settings.json \
-  && echo "  registered in settings.json" \
-  || echo "  NOT registered — see Triage below"
-
-# Doctor will surface this as a WARNING too.
-bash .claude/framework/doctor/doctor.sh
+# Run the doctor and show its findings.
+if [ -n "${CCMAF:-}" ] && [ -f "$CCMAF/doctor/doctor.sh" ]; then
+  bash "$CCMAF/doctor/doctor.sh"                     # v2 (see "Locating plugin scripts")
+elif [ -f .claude/framework/doctor/doctor.sh ]; then
+  bash .claude/framework/doctor/doctor.sh            # legacy v1-line fallback
+else
+  echo "  doctor.sh not found — set CCMAF via the locator snippet above"
+fi
 cat .claude/.framework-doctor-findings.md 2>/dev/null
 ```
 
 **Triage:**
-- Hook file missing → run `bash .claude/framework/update/apply-update.sh`
-  again; the manifest entry should pull it in.
-- Hook file present but not in settings.json → add this entry to the
-  `PostToolUse` block (matcher `Write|Edit|MultiEdit`), alongside
+- v2, devhooks missing → `claude plugin install devhooks@ccmaf --scope user`
+  (then restart). Disabled on purpose → see Suppression.
+- Legacy v1, hook file missing → run
+  `bash .claude/framework/update/apply-update.sh` again; the manifest
+  entry should pull it in.
+- Legacy v1, hook file present but not in settings.json → add this entry
+  to the `PostToolUse` block (matcher `Write|Edit|MultiEdit`), alongside
   the existing `auto-format.sh` and `auto-lint.sh` entries:
 
   ```json
@@ -328,8 +385,8 @@ cat .claude/.framework-doctor-findings.md 2>/dev/null
 
 **Suppression:** if you have a deliberate reason not to run the hook
 (e.g., your project is offline and would always get UNVERIFIED entries),
-keep the hook file but set `CLAUDE_DEP_VERIFY=0` in your shell
-environment rather than removing the registration. That way the hook
+keep the hook installed (v2: leave devhooks enabled; v1: keep the file
+registered) but set `CLAUDE_DEP_VERIFY=0` in your shell environment. That way the hook
 still runs, logs to telemetry, and produces detection-only output
 without network calls.
 

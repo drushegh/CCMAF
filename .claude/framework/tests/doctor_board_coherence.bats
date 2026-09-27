@@ -33,7 +33,7 @@ _write_board() { cat > "$DOC/.claude/TASKS.md"; }
   seed_doctor_state_files
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q '\[board-coherence\]' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q '\[board-coherence\]' "$DOCFLAG" || false; fi
 }
 
 # --- Invariant 1: Verify/Ready-for-Test tasks missing a seed (opt-in gated) -
@@ -82,7 +82,7 @@ EOF
 EOF
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -q '\[board-coherence\]' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -q '\[board-coherence\]' "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 15: a Ready-for-Test task with no seed is SILENT (Verify-only; regression for the CRITICAL fix)" {
@@ -110,7 +110,7 @@ EOF
   # A task legitimately awaiting the Tester must NOT be flagged (the Tester
   # emits its seed on PASS as it moves to Verify — seeding it here would
   # permanently lock out the authoritative one via WRITE-ONCE).
-  if [ -f "$DOCFLAG" ]; then ! grep -qi 'no verify seed' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -qi 'no verify seed' "$DOCFLAG" || false; fi
 }
 
 @test "doctor Check 15: Verify task WITH a seed → no missing-seed finding" {
@@ -134,7 +134,7 @@ EOF
   run run_doctor
   [ "$status" -eq 0 ]
   # case-insensitive: the finding text reads "NO verify seed"
-  if [ -f "$DOCFLAG" ]; then ! grep -qi 'no verify seed' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -qi 'no verify seed' "$DOCFLAG" || false; fi
 }
 
 # --- Invariant 2: orphan seed (seed with no board entry) ------------------
@@ -207,7 +207,7 @@ EOF
   } > "$DOC/.claude/TASKS.md"
   run run_doctor
   [ "$status" -eq 0 ]
-  if [ -f "$DOCFLAG" ]; then ! grep -qE 'NAG.*Ready for Review' "$DOCFLAG"; fi
+  if [ -f "$DOCFLAG" ]; then ! grep -qE 'NAG.*Ready for Review' "$DOCFLAG" || false; fi
 }
 
 # --- Check 13: suffixed-ID flag -------------------------------------------

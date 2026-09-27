@@ -57,9 +57,9 @@ EOF
   grep -q "TASK-100" "$REPO/.claude/TASKS.md"
   grep -q '\[TASK-1\]' "$REPO/.claude/TASKS.md"
   grep -q '\[TASK-3\]' "$REPO/.claude/archive/TASKS-archive.md"
-  ! grep -q '\[TASK-3\]' "$REPO/.claude/TASKS.md"
+  ! grep -q '\[TASK-3\]' "$REPO/.claude/TASKS.md" || false
   grep -q "2026-01-01" "$REPO/.claude/archive/DECISIONS-archive.md"
-  ! grep -q "2026-01-01" "$REPO/.claude/DECISIONS.md"
+  ! grep -q "2026-01-01" "$REPO/.claude/DECISIONS.md" || false
   grep -q "Archived entries" "$REPO/.claude/TASKS.md"
 }
 
@@ -69,10 +69,46 @@ EOF
   [ "$status" -eq 0 ]
   # The lane heading must stay in the LIVE board, never migrate into an archived block.
   grep -q '^## Bug-Fix Lane' "$REPO/.claude/TASKS.md"
-  ! grep -q '^## Bug-Fix Lane' "$REPO/.claude/archive/TASKS-archive.md"
-  # And the non-Done bug entry under it stays live; the old bug-Done goes to archive.
+  ! grep -q '^## Bug-Fix Lane' "$REPO/.claude/archive/TASKS-archive.md" || false
+  # And the non-Done bug entry under it stays live. The keep window is PER Done
+  # section, so the Bug-Fix lane's lone Done entry (BUG-1) is inside its own
+  # KEEP=2 window and stays live too — the feature lane's Done must not use up its budget.
   grep -q '\[BUG-9\]' "$REPO/.claude/TASKS.md"
-  grep -q '\[BUG-1\]' "$REPO/.claude/archive/TASKS-archive.md"
+  grep -q '\[BUG-1\]' "$REPO/.claude/TASKS.md"
+  ! grep -q '\[BUG-1\]' "$REPO/.claude/archive/TASKS-archive.md" || false
+}
+
+@test "rotate-state: keep window is per Done section — each lane archives only beyond its own newest KEEP" {
+  cat > "$REPO/.claude/TASKS.md" <<'EOF'
+# Task Board
+## Feature Lane
+### Done
+#### [TASK-1] a
+1
+#### [TASK-2] b
+2
+#### [TASK-3] c
+3
+## Bug-Fix Lane
+### Done
+#### [BUG-1] x
+q
+#### [BUG-2] y
+r
+#### [BUG-3] z
+s
+EOF
+  printf '# Decision Log\n---\n' > "$REPO/.claude/DECISIONS.md"
+  run rotate
+  [ "$status" -eq 0 ]
+  grep -q '\[TASK-1\]' "$REPO/.claude/TASKS.md"
+  grep -q '\[TASK-2\]' "$REPO/.claude/TASKS.md"
+  grep -q '\[BUG-1\]'  "$REPO/.claude/TASKS.md"
+  grep -q '\[BUG-2\]'  "$REPO/.claude/TASKS.md"
+  grep -q '\[TASK-3\]' "$REPO/.claude/archive/TASKS-archive.md"
+  grep -q '\[BUG-3\]'  "$REPO/.claude/archive/TASKS-archive.md"
+  ! grep -q '\[TASK-3\]' "$REPO/.claude/TASKS.md" || false
+  ! grep -q '\[BUG-3\]'  "$REPO/.claude/TASKS.md" || false
 }
 
 @test "rotate-state: second run is a no-op (nothing left beyond the keep window)" {

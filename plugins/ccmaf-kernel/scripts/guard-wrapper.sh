@@ -16,7 +16,7 @@
 set -u
 GUARD="${CLAUDE_PLUGIN_ROOT}/scripts/block-dangerous-commands.py"
 if [ ! -f "$GUARD" ]; then
-  echo "ccmaf-kernel guard SKIPPED: guard file missing at $GUARD - this Bash command was NOT screened for destructive patterns" >&2
+  echo "ccmaf-kernel guard SKIPPED: guard file missing at $GUARD - this command was NOT screened for destructive patterns" >&2
   exit 1
 fi
 for cand in python3 python; do
@@ -24,5 +24,5 @@ for cand in python3 python; do
     exec "$cand" "$GUARD"
   fi
 done
-echo "ccmaf-kernel guard SKIPPED: no working Python interpreter found on PATH - this Bash command was NOT screened for destructive patterns" >&2
+echo "ccmaf-kernel guard SKIPPED: no working Python interpreter found on PATH - this command was NOT screened for destructive patterns" >&2
 exit 1

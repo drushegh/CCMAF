@@ -27,6 +27,30 @@ Always exits 0. Prints findings to stdout with a summary count.
 | `check_crlf_strip` | `while IFS= read -r <var>` reading from a FILE (not process substitution or heredoc) without a `<var>="${<var>%$'\r'}"` strip in the next 3 lines | "CRLF breaks `while IFS= read -r line` loops" | Add the strip on the line after the while |
 | `check_grep_c_fallback` | `$(...grep -c... \|\| echo "0")` | "`grep -c` with `\|\| echo 0` produces `0\n0`" | Drop the fallback — `grep -c` already prints 0 on no match |
 
+### `config-security.sh`
+
+Audits the agent harness's OWN configuration surface for security risk —
+distinct from `/security` (which scans project code: SAST, secrets, SCA)
+and from `doctor.sh` (which checks config *integrity*). Deterministic, no
+network, no subagents; safe to run in CI.
+
+Surfaces scanned: `settings.json` permission breadth + secret-deny
+baseline; hook scripts (`.claude/hooks/*.{sh,py}`) for shell injection,
+`curl | bash` and `eval`; agent prompts (`.claude/agents/**/*.md`) for
+tool-scope creep; MCP configs (`.mcp.json` / settings `mcpServers`); and
+`CLAUDE.md` / `CLAUDE.framework.md` for instruction-override and
+hidden-character traps.
+
+**Run:**
+
+```bash
+bash .claude/framework/audit/config-security.sh [--format text|json]
+```
+
+Unlike `pattern-scan.sh`, this one is a build gate: exit `0` = no
+CRITICAL findings (WARNING/INFO may be present), `2` = at least one
+CRITICAL finding, `1` = fatal script error.
+
 ## Adding a new pattern
 
 When a recurring bug class warrants a check:
@@ -43,7 +67,10 @@ The discipline: scan the WHOLE repo for the pattern, not just new code
 
 ## Scope + exclusions
 
-- Scans `.claude/hooks/` and `.claude/framework/` `.sh` files.
+- `pattern-scan.sh` scans `.sh` files under `.claude/hooks/`,
+  `.claude/framework/` and `.claude/skills/` (the plugin copy scans
+  `${CLAUDE_PLUGIN_ROOT}`, `.claude/hooks/` and `.claude/skills/` when
+  `CLAUDE_PLUGIN_ROOT` is set).
 - Excludes `.claude/framework/audit/pattern-scan.sh` itself — the script's
   own regex literals would otherwise match as findings. If you edit
   the script and suspect a pattern bug inside it, test by running

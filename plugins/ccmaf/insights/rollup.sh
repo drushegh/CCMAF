@@ -48,8 +48,11 @@ mkdir -p "$TELEMETRY_DIR"
 
 if [ ! -s "$EVENTS" ]; then
   # No events yet — write an empty metrics file so downstream reads
-  # don't error.
-  echo '{"total_events":0,"by_hook":{},"drift_triggers":{},"sessions":0,"by_session":{},"schema_mix":{"v1":0,"v2":0}}' > "$METRICS"
+  # don't error. Same key set as the populated rollup below — generated_at
+  # included (analyse.sh's flag header and report.sh read it).
+  jq -n '{generated_at: (now | strftime("%Y-%m-%dT%H:%M:%SZ")), total_events: 0,
+          first_ts: null, last_ts: null, schema_mix: {v1: 0, v2: 0},
+          by_hook: {}, drift_triggers: {}, sessions: 0, by_session: {}}' > "$METRICS"
   exit 0
 fi
 

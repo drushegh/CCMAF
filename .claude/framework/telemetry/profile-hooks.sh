@@ -43,28 +43,48 @@ case "$cmd" in
     echo "----------------------------------------------------------------"
     # outcome_class distinguishes ran vs skipped; be liberal about which class
     # strings count as "ran" so a schema tweak doesn't silently zero the table.
-    grep -oE '"hook":"[^"]*"[^}]*"outcome_class":"[^"]*"' "$EV" 2>/dev/null \
-      | sed -E 's/.*"hook":"([^"]*)".*"outcome_class":"([^"]*)".*/\1 \2/' \
-      | awk '
-        { inv[$1]++; if ($2 ~ /skip/) sk[$1]++ }
+    # Extract each key independently, tolerating whitespace after ':' and any
+    # key order: bash hooks emit compact JSON ("hook":"x") but the Python
+    # emitters (bash-guard) write json.dumps default spacing ("hook": "x"),
+    # which a compact-only pattern silently dropped from the report.
+    awk '
+        function val(key,   s) {
+          if (!match($0, "\"" key "\"[ \t]*:[ \t]*\"[^\"]*\"")) return ""
+          s = substr($0, RSTART, RLENGTH)
+          sub(/^"[^"]*"[ \t]*:[ \t]*"/, "", s); sub(/"$/, "", s)
+          return s
+        }
+        { h = val("hook"); c = val("outcome_class")
+          if (h == "" || c == "") next
+          inv[h]++; if (c ~ /skip/) sk[h]++ }
         END {
           for (h in inv) {
             s = (h in sk) ? sk[h] : 0
             printf "%-22s %8d %8d %8d %7d%%\n", h, inv[h], inv[h]-s, s, (inv[h] ? s*100/inv[h] : 0)
           }
-        }' | sort
+        }' "$EV" 2>/dev/null | sort
     echo "----------------------------------------------------------------"
     echo "rule: skip% > 90 → the filter belongs in the settings.json matcher, not the hook."
     ;;
   bench)
     hook="${2:-}"; payload="${3:-}"; K="${4:-50}"
-    [ -n "$hook" ] && [ -f "$hook" ] || { echo "usage: profile-hooks.sh bench <hook.sh> <json-payload> [K]" >&2; exit 2; }
+    # Resolve the hook to ONE absolute path up front (ROOT-relative first,
+    # then cwd-relative/absolute). The loop used to try "$ROOT/$hook" and,
+    # on any non-zero exit (a hook that legitimately blocks), spawn a second
+    # bash — inflating the timing and running the hook twice per iteration.
+    hook_path=""
+    if [ -n "$hook" ] && [ -f "$ROOT/$hook" ]; then
+      hook_path="$ROOT/$hook"
+    elif [ -n "$hook" ] && [ -f "$hook" ]; then
+      hook_path="$(cd "$(dirname "$hook")" && pwd)/$(basename "$hook")"
+    fi
+    [ -n "$hook_path" ] || { echo "usage: profile-hooks.sh bench <hook.sh> <json-payload> [K]" >&2; exit 2; }
     case "$K" in ''|*[!0-9]*) K=50 ;; esac
     scratch="$(mktemp -d)"; trap 'rm -rf "$scratch"' EXIT
     ( cd "$scratch" && git init -q 2>/dev/null; mkdir -p .claude/telemetry )
     s=$(now_ms)
     for _ in $(seq 1 "$K"); do
-      printf '%s' "$payload" | ( cd "$scratch" && bash "$ROOT/$hook" >/dev/null 2>&1 || bash "$hook" >/dev/null 2>&1 ) || true
+      printf '%s' "$payload" | ( cd "$scratch" && bash "$hook_path" >/dev/null 2>&1 ) || true
     done
     e=$(now_ms)
     total=$((e - s))

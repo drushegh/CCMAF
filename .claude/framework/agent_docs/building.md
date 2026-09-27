@@ -13,7 +13,9 @@ cd 01_Project && npm install
 cd 01_Project && uv sync
 
 # Python (requirements.txt)
-cd 01_Project && python -m venv .venv && .venv/bin/pip install -r requirements.txt
+cd 01_Project && python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+# (Windows / Git Bash: the venv puts executables in .venv/Scripts/, not .venv/bin/ —
+#  use .venv/Scripts/python -m pip install -r requirements.txt)
 
 # Go
 cd 01_Project && go mod download

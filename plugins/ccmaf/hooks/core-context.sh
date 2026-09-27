@@ -46,12 +46,25 @@ trap 'rm -f "$digest_f" "$chain_f"' EXIT
 
 {
   # ${CLAUDE_PLUGIN_ROOT} inside the digest is literal text to the model —
-  # substitute the real install path at emission time. Bash parameter
-  # substitution, not sed: an install path containing sed metacharacters
-  # (|, &, \) must not corrupt the replacement (review swarm P3).
+  # substitute the real install path at emission time. Prefix/suffix
+  # splicing, not sed: an install path containing sed metacharacters
+  # (|, &, \) must not corrupt the output (review swarm P3). Deliberately
+  # NOT `${var//pat/repl}` either: bash 5.2+ patsub_replacement expands an
+  # unquoted `&` in the replacement to the matched text, while QUOTING the
+  # replacement inside a double-quoted expansion leaves literal quote
+  # characters in the output on bash <= 4.2 (stock macOS /bin/bash 3.2).
+  # The splice loop uses no replacement string at all, so it behaves the
+  # same on every bash; consuming `_rest` left-to-right also means a root
+  # that itself contains the placeholder cannot loop forever.
   if [ -f "${CLAUDE_PLUGIN_ROOT}/DIGEST.md" ]; then
-    _digest="$(cat "${CLAUDE_PLUGIN_ROOT}/DIGEST.md" 2>/dev/null)"
-    printf '%s\n' "${_digest//\$\{CLAUDE_PLUGIN_ROOT\}/${CLAUDE_PLUGIN_ROOT}}"
+    _rest="$(cat "${CLAUDE_PLUGIN_ROOT}/DIGEST.md" 2>/dev/null)"
+    _pat='${CLAUDE_PLUGIN_ROOT}'
+    _digest=''
+    while [[ $_rest == *"$_pat"* ]]; do
+      _digest=$_digest${_rest%%"$_pat"*}$CLAUDE_PLUGIN_ROOT
+      _rest=${_rest#*"$_pat"}
+    done
+    printf '%s\n' "$_digest$_rest"
   else
     echo "CCMAF v2 core: DIGEST.md missing from the plugin install — reinstall the ccmaf plugin."
   fi

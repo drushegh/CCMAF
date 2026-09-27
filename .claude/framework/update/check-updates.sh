@@ -2,7 +2,7 @@
 # check-updates.sh — Checks upstream framework for new commits.
 #
 # Runs as part of cold start. Silent when up-to-date. When behind, writes
-# .framework-update-available.md at project root for the session to read
+# .claude/.framework-update-available.md for the session to read
 # and offer to the user via AskUserQuestion.
 #
 # Exit codes:
@@ -15,7 +15,44 @@
 
 set -euo pipefail
 
-# Resolve project root (two levels up from this script).
+# Portable timeout (review P1): stock macOS ships no GNU `timeout` (only
+# Homebrew coreutils' `gtimeout`) and a bare `timeout` there is exit 127 for
+# EVERY call.
+# (Same helper as skills-check.sh / boot/cold-start.sh — keep in sync.)
+# Resolve once: timeout -> gtimeout -> a perl fork/alarm
+# fallback (kills the child, exits 124 like GNU) -> unbounded.
+# (Canonical: hooks/lib/hook-common.sh — sourced when present.)
+_hc="$(dirname "${BASH_SOURCE[0]}")/../../hooks/lib/hook-common.sh"
+# shellcheck source=/dev/null
+[ -f "$_hc" ] && . "$_hc"
+if ! declare -F run_tmo >/dev/null 2>&1; then  # standalone: inline copy
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+fi
+
+# Resolve project root (three levels up from this script).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 VERSION_FILE="$PROJECT_ROOT/.claude/.framework-version"
@@ -27,10 +64,12 @@ MANIFEST_FILE="$SCRIPT_DIR/framework-manifest.txt"
 # Unsafe = absolute (^/), Windows drive (^[A-Za-z]:), any `..` path segment, or
 # any backslash (a Windows-style `..\evil` / `a\..\evil` traversal — the
 # forward-slash `..` arms above don't catch it; same guard class as
-# skills-sync.sh's skill-name check).
+# skills-sync.sh's skill-name check). The backslash arm uses the QUOTED form
+# `*'\'*`, as apply-update.sh does — see the note there on why it is preferred
+# over the backslash-halving-fragile unquoted `*\\*`.
 _is_unsafe_manifest_path() {  # <path> → 0 (true) if unsafe
   case "$1" in
-    /*|[A-Za-z]:*|../*|*/../*|*/..|..|*\\*) return 0 ;;
+    /*|[A-Za-z]:*|../*|*/../*|*/..|..|*'\'*) return 0 ;;
   esac
   return 1
 }
@@ -82,7 +121,8 @@ fi
 
 # Resolve latest remote SHA. git ls-remote works for public HTTPS and
 # authenticated SSH URLs; needs no working tree.
-if ! latest_sha=$(git ls-remote "$FRAMEWORK_UPSTREAM_URL" "refs/heads/$FRAMEWORK_UPSTREAM_BRANCH" 2>/dev/null | awk '{print $1}'); then
+# Time-bounded (10s): an unresponsive remote must not stall cold start.
+if ! latest_sha=$(run_tmo 10 git ls-remote "$FRAMEWORK_UPSTREAM_URL" "refs/heads/$FRAMEWORK_UPSTREAM_BRANCH" 2>/dev/null | awk '{print $1}'); then
   echo "check-updates: unable to reach $FRAMEWORK_UPSTREAM_URL (offline?) — continuing." >&2
   exit 3
 fi
@@ -167,6 +207,48 @@ else
   echo "check-updates: WARNING — upstream clone has no framework-manifest.txt; preview may under-report new paths." >&2
 fi
 
+# --- v2 migration ladder: mirror apply-update.sh's drop-release gate. -----
+# apply-update REFUSES (exit 6) a v2 "drop" release on a project that has not
+# completed migrate-v2.sh — both by the manifest header marker and by the
+# structural backstop (the dangerous-command guard's manifest entry vanished
+# upstream). Without the same check here, every un-migrated project was told
+# "update available — run apply-update" on every cold start, forever, for an
+# update that can never apply. Same predicates as apply-update's
+# _v2_migrated / drop checks (keep them in step). On a refused drop: clear
+# any stale apply-offer flag and print ONE informational line — staying on
+# the current version is harmless, so this is not a nag.
+_v2_migrated() {
+  [ -f "$PROJECT_ROOT/.claude/.migrate-v2-tombstone" ] \
+    && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2[[:space:]]*$' "$VERSION_FILE" 2>/dev/null
+}
+_GUARD_ENTRY='.claude/hooks/block-dangerous-commands.py'
+_manifest_lists() {  # <manifest> <entry> → 0 if listed (CRLF-safe, whole line)
+  # No -q: grep must drain the pipe — an early -q exit can SIGPIPE `tr`, and
+  # under pipefail that turns a MATCH into a non-zero pipeline status.
+  tr -d '\r' < "$1" 2>/dev/null | grep -xF "$2" >/dev/null
+}
+if [ -f "$UPSTREAM_MANIFEST" ] && ! _v2_migrated; then
+  _drop_reason=""
+  if grep -Eq '^#[[:space:]]*FRAMEWORK-RELEASE-LINE:[[:space:]]*drop' "$UPSTREAM_MANIFEST"; then
+    _drop_reason="upstream is a v2 DROP release"
+  elif _manifest_lists "$MANIFEST_FILE" "$_GUARD_ENTRY" \
+       && ! _manifest_lists "$UPSTREAM_MANIFEST" "$_GUARD_ENTRY"; then
+    _drop_reason="upstream no longer ships the dangerous-command guard (a v2 drop release)"
+  fi
+  if [ -n "$_drop_reason" ]; then
+    rm -f "$FLAG_FILE"
+    echo "check-updates: ${latest_sha:0:7} available, but $_drop_reason and this project has not completed the v2 migration — apply-update would refuse."
+    if [ -f "$PROJECT_ROOT/.claude/.framework-dev-repo" ]; then
+      # The framework's own dev repo never migrates (migrate-v2 refuses it)
+      # — past the drop release, public changes sync via the production clone.
+      echo "check-updates: framework dev repo — expected; sync public changes through the production clone, not apply-update."
+    else
+      echo "check-updates: staying on ${FRAMEWORK_PINNED_SHA:0:7} is harmless; to move to v2, preview with: bash .claude/framework/update/migrate-v2.sh --dry-run"
+    fi
+    exit 0
+  fi
+fi
+
 # Clone-side paths: when canonical lives in a subdir, framework files are at
 # <subdir>/<path> in upstream history — prefix so log/diff filters match.
 # (Duplicates between local and upstream entries are harmless here — git
@@ -206,6 +288,14 @@ fi
 # NOT. The upstream clone already exists here, so this costs no extra network.
 # grep -Fxvf over REAL temp files (not comm — collation-fragile; not a
 # process-substitution pattern file — a Git-Bash grep can't open /dev/fd/N).
+#
+# Only registrations NEW since the pinned version count: a hook the PINNED
+# canonical already registered, but the consumer's settings.json lacks, was
+# deliberately removed by the consumer — flagging it made this check never go
+# quiet (every upstream advance re-raised the same "gap"). Subtract the
+# pinned canonical's set when the pinned SHA is reachable in the clone (same
+# rule merge-hook-registrations.sh applies when it is handed the pinned
+# settings). Pinned SHA unavailable → fall back to the full gap.
 _canon_settings="$tmp_clone${FRAMEWORK_SOURCE_SUBDIR:+/$FRAMEWORK_SOURCE_SUBDIR}/.claude/settings.json"
 _consumer_settings="$PROJECT_ROOT/.claude/settings.json"
 hook_reg_gap=""
@@ -213,6 +303,10 @@ if [ -f "$_canon_settings" ] && [ -f "$_consumer_settings" ]; then
   _hrg_canon="$(mktemp)"; _hrg_consumer="$(mktemp)"
   grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.(sh|py)' "$_canon_settings"    2>/dev/null | sort -u > "$_hrg_canon"    || true
   grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.(sh|py)' "$_consumer_settings" 2>/dev/null | sort -u > "$_hrg_consumer" || true
+  if git -C "$tmp_clone" cat-file -e "$FRAMEWORK_PINNED_SHA" 2>/dev/null; then
+    git -C "$tmp_clone" show "$FRAMEWORK_PINNED_SHA:${FRAMEWORK_SOURCE_SUBDIR:+$FRAMEWORK_SOURCE_SUBDIR/}.claude/settings.json" 2>/dev/null \
+      | grep -oE '\.claude/hooks/[A-Za-z0-9_.-]+\.(sh|py)' 2>/dev/null >> "$_hrg_consumer" || true  # union: consumer ∪ pinned
+  fi
   hook_reg_gap="$(grep -Fxvf "$_hrg_consumer" "$_hrg_canon" 2>/dev/null || true)"
   rm -f "$_hrg_canon" "$_hrg_consumer"
 fi

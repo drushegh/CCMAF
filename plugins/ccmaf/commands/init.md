@@ -16,7 +16,9 @@ consumer content.
    rules (the "CCMAF kernel" SessionStart injection) are NOT visible in this
    session's context, treat kernel as absent. Secondary machine check:
    `timeout 10 claude plugin list --json` and look for `"ccmaf-kernel@ccmaf"`
-   with `"enabled": true`. If absent by both: print
+   with `"enabled": true` (stock macOS has no GNU `timeout`: use `gtimeout 10`
+   when it exists, else run the command unbounded — never read a
+   `timeout: command not found` / exit 127 as "kernel absent"). If absent by both: print
    `claude plugin install ccmaf-kernel@ccmaf --scope user`, tell the user to
    run it and start a new session (plugin installs load at session start),
    and STOP. Init never scaffolds an unguarded project.
@@ -94,7 +96,12 @@ absence just means "not created yet".
    `.claude/.console-suggestion.md`, `.claude/.skills-update-available.md`,
    `.claude/review-findings/`, `.claude/security-findings*`,
    `.claude/settings.local.json`. (`.claude/specs/` is committed content —
-   never add it here.)
+   never add it here.) Ignoring `.claude/console/` makes verify seeds,
+   human verdicts (`verify/`) and card comments (`comments/`) MACHINE-LOCAL:
+   they never reach another clone, and `/board-heal` there backfills fresh
+   all-`pending` seeds. Say so in the init report; a user who wants them to
+   travel replaces that entry with `.claude/console/*`,
+   `!.claude/console/verify/`, `!.claude/console/comments/` and commits them.
 8. The **activation switch is NOT written here** — it is the last write of
    the whole run (Step 4.5, after features and aliases). Acceptance-walk
    finding 2026-08-10: writing it at the end of this step still left the
@@ -118,8 +125,20 @@ question was wrongly skipped on such a directive). Unattended: skip, log
   `[modes]` per its PROTOCOL (the advisors plugin's `/advisors:mode` command
   does this — invoke it by name if it resolves, else leave a one-line TODO
   in STATUS).
-- **Skills sync?** → create `.claude/.skills-version` per the CCMAF---Skills
-  repo's pin format (the cold-start chain then keeps it current).
+- **Skills sync?** → on yes, set it up AND run the first sync (a pin file
+  alone installs nothing — nothing in the cold-start chain ever runs a
+  sync):
+  1. `bash "${CLAUDE_PLUGIN_ROOT}/update/skills-sync.sh" --suggest` — stack-
+     detects and prints `detected stack suggests skills: <names>`.
+  2. Confirm the set with the user (attended): the suggested names plus the
+     cross-cutting `secure-development read-the-damn-docs`; `--list` prints
+     the full catalogue if they want more.
+  3. Write `.claude/.skills-version` with `SKILLS_SELECTED="<names>"` (no
+     `SKILLS_UPSTREAM_URL` = the public CCMAF---Skills catalogue over HTTPS).
+  4. Run `bash "${CLAUDE_PLUGIN_ROOT}/update/skills-sync.sh"` now and report
+     its result (exit 3 = offline: say so, keep the pin, tell the user to
+     re-run it). Afterwards the cold-start `skills-check` only NOTIFIES when
+     the catalogue moves past the pin; syncing stays a deliberate run.
 - **CodeQL CI** (only if `.github/workflows/codeql.yml` exists): private
   free-tier repo → rename to `codeql.yml.disabled`; public or GHAS → keep.
   Either way `touch .claude/.ci-configured`.
@@ -129,7 +148,8 @@ yet — the cold-start chain nudges until it is.
 
 ## Step 3 — plugin gap check
 
-`timeout 10 claude plugin list --json`. For each feature chosen above whose
+`timeout 10 claude plugin list --json` (`gtimeout 10` / unbounded where GNU
+`timeout` is absent, as in Step 0). For each feature chosen above whose
 plugin is missing, and for any sibling the user asks about, print the exact
 command: `claude plugin install <name>@ccmaf --scope user`
 (advisors · council · media · devhooks · console). Never install plugins

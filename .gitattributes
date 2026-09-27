@@ -25,3 +25,11 @@
 .framework-version text eol=lf
 .skills-version    text eol=lf
 .console-version   text eol=lf
+# Their scaffold templates: plugins/ccmaf/templates/framework-version and
+# .scaffold-rev are copied verbatim into consumer .claude/ (as
+# .framework-version / .scaffold-rev) and parsed line-by-line, so a CRLF
+# checkout here would seed every new consumer with the same \r corruption.
+# *.template covers the healthcheck.conf.template sources (sourced as .conf).
+framework-version  text eol=lf
+.scaffold-rev      text eol=lf
+*.template         text eol=lf

@@ -5,11 +5,7 @@ insights, housekeeping — served as a Claude Code plugin. This is the v2 shape:
 **code and prose are machine-wide (this plugin); state is per-project (the
 scaffold `/ccmaf:init` writes); nothing is both.**
 
-> **Status: IN DEVELOPMENT — not yet listed in the marketplace.** It ships
-> with the v2.0 release together with the migration bridge (TASK-166/167).
-> Design record: `docs/tiering/CORE-DESIGN.md` in the dev repo.
-
-## Install (once per machine, when released)
+## Install (once per machine)
 
     claude plugin marketplace add drushegh/CCMAF
     claude plugin install ccmaf-kernel@ccmaf --scope user   # REQUIRED first — the safety floor

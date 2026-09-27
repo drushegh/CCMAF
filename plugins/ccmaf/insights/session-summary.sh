@@ -40,14 +40,15 @@ command -v jq >/dev/null 2>&1 || unavailable "jq missing"
 
 # --- The one jq function (TASK-021 migration point) -------------------
 # Reads the whole event stream, line-tolerant (malformed lines dropped via
-# fromjson?), finds the last cost-tracker marker, and reduces the window
+# fromjson?; valid-JSON non-objects such as `1` or `"x"` dropped by the
+# select(type == "object") guard, else .hook on them aborts jq), finds the last cost-tracker marker, and reduces the window
 # after it to one TSV row:
 #   total  guard_allowed  guard_blocked  drift_fires  drift_triggers
 #   stop_blocked  format_ran  format_skipped  lint_ran  lint_skipped
 #   deps_events  prev_tool_uses
 mine_window_counts() {
   jq -R -s -r '
-    [ split("\n")[] | fromjson? // empty ] as $all
+    [ split("\n")[] | fromjson? // empty | select(type == "object") ] as $all
     | ($all | map(.hook == "cost-tracker") | rindex(true)) as $mi
     | (if ($all | length) > 0 then ($all[-1].session_id // "") else "" end) as $cur
     | (if $cur != ""

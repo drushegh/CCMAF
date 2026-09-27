@@ -261,7 +261,7 @@ load update_helpers
   [[ "$output" == *"python: REFUSED"* ]]
   [[ "$output" == *"rust: synced"* ]]
   # Pin must NOT have advanced to the new sha (a refused skill is behind).
-  ! grep -q "^SKILLS_PINNED_SHA=$new_sha" "$SVERSION"
+  ! grep -q "^SKILLS_PINNED_SHA=$new_sha" "$SVERSION" || false
   grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"
 }
 
@@ -288,4 +288,52 @@ load update_helpers
   run skills_sync
   [ "$status" -eq 0 ]
   [[ "$output" != *"companion skills"* ]]
+}
+
+@test "skills-sync: .skills-version is PARSED, never sourced (embedded shell does not run)" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  # A hostile line appended to the committed pin file: parsing
+  # reads only allow-listed KEY=VALUE fields, so it must never execute.
+  printf 'touch "%s/PWNED"\n' "$SCONSUMER" >> "$SVERSION"
+  run skills_sync
+  [ "$status" -eq 0 ]
+  [ ! -e "$SCONSUMER/PWNED" ]
+  grep -q "python skill v1" "$SCONSUMER/.claude/skills/python/SKILL.md"
+}
+
+@test "skills-sync: the contract's example .skills-version (trailing # comments) parses correctly" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  # The contract:skills-sync example lines verbatim (ECOSYSTEM.md), with the
+  # URL pointed at the local fixture: every value carries a trailing comment,
+  # which must NOT become part of the value.
+  cat > "$SVERSION" <<EOF
+SKILLS_UPSTREAM_URL=$SKILLS_UPSTREAM  # OPTIONAL — set to track a
+                                     # specific skills repo (CLONE MODE; any git-clonable URL/path
+                                     # or SSH alias). OMIT to use a vendored skills/ (BUNDLE MODE)
+                                     # or, if none, the public CCMAF catalogue (DEFAULT MODE).
+SKILLS_UPSTREAM_BRANCH=main          # required in clone mode
+SKILLS_PINNED_SHA=
+SKILLS_SELECTED="python rust"  # space-separated skill dir names to sync
+SKILLS_CHECK_INTERVAL_HOURS=24       # optional; default 24
+EOF
+  run skills_sync
+  [ "$status" -eq 0 ]
+  grep -q "python skill v1" "$SCONSUMER/.claude/skills/python/SKILL.md"
+  grep -q "rust skill v1" "$SCONSUMER/.claude/skills/rust/SKILL.md"
+  grep -q "^SKILLS_PINNED_SHA=$SKILLS_UPSTREAM_SHA" "$SVERSION"
+}
+
+@test "skills-sync: a glob character in SKILLS_SELECTED is not expanded against the cwd" {
+  build_skills_upstream
+  build_skills_consumer "python"
+  printf 'SKILLS_UPSTREAM_URL=%s\nSKILLS_UPSTREAM_BRANCH=main\nSKILLS_SELECTED="*"\n' \
+    "$SKILLS_UPSTREAM" > "$SVERSION"
+  # A cwd entry named like an upstream skill: were `*` glob-expanded against
+  # the cwd, it would become the skill name `rust` and be synced.
+  mkdir -p "$SCONSUMER/rust"
+  run skills_sync
+  [ ! -d "$SCONSUMER/.claude/skills/rust" ]
+  [ ! -d "$SCONSUMER/.claude/skills/python" ]
 }

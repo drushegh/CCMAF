@@ -32,7 +32,7 @@ EOF
   [ "$status" -eq 0 ]
   [[ "$output" == *"TASK-100"* ]]   # In Progress kept
   [[ "$output" == *"BUG-9"* ]]      # Reported (non-Done) kept
-  ! [[ "$output" == *"TASK-1]"* ]]  # Done entry omitted
+  [[ "$output" != *"TASK-1]"* ]]  # Done entry omitted
   [[ "$output" == *"## Bug-Fix Lane"* ]]   # lane heading preserved (not swallowed)
   [[ "$output" == *"BOOT VIEW"* ]]
 }

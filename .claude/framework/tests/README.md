@@ -13,15 +13,18 @@ bash .claude/framework/tests/run-tests.sh            # local: skip absent tools
 bash .claude/framework/tests/run-tests.sh --require  # CI: absent tool = failure
 ```
 
-Two layers, both **opt-in by tool availability** (the framework's standard
+Three layers, all **opt-in by tool availability** (the framework's standard
 pattern — a missing tool is a skip with an install hint, never a hard fail
 unless `--require`):
 
 1. **bats behavioural tests** (`*.bats`) — feed each hook a simulated event
    (stdin JSON + env vars) and assert on `(exit code + stdout)`. Run via
-   `bats` if installed, else `npx bats` if Node is present.
-2. **shellcheck** static analysis over `.claude/hooks` + `.claude/framework`
-   shell scripts.
+   `bats` if installed, else a pinned `npx bats` if Node is present.
+2. **Node smoke** — `console-resolver.smoke.mjs`, the resolver-order check
+   for `tools/console.mjs` (plain `node`, no bats harness).
+3. **shellcheck** static analysis over `.claude/hooks`, `.claude/framework`
+   and `tools/` shell scripts, plus `plugins/` when `plugins/ccmaf` exists
+   (the framework dev repo).
 
 ## Why hooks are cleanly testable
 
@@ -37,17 +40,35 @@ repo and never touches the real working tree.
 
 ## Files
 
-- `run-tests.sh` — entry point (bats + shellcheck, opt-in).
+Harness:
+
+- `run-tests.sh` — entry point (bats + Node smoke + shellcheck, opt-in).
 - `helpers.bash` — shared setup (`init_repo`, `hookrun`, `pyrun`).
-- `lib_hook_common.bats` — profile / opt-out resolver unit tests.
-- `hooks_behavior.bats` — per-hook behavioural tests.
-- `audit_config_security.bats` — config-surface auditor tests.
-- `update_system.bats` + `update_helpers.bash` — update-system tier:
-  synthetic upstream/consumer git repos in `$BATS_TEST_TMPDIR` (a `git clone`
-  of a local directory path stands in for the GitHub remote, so the whole
-  tier runs offline) exercising apply-update's staging/swap and dirty-tree
-  refusals, check-updates' throttle/flag lifecycle, migrate-layout's
-  invariants, and doctor's CRITICAL classes.
+- `update_helpers.bash` — synthetic upstream/consumer git fixtures for the
+  update-system tier (a `git clone` of a local directory path stands in for
+  the GitHub remote, so those suites run offline).
+- `fixtures/`, `golden/` — the fixed config-security sample tree and its
+  recorded findings.
+
+Suites (one line each; the header comment of every file has the detail):
+
+- Hooks: `hooks_behavior.bats` (per-hook behaviour), `lib_hook_common.bats`
+  (profile / opt-out resolver and shared helpers), `fault_injection.bats`
+  (malformed input must fail open), `session_lifecycle.bats`,
+  `console_heartbeat.bats`, `settings_merge.bats`.
+- Config security: `audit_config_security.bats`,
+  `golden_config_security.bats`.
+- Update system: `update_system.bats` (apply-update / check-updates /
+  migrate-layout / doctor), `migrate_v2.bats`, `skills_check.bats`,
+  `skills_sync.bats`.
+- Doctor checks: `doctor_board_coherence.bats`,
+  `doctor_reconcile_cadence.bats`, `doctor_state_budgets.bats`.
+- v2 plugins: `core_plugin.bats`, `kernel_plugin.bats`,
+  `plugins_structure.bats`, `plugin_drift.bats`.
+- Scripts: `insights_behavior.bats`, `profiling.bats`, `rotate_state.bats`,
+  `boot_view.bats`.
+- `fix-*.bats` — regression cases for specific review-fix batches.
+- `console-resolver.smoke.mjs` — Node smoke (layer 2 above).
 
 ## Install the tools
 

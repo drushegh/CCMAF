@@ -57,8 +57,10 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
 ## Step 3 — Choose the slug + output dir
 - Derive a short kebab **`<slug>`** from the brief (e.g. `mountain-sunset-hero`).
 - **Output dir** defaults to **`docs/images/`** (created if absent) — keep source masters there.
-  If the user named a target directory/path in the brief, honour it. `workspace-write` is scoped
-  to this dir, so the model can only write there.
+  If the user named a target directory/path in the brief, honour it. The runner starts codex with
+  `-s workspace-write -C <this dir>`, so this dir is the model's workspace root — but codex's
+  `workspace-write` also permits `/tmp` and `$TMPDIR` by default, and enforcement depends on the
+  platform sandbox. Treat it as a guardrail on where the image lands, not a hard write jail.
 
 ## Step 4 — Stage the brief
 Write the brief text (Step 1's remainder) to `_advisors/.imageruns/<slug>/brief.txt`. Ensure
@@ -71,9 +73,10 @@ is a coin-flip (the runner's prompt nudges this, but the brief is where it belon
 
 ## Step 5 — Run (FRESH, BACKGROUND)
 `bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-image-run.sh" <advisor> docs/images <slug> _advisors/.imageruns/<slug>/brief.txt`
-via your Bash tool with **`run_in_background: true`** — generation takes ~1.5–3 min, past the
-Bash tool's 600s foreground cap (same reason `/sol` backgrounds). The runner has its own hard
-`timeout` and a tree-scoped straggler reap. Never `codex exec resume`.
+via your Bash tool with **`run_in_background: true`** — generation typically takes ~1.5–3 min,
+past the Bash tool's default 2-min (120s) foreground timeout, and the runner's own hard deadline
+(`providers.codex timeout_min`, default 20 min) exceeds the tool's 600s maximum. The runner
+enforces that deadline itself, with a tree-scoped straggler reap. Never `codex exec resume`.
 
 ## Step 6 — Report (fail-closed)
 When it finishes, read `_advisors/.imageruns/<slug>/status`:

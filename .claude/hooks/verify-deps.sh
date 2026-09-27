@@ -47,6 +47,7 @@ fi
 
 # --- Profile / opt-out gate (TASK-011) -------------------------------
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 command -v hook_enabled >/dev/null 2>&1 && { hook_enabled verify-deps normal || exit 0; }
 
@@ -199,36 +200,175 @@ extract_npm() {
 }
 
 extract_pypi() {
-  # pyproject.toml / requirements.txt — extract package names.
-  # pyproject: lines like `"requests>=2.0"` or `requests = "^2.0"` in a deps array/table.
-  # requirements.txt: `package==1.2.3` or `package>=1.0` per line.
-  get_added_lines | awk '
-    # Strip comments and trim whitespace
-    { sub(/[ \t]*#.*$/, ""); gsub(/^[ \t]+|[ \t]+$/, "") }
-    # requirements.txt style:  name==version  or  name>=version  or just `name`
-    /^[a-zA-Z0-9_.-]+[[:space:]]*[<>=!~]/ {
-      n=$0; sub(/[[:space:]]*[<>=!~].*$/, "", n)
-      v=$0; sub(/^[^<>=!~]*/, "", v); gsub(/^[<>=!~ ]+/, "", v)
-      print n "|" v; next
-    }
-    # pyproject.toml deps-array style:  "requests>=2.0"  or  "requests"
-    /"[a-zA-Z0-9_.-]+[<>=!~]/ {
-      match($0, /"[a-zA-Z0-9_.-]+[<>=!~][^"]*"/)
-      if (RSTART > 0) {
-        s=substr($0, RSTART+1, RLENGTH-2)
-        n=s; sub(/[<>=!~].*$/, "", n)
-        v=s; sub(/^[^<>=!~]*/, "", v); gsub(/^[<>=!~ ]+/, "", v)
-        print n "|" v
+  # requirements*.txt / pyproject.toml -> one "name|version" per added dep.
+  #
+  # Shared PEP 508 parser (awk): a requirement is NAME, optional [extras],
+  # then an optional version spec, `@ url` direct reference and/or `; marker`.
+  # Bare names (`requests`) and extras (`uvicorn[standard]>=0.30`) are real
+  # deps and must be checked; the extras never reach the registry URL.
+  #
+  # requirements*.txt: every added line is a requirement unless it is an
+  # option (`-r`, `-e`, `--hash=...`, `--index-url`), a path or a URL.
+  #
+  # pyproject.toml: added lines carry no [section] context, so the awk alone
+  # cannot tell `requests = "^2"` (poetry dep) from `version = "0.1.0"` /
+  # `requires-python = ">=3.11"` - it used to registry-check those keys and
+  # report a 404 as "Likely hallucinated". Mirror extract_npm instead: emit
+  # every candidate (scalar/inline-table keys, and PEP 508 strings from arrays
+  # - including single-line `dependencies = ["a", "b[x]>=1"]`), then keep only
+  # the names tomllib finds in a real dependency table of the working file
+  # ([project] dependencies / optional-dependencies, [dependency-groups],
+  # [build-system] requires, poetry / uv / pdm dependency tables). No usable
+  # Python with tomllib/tomli, or a file that does not parse (mid-edit) ->
+  # fall back to a denylist of known non-dependency keys.
+  local mode=req candidates depnames="" manifest py=""
+  case "$basename" in pyproject.toml) mode=toml ;; esac
+  candidates=$(get_added_lines | awk -v mode="$mode" -v q="'" '
+    function norm(n) { n = tolower(n); gsub(/[-_.]+/, "-", n); return n }
+    # parse_req <string> <ctx>: print name|version|ctx|normname for a PEP 508
+    # requirement; silently ignore anything that is not one.
+    function parse_req(s, ctx,    name, rest, v) {
+      gsub(/^[ \t]+|[ \t]+$/, "", s)
+      if (!match(s, /^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?/)) return
+      name = substr(s, 1, RLENGTH); rest = substr(s, RLENGTH + 1)
+      sub(/^[ \t]*/, "", rest)
+      if (rest ~ /^\[/) { if (!sub(/^\[[^]]*\][ \t]*/, "", rest)) return }
+      v = ""
+      # `name @ git+https://...` / `name @ file:...` is a PEP 508 direct reference:
+      # it never resolves from PyPI (private / git / path package), so a
+      # registry 404 would be a false "Likely hallucinated" - skip it.
+      if (rest ~ /^@/) return
+      if (rest ~ /^\(?[<>=!~]/) {
+        v = rest; sub(/[ \t]*;.*$/, "", v); gsub(/^[(<>=!~ \t]+|[) \t]+$/, "", v)
+      } else if (rest != "" && rest !~ /^;/) {
+        return
       }
+      print name "|" v "|" ctx "|" norm(name)
+    }
+    {
+      line = $0
+      sub(/[ \t]+#.*$/, "", line); sub(/^#.*$/, "", line)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      if (line == "") next
+    }
+    mode == "req" {
+      sub(/[ \t]*\\$/, "", line)
+      if (line ~ /^-/ || line ~ /^[.\/]/ || line ~ /^[A-Za-z][A-Za-z0-9+.-]*:\/\//) next
+      parse_req(line, "")
       next
     }
-    # pyproject.toml table style:  requests = "^2.0"
-    /^[a-zA-Z0-9_.-]+[[:space:]]*=[[:space:]]*"[^"]+"/ {
-      n=$0; sub(/[[:space:]]*=.*$/, "", n)
-      v=$0; sub(/^[^"]*"/, "", v); sub(/".*$/, "", v)
-      print n "|" v; next
+    # --- pyproject.toml ---
+    line ~ /^\[/ { arr = ""; next }          # [section] header ends any array
+    {
+      key = ""; val = line
+      if (match(line, /^("[^"]+"|[A-Za-z0-9_.-]+)[ \t]*=[ \t]*/)) {
+        key = substr(line, 1, RLENGTH); sub(/[ \t]*=.*$/, "", key); gsub(/"/, "", key)
+        val = substr(line, RLENGTH + 1)
+        arr = ""
+      }
+      if (key != "" && val ~ ("^[\"" q "{]")) {
+        # Scalar or inline table: `requests = "^2"` / `x = {version = "1"}`.
+        v = val
+        # Inline table sourced from git / a path / a URL / the workspace with no
+        # `version` (`mylib = {git = "..."}`, `{path = "../x"}`,
+        # `{workspace = true}`) never resolves from PyPI - skip it.
+        if (v ~ /^\{/ && v !~ /(^|[{, \t])version[ \t]*=/ && v ~ /(^|[{, \t])(git|path|url|workspace)[ \t]*=/) next
+        if (v ~ /^\{/) { if (match(v, /version[ \t]*=[ \t]*"[^"]*"/)) { v = substr(v, RSTART, RLENGTH); sub(/^[^"]*"/, "", v); sub(/"$/, "", v) } else v = "" }
+        else { sub("^[\"" q "]", "", v); sub("[\"" q "].*$", "", v) }
+        print key "|" v "|=" key "|" norm(key)
+        next
+      }
+      if (key != "" && val ~ /^\[/) arr = key
+      ctx = arr
+      # Every quoted string on the line (array element) -> PEP 508 candidate.
+      rest = val
+      while (match(rest, "\"[^\"]*\"|" q "[^" q "]*" q)) {
+        # Save the match span first: match() inside parse_req clobbers RSTART.
+        s0 = RSTART; l0 = RLENGTH
+        parse_req(substr(rest, s0 + 1, l0 - 2), ctx)
+        rest = substr(rest, s0 + l0)
+      }
+      if (val ~ /\][ \t]*,?[ \t]*$/) arr = ""
     }
-  ' | sort -u
+  ') || true
+  [ -z "$candidates" ] && return 0
+
+  if [ "$mode" = toml ]; then
+    manifest="$PROJECT_ROOT/$rel_path"
+    [ -f "$manifest" ] || manifest="$file"
+    if command -v resolve_python >/dev/null 2>&1; then
+      py=$(resolve_python python3 python py || true)
+    fi
+    if [ -n "$py" ] && [ -f "$manifest" ]; then
+      # Manifest on STDIN (a Windows-native python cannot open /c/... paths).
+      depnames=$("$py" -c '
+import re, sys
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib
+d = tomllib.loads(sys.stdin.buffer.read().decode("utf-8"))
+out = set()
+def norm(n): return re.sub(r"[-_.]+", "-", n).lower()
+def req(s):
+    if isinstance(s, str):
+        m = re.match(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)", s)
+        if m: out.add(norm(m.group(1)))
+def reqs(xs):
+    if isinstance(xs, list):
+        for x in xs: req(x)
+def keys(t):
+    if isinstance(t, dict):
+        for k in t:
+            if k.lower() != "python": out.add(norm(k))
+def g(t, *ks):
+    for k in ks:
+        t = t.get(k, {}) if isinstance(t, dict) else {}
+    return t
+p = g(d, "project")
+reqs(p.get("dependencies") if isinstance(p, dict) else None)
+for v in (g(p, "optional-dependencies") or {}).values(): reqs(v)
+for v in (g(d, "dependency-groups") or {}).values(): reqs(v)
+reqs(g(d, "build-system").get("requires") if isinstance(g(d, "build-system"), dict) else None)
+po = g(d, "tool", "poetry")
+keys(g(po, "dependencies")); keys(g(po, "dev-dependencies"))
+for grp in (g(po, "group") or {}).values(): keys(g(grp, "dependencies"))
+reqs(g(d, "tool", "uv").get("dev-dependencies") if isinstance(g(d, "tool", "uv"), dict) else None)
+for v in (g(d, "tool", "pdm", "dev-dependencies") or {}).values(): reqs(v)
+# Names sourced from git / path / url / workspace (never PyPI) are not
+# registry-checked: poetry inline tables without a version, and uv sources.
+NONREG = ("git", "path", "url", "workspace")
+def nonreg(v):
+    if isinstance(v, dict): return "version" not in v and any(k in v for k in NONREG)
+    if isinstance(v, list): return bool(v) and all(nonreg(x) for x in v)
+    return False
+for t in [g(po, "dependencies"), g(po, "dev-dependencies")] + [g(grp, "dependencies") for grp in (g(po, "group") or {}).values() if isinstance(grp, dict)] + [g(d, "tool", "uv", "sources")]:
+    if isinstance(t, dict):
+        for k, v in t.items():
+            if nonreg(v): out.discard(norm(k))
+print("\n".join(sorted(out)) if out else "-")
+' < "$manifest" 2>/dev/null | tr -d '\r') || depnames=""
+    fi
+    if [ -n "$depnames" ]; then
+      printf '%s\n' "$candidates" | awk -F'|' -v names="$depnames" '
+        BEGIN { n = split(names, a, "\n"); for (i = 1; i <= n; i++) keep[a[i]] = 1 }
+        $4 != "" && ($4 in keep) { print $1 "|" $2 }
+      ' | sort -u
+      return 0
+    fi
+    # Fallback: drop known non-dependency keys (scalar keys, ctx "=key") and
+    # strings from known non-dependency arrays (ctx "key").
+    printf '%s\n' "$candidates" | awk -F'|' '
+      BEGIN {
+        split("name version description readme requires-python license license-files authors maintainers keywords classifiers urls scripts gui-scripts entry-points dynamic python build-backend backend-path packages include exclude homepage repository documentation target-version line-length select ignore extend-select testpaths addopts markers filterwarnings minversion python_files src", a, " ")
+        for (i in a) deny[a[i]] = 1
+      }
+      { c = $3; sub(/^=/, "", c); sub(/^.*\./, "", c) }
+      !(c in deny) { print $1 "|" $2 }
+    ' | sort -u
+    return 0
+  fi
+  printf '%s\n' "$candidates" | awk -F'|' '{ print $1 "|" $2 }' | sort -u
 }
 
 extract_cargo() {

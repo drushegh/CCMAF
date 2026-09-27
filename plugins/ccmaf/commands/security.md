@@ -1,3 +1,6 @@
+---
+description: Security sweep — SAST, secret scanning, dependency scanning and license/provenance checks (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -68,7 +71,14 @@ calls (advisory lookups, SCA against public databases).
 Goal: detect credentials, API keys, tokens, private keys in the working
 tree. Prefer in priority order; first one available wins.
 
-1. **gitleaks** (if installed): `gitleaks detect --no-banner --redact`
+1. **gitleaks** (if installed): `gitleaks dir --no-banner --redact .` scans
+   the working tree on disk, uncommitted files included (v8.19+; on older
+   builds `gitleaks detect --no-git --no-banner --redact`). Also run
+   `gitleaks git --no-banner --redact` (older: `gitleaks detect --no-banner
+   --redact`) — that mode scans commit HISTORY only, which catches a secret
+   deleted from the tree but still in a past commit, but it never sees
+   uncommitted changes, so it is an addition to the `dir` scan, not a
+   substitute for it.
 2. **trufflehog** (if installed): `trufflehog filesystem --no-update .`
 3. **Fallback grep** (always runs): scan for high-signal patterns:
    ```bash
@@ -111,8 +121,13 @@ Capture findings classified as security/CWE; ignore style-only lints
 since these are the most-reported AI failure modes in published studies:
 
 ```bash
-# SQL string interpolation (Microsoft data-formulator case)
-grep -rIn -E '(execute|query|exec|raw)[[:space:]]*\([[:space:]]*(f"|"|`)[^,)]*\$\{|%s' <src> 2>/dev/null
+# SQL string interpolation (Microsoft data-formulator case). One call prefix, then the
+# INTERPOLATING first-argument forms only: JS template ${...}, Python f-string, a literal
+# followed by the % operator, + concatenation, or .format(). A parameterised call —
+# execute("... %s", (x,)) / query('... ?', [x]) — has a comma after the literal and is
+# NOT flagged.
+Q="[\"'\`]"
+grep -rIn -E "(execute|query|exec|raw)[[:space:]]*\([[:space:]]*(\`[^\`]*\\\$\{|[fF]$Q[^\"']*\{|$Q[^\"'\`]*$Q[[:space:]]*(%|\+|\.format\())" <src> 2>/dev/null
 
 # Bare exception swallowing (Claude ArchiveBox case)
 grep -rIn -E '^\s*(except:|except Exception:|catch\s*\([^)]*\)\s*\{\s*\}|catch\s*\(_\))' <src> 2>/dev/null
@@ -204,8 +219,13 @@ rewriting hook that embeds `$cmd` by design).
 - `.gitignore` covers `.env`, `.env.*`, `settings.local.json`,
   `worktrees/`, `.claude/review-findings/`, `.claude/security-findings/`,
   any project-specific secret files.
-- No `--no-verify` or `-c commit.gpgsign=false` in recent commits
-  (`git log --oneline -20`).
+- Hook/signing bypass. `git commit --no-verify` leaves no trace in a
+  commit, so it cannot be detected from history after the fact — check the
+  configuration that would make bypass silent instead:
+  `git config --show-origin --get core.hooksPath` is unset or points at the
+  project's expected hooks dir (not an empty/disabled one), and, only if the
+  project requires signed commits, `git log --format='%h %G? %s' -20` shows
+  no `N` (unsigned) entries.
 
 These overlap with `doctor.sh` Check 1 / `/healthcheck` Part 1.3 (which
 check config *integrity* — do referenced files exist); Part 4 checks

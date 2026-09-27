@@ -42,13 +42,19 @@ everything. You must migrate first.
 
 ### Option A — Automated (recommended)
 
-Download and run the migration script from the new upstream:
+Download the migration script from the new upstream into your project, then
+run it from the project root:
 
 ```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh \
-  | bash
+mkdir -p .claude/framework/update
+curl -fsSL -o .claude/framework/update/migrate-layout.sh \
+  https://raw.githubusercontent.com/drushegh/CCMAF/main/.claude/framework/update/migrate-layout.sh
+bash .claude/framework/update/migrate-layout.sh
 ```
+
+Download first; don't pipe it (`curl … | bash`). A piped script gets its
+stdin from the pipe, so it can't ask you to confirm, and without `--yes`
+it refuses to run.
 
 This will:
 1. `git mv 00_framework/ .claude/framework/`
@@ -87,14 +93,18 @@ done
 [ -f "claude-code-dev-framework.md" ] && git mv claude-code-dev-framework.md .claude/claude-code-dev-framework.md
 
 # 4. Update .gitignore (temp flag paths moved under .claude/)
-sed -i \
+#    `sed -i.bak` (suffix attached) works with both GNU and BSD/macOS sed;
+#    a bare `sed -i` fails on macOS.
+sed -i.bak \
   -e 's|^\.framework-update-available\.md$|.claude/.framework-update-available.md|' \
   -e 's|^\.framework-insight-alert\.md$|.claude/.framework-insight-alert.md|' \
   -e 's|^\.framework-doctor-findings\.md$|.claude/.framework-doctor-findings.md|' \
-  .gitignore
+  .gitignore && rm -f .gitignore.bak
 
-# 5. Update CLAUDE.md path references
-sed -i 's|00_framework/|.claude/framework/|g' CLAUDE.md
+# 5. Update CLAUDE.md path references (only where 00_framework/ starts a
+#    token, so e.g. my00_framework/ is left alone)
+sed -E -i.bak 's#(^|[^A-Za-z0-9_])00_framework/#\1.claude/framework/#g' CLAUDE.md \
+  && rm -f CLAUDE.md.bak
 
 # 6. Commit
 git add .claude CLAUDE.md CLAUDE.framework.md .gitignore   # enumerated — not -A (avoids sweeping secrets)
@@ -177,16 +187,16 @@ matches what `apply-update.sh` does and keeps file-level entries like
 `.claude/commands/analyse.md` safe without sweeping the whole directory.
 
 What the current manifest includes:
-- `.claude/agents/framework/` *(dir)* — the four framework agent definitions
+- `.claude/agents/framework/` *(dir)* — the framework agent definitions
 - `.claude/commands/<cmd>.md` *(files)* — slash commands shipped by the framework (e.g. `analyse.md`, `plan.md`, `healthcheck.md`). **File-level entries — projects keep their own `.claude/commands/` files untouched except for names that collide with shipped ones.** See the "/healthcheck collision" note below.
-- `.claude/hooks/<hook>.sh` *(files)* — framework hooks (drift-guard, stop-enforcer, bash-guard, formatters, linters, test-filter). File-level entries to coexist with project hooks.
+- `.claude/hooks/<hook>.sh` / `.py` *(files)* — framework hooks (drift-guard, stop-enforcer, the dangerous-command guard, formatters, linters, test-filter). File-level entries to coexist with project hooks.
 - `.claude/framework/agent_docs/` *(dir)* — agent reference docs (building, testing, conventions, architecture, behavioral-principles, contracts)
 - `.claude/framework/doctor/` *(dir)* — point-in-time integrity check
 - `.claude/framework/insights/` *(dir)* — longitudinal efficacy tracking
 - `.claude/framework/update/` *(dir)* — the update system itself
 - `.claude/framework/init.sh` *(file)* — cold-start smoke test
 - `CLAUDE.framework.md` *(file)* — framework-shipped session instructions
-- `claude-code-dev-framework.md` *(file)* — framework operations guide
+- `.claude/claude-code-dev-framework.md` *(file)* — framework operations guide
 
 > **Filename collisions** — framework-shipped command and hook filenames
 > in `.claude/commands/` and `.claude/hooks/` overwrite any local files
@@ -219,11 +229,17 @@ Documents, MCP Servers, Framework Feedback, Context Awareness) moves
 out — those now live in `CLAUDE.framework.md` and you don't need to
 duplicate them.
 
-Add this line at the top of `CLAUDE.md`, right after the project title:
+Add this import line at the top of `CLAUDE.md`, right after the project
+title, on a line of its own:
 
 ```markdown
-**Framework instructions (required reading):** see [CLAUDE.framework.md](./CLAUDE.framework.md).
+@CLAUDE.framework.md
 ```
+
+It has to be an `@` import. Claude Code auto-loads `CLAUDE.md` but does not
+follow Markdown links, so a line like
+`see [CLAUDE.framework.md](./CLAUDE.framework.md)` loads nothing, and the
+doctor reports it as CRITICAL.
 
 Compare against the upstream `CLAUDE.md` template for reference —
 it's the canonical post-split shape:
@@ -235,8 +251,9 @@ it's the canonical post-split shape:
 bash .claude/framework/update/init-framework-version.sh
 ```
 
-This creates `.claude/.framework-version` (commit it) and
-adds `.framework-update-available.md` to `.gitignore`.
+This creates `.claude/.framework-version` (commit it) and adds the
+framework's ephemeral files (`.claude/.framework-update-available.md`, the
+doctor/insight flag files, staging dirs, telemetry, …) to `.gitignore`.
 
 ## Step 5 — Verify
 
@@ -254,11 +271,11 @@ git add .claude CLAUDE.md CLAUDE.framework.md .gitignore   # enumerated — not 
 git commit -m "chore: adopt framework update system (TASK-XXX)"
 ```
 
-Replace `TASK-XXX` with the task ID from your project's `TASKS.md`.
+Replace `TASK-XXX` with the task ID from your project's `.claude/TASKS.md`.
 
 ## Step 7 — Remove the migration task
 
-Delete the task entry from `TASKS.md` — migration is one-and-done.
+Delete the task entry from `.claude/TASKS.md` — migration is one-and-done.
 
 ## What changes from now on
 
@@ -274,10 +291,10 @@ the commit list. Choose *yes* to apply, *no* to skip. That's it.
 - **Check fails with "unable to reach upstream"** — offline or network
   issue. Not fatal; cold start continues. Throttled 24h between checks.
 - **Want to bump the check interval?** Edit
-  `FRAMEWORK_CHECK_INTERVAL_HOURS` in `.framework-version`.
+  `FRAMEWORK_CHECK_INTERVAL_HOURS` in `.claude/.framework-version`.
 
 ## Rollback
 
 If you need to abandon the migration, just reset the commit from step 6
-and delete `.framework-version`. The old framework files are still in
-git history.
+and delete `.claude/.framework-version`. The old framework files are still
+in git history.

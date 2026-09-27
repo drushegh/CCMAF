@@ -16,7 +16,7 @@ last Rolling Summary update:
    covering key decisions, tasks completed, patterns established, and
    current trajectory
 3. If detailed entries exceed ~30, move older ones to
-   .claude/framework/docs/archives/progress-archive.txt and keep the most
+   `.claude/archive/progress-archive.txt` and keep the most
    recent 15
 
 ## Framework Metrics
@@ -29,18 +29,23 @@ Update framework-metrics.md:
 3. Count bugs in the Bug-Fix Lane of TASKS.md (reported, fixed, cycle time)
 4. Check for contract drift events in recent review findings
 5. Fill in the metric tables in framework-metrics.md
-6. Reset raw counters in `.claude/telemetry/.hook-metrics`
+6. Do NOT reset `.claude/telemetry/.hook-metrics` — `rollup.sh` rewrites it from the full,
+   append-only `events.jsonl` on every run, so the counters are cumulative and a manual reset is
+   silently undone by the next rollup. Instead, record this period's values in
+   framework-metrics.md and report deltas against the previous housekeeping snapshot there.
 7. Note any actionable insights — if a metric looks bad, log a suggestion
    in FRAMEWORK-SUGGESTIONS.md
 
 ## State File Archiving
 
-Check if any state files need archiving:
+Every archive lives under ONE directory, `.claude/archive/` — the same place
+`bash .claude/framework/housekeeping/rotate-state.sh` writes. Check if any state files need archiving:
 
-- TASKS.md Done section > ~20 items → archive older (see semantic-decay below)
-- DECISIONS.md > ~50 entries (or per-file `decisions/`, per project CLAUDE.md) → move older to .claude/framework/docs/archives/decisions-archive.md
-- review-findings.md fully resolved cycles → move to .claude/framework/docs/archives/findings-archive.md
-- test-findings.md fully resolved cycles → move to .claude/framework/docs/archives/findings-archive.md
+- TASKS.md Done section > ~20 items → distil first (see semantic-decay below), then rotate with
+  `rotate-state.sh` → `.claude/archive/TASKS-archive.md`
+- DECISIONS.md > ~50 entries (or per-file `decisions/`, per project CLAUDE.md) → rotate with `rotate-state.sh` → `.claude/archive/DECISIONS-archive.md`
+- review-findings.md fully resolved cycles → move to `.claude/archive/findings-archive.md`
+- test-findings.md fully resolved cycles → move to `.claude/archive/findings-archive.md`
 - STATUS.md > ~50 KB (or large enough that the Read tool refuses it at cold-start step 8) → STATUS is *current* state, not a log: prune superseded session-claim / "Next session" prose, keeping only the active session, Next Up, and the recent Recently-Completed rows. The chronological record lives in `claude-progress.txt` — don't duplicate it here. (Distil any still-relevant constraint forward per semantic-decay before pruning.)
 
 ### Semantic decay (don't just move — distil first)
@@ -60,7 +65,7 @@ forward** so the knowledge survives in active state, not just cold storage:
      get distilled.
    - A still-relevant constraint or direction → fold into STATUS.md
      "Next Up" or the claude-progress Rolling Summary.
-3. THEN move the raw entries to `.claude/framework/docs/archives/tasks-archive.md`, prefixed with a one-line
+3. THEN move the raw entries to `.claude/archive/TASKS-archive.md` (via `rotate-state.sh`), prefixed with a one-line
    header pointing at where their distilled lesson now lives.
 
 The test: after archiving, a fresh session reading only the *live* state

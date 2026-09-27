@@ -42,14 +42,21 @@ process: nothing here asks you to produce governance text.
    NEXT:     what remains, or "nothing"
    That is the whole report. No state files, no board, no session log.
 
-5. SAFETY FLOOR — the dangerous-command guard bundled with this kernel blocks
-   irreversibly destructive commands (recursive deletes of roots/home, raw
-   disk writes, filesystem formats, fork bombs) at the hook layer, not by
-   your judgement. Do not attempt to route around it; if it blocks something
+5. SAFETY FLOOR — the dangerous-command guard bundled with this kernel screens
+   Bash, PowerShell and Monitor commands at the hook layer, not by your
+   judgement. It blocks recursive deletes, moves and recursive chmod/chown/ACL
+   rewrites of a filesystem or drive root, home or anything above it, or a
+   core system dir at the root (/etc, /usr, /var, C:\Windows, …); raw writes
+   and formats of whole disks; and fork bombs. It does NOT judge git
+   (force-push, reset --hard, clean) or project-level deletes — those are
+   yours to get right. Do not attempt to route around it; if it blocks something
    you believe is legitimate, say so in the receipt and let the human decide.
-   If you see a guard-SKIPPED notice, this hook-layer floor is absent —
-   treat every command as unscreened, apply the same bans yourself, and
-   record the gap in the receipt.
+   If the session-start context carries a WARNING that the guard cannot
+   run (no working Python), or a tool result reports "guard SKIPPED", this
+   hook-layer floor is absent — treat every command as unscreened, apply
+   the same bans yourself, and record the gap in the receipt. (A per-call
+   SKIPPED notice goes to the user's transcript, not necessarily to you, so
+   the session-start WARNING is the signal to rely on.)
 
 Everything else CCMAF offers — board, lanes, doctor, verify-handback, state
 files, cold start — is deliberately absent at Tier 0. If the work spans

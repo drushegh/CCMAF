@@ -29,7 +29,7 @@ On demand (or cold-start, throttled)
 | [rollup.sh](rollup.sh) | Aggregates `events.jsonl` into `.hook-metrics` JSON. Idempotent, safe to rerun. |
 | [analyse.sh](analyse.sh) | Reads counters, compares to thresholds, writes flag file when findings exist. Throttled; silent when clean. |
 | [report.sh](report.sh) | On-demand human-readable summary. Use this to inspect current state. |
-| [scrape-review-findings.sh](scrape-review-findings.sh) | Parses `.claude/review-findings.md` on session end and emits `review-scraper` telemetry events. Wired into `enforce-state-update.sh` (Stop hook). |
+| [scrape-review-findings.sh](scrape-review-findings.sh) | Parses `.claude/review-findings.md` on each Stop (end of every assistant turn) and emits `review-scraper` telemetry events. Wired into `enforce-state-update.sh` (Stop hook). |
 | [update-metrics.sh](update-metrics.sh) | Refreshes the auto-generated snapshot block in [framework-metrics.md](../../framework-metrics.md). Run on demand or at session end. |
 | [instinct-miner.sh](instinct-miner.sh) | Mines the session transcript for user corrections / confirmed strategies and PROPOSES candidates (`.claude/.instinct-candidates.md`) — never writes state files. Wired into `/wrapup` step 2. |
 | [session-summary.sh](session-summary.sh) | One-line "Session efficacy" telemetry read-back for the current session window (events after the last `cost-tracker` marker). Wired into the `/wrapup` final verdict. Fail-soft, read-only. |
@@ -62,7 +62,7 @@ correlation without any OTel dependency:
 | Hook | Outcomes |
 | --- | --- |
 | `drift-guard` | `drift-detected` (+ `trigger`) or `clean`, per UserPromptSubmit |
-| `stop` | `passed` or `blocked`, per session end |
+| `stop` | `passed` or `blocked`, per Stop event — the Stop hook fires at the end of EVERY assistant turn, not once per session, so counts are per-turn |
 | `bash-guard` | `allowed` or `blocked`, per bash invocation |
 | `format` | `formatted` or `skipped`, per Write/Edit |
 | `lint` | `ran` or `skipped`, per Write/Edit |

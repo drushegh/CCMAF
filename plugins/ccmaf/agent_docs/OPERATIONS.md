@@ -6,16 +6,16 @@ gating, MCP guidance, framework-feedback routing, code-quality rules, code
 navigation, the reference-documents index, and the unattended profile. Read
 it when one of these areas comes up — not preemptively on every session.
 
-Ported from the v1 `CLAUDE.framework.md` (retired at v2.1 — see
-`docs/tiering/CORE-DESIGN.md` §1). Mechanisms are updated to the v2 shape
-where the design calls for it; anything still describing v1-only machinery
-is marked inline.
+Ported from the v1 `CLAUDE.framework.md` (retired at v2.1). Mechanisms are
+updated to the v2 shape where the design calls for it; anything still
+describing v1-only machinery is marked inline.
 
 ## Hook Configuration (consumer-tunable)
 
-Hooks honour two environment variables (resolved by each plugin's own
-`hooks/lib/hook-common.sh` — core carries its own copy, drift-guarded
-against the kernel/devhooks/console copies):
+Hooks honour two environment variables (resolved by each hook-bearing
+plugin's own `hooks/lib/hook-common.sh` — core, devhooks and console each
+carry a drift-guarded copy; the kernel has none, its guard reads
+`CLAUDE_DISABLED_HOOKS` directly):
 
 - `CLAUDE_HOOK_PROFILE=minimal|standard|strict` (default `standard`).
   - **minimal** — only safety-tier hooks run (the kernel's dangerous-command
@@ -41,8 +41,10 @@ a [1m]-context session** or the checkpoint nudge fires immediately),
 In v2, `.claude/settings.json` SHRINKS to permissions + `statusLine` — no
 hook registrations (hooks arrive via plugins), which makes this section
 more load-bearing than it was in v1. The project's own settings already
-deny reads/writes of secret paths, and the kernel's guard blocks destructive
-commands. To require an interactive confirm before a *specific*
+deny reads/writes of secret paths, and the kernel's guard blocks deletes,
+moves and recursive permission rewrites of roots, home and core system dirs,
+plus raw disk writes and formats — but not git operations or project-level
+deletes. To require an interactive confirm before a *specific*
 risky-but-allowed operation, tune the harness's own `permissions.ask`
 matrix — no custom gate hook needed (the harness provides the
 approve/edit/deny prompt; the framework only feeds it patterns). Add an
@@ -82,9 +84,11 @@ here, not inline.)
 - Log framework improvement ideas in `.claude/FRAMEWORK-SUGGESTIONS.md`. If
   you adopted this framework, those ideas only help if they reach its
   maintainers — this file is local to your project. Contribute them back
-  upstream (open an issue/PR at the `FRAMEWORK_UPSTREAM_URL` in
-  `.claude/.framework-version`) so every project benefits; see that file's
-  header.
+  upstream as an **Issue** on the public repo
+  (https://github.com/drushegh/CCMAF/issues) so every project benefits.
+  Don't open a pull request: the public repo is a publish mirror and
+  inbound PRs are closed automatically — paste your diff or a summary into
+  the Issue instead.
 
 ## Code Quality Rules
 
@@ -122,8 +126,12 @@ reference doc) is read directly, and it is not set in a shell. To resolve
 it yourself: `claude plugin list --json` → the `ccmaf` entry's
 `installPath`.
 
-- Building → the ccmaf plugin's `agent_docs/building.md`
-- Testing → the ccmaf plugin's `agent_docs/testing.md`
+- Building → the project's `docs/building.md` when it exists
+  (project-owned); otherwise the ccmaf plugin's `agent_docs/building.md`,
+  which is a generic machine-wide **template** — copy it to
+  `docs/building.md` and populate it there, never edit the plugin copy
+- Testing → likewise: the project's `docs/testing.md` when it exists, else
+  the ccmaf plugin's `agent_docs/testing.md` template (copy, then populate)
 - Verify handback (per-feature review stories + the `contract:verify-handback`
   schema; forward + retroactive/batch procedure) → the ccmaf plugin's
   `agent_docs/verify-handback.md`
@@ -137,9 +145,10 @@ it yourself: `claude plugin list --json` → the `ccmaf` entry's
 - Behavioral principles (per-turn discipline — think before coding,
   simplicity, surgical changes, goal-driven execution — loaded by each
   agent on handoff) → the ccmaf plugin's `agent_docs/behavioral-principles.md`
-- Retro-audit checklist / adopted-feedback registry (used by
-  `/ccmaf:healthcheck` and `/ccmaf:housekeeping`) → the ccmaf plugin's
-  `agent_docs/RETRO-AUDIT.md` / `agent_docs/ADOPTED-FEEDBACK.md`
+- Retro-audit checklist (run by hand after a plugin update that adds
+  gates) → the ccmaf plugin's `agent_docs/RETRO-AUDIT.md`
+- Adopted-feedback registry (read by `/ccmaf:housekeeping`) → the ccmaf
+  plugin's `agent_docs/ADOPTED-FEEDBACK.md`
 - Attestation snippet (opt-in model-integrity check for a dispatch brief) →
   the ccmaf plugin's `agent_docs/attestation.md`
 - Requirements / specs / plans (project-owned, versioned with the project)
@@ -153,7 +162,7 @@ it yourself: `claude plugin list --json` → the `ccmaf` entry's
 
 ## Unattended profile (`CLAUDE_UNATTENDED=1`)
 
-Per-run scope, four layers (full detail: `docs/tiering/CORE-DESIGN.md` §8):
+Per-run scope, four layers:
 
 1. **Digest banner policies** — at 90% context: checkpoint + compact
    without asking. On ambiguity with a defensible minimum: take it, log to

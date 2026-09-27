@@ -23,13 +23,17 @@ _lib="${CLAUDE_PLUGIN_ROOT:-}/hooks/lib/hook-common.sh"
 if ! command -v core_active >/dev/null 2>&1; then
   core_active() {
     local f="${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version"
-    [ -f "$f" ] && grep -q '^FRAMEWORK_LINE=v2' "$f" 2>/dev/null
+    [ -f "$f" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$f" 2>/dev/null
   }
 fi
 core_active || exit 0
 
-REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
-if [ -z "$REPO_ROOT" ]; then exit 0; fi
+# Root = the project dir core_active gated on, NOT the git toplevel: in a
+# nested project (monorepo sub-dir) the toplevel's .claude/ is a different
+# board. git is still required (Indicator 1 diffs); every git call below
+# runs from ROOT with --relative so paths are project-relative.
+REPO_ROOT="${CLAUDE_PROJECT_DIR:-$PWD}"
+git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 || exit 0
 
 # UserPromptSubmit payload arrives on stdin; its session_id scopes the
 # prompt counters to the CURRENT session (see the reset below). Fail-open:
@@ -97,6 +101,7 @@ PROMPT_COUNT=$(jq -r '.prompt_count // 0' "$DRIFT_STATE" 2>/dev/null || echo "0"
 LAST_REMINDER=$(jq -r '.last_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_SUGGESTIONS_REMINDER=$(jq -r '.last_suggestions_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_COMPACT_REMINDER=$(jq -r '.last_compact_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
+LAST_CLAIM_REMINDER=$(jq -r '.last_claim_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_SESSION_ID=$(jq -r '.session_id // empty' "$DRIFT_STATE" 2>/dev/null || true)
 # P6 (TASK-140): board-write tracking for staleness-gated (not cadence) reminders.
 LAST_STATE_ACTIVITY=$(jq -r '.last_state_activity // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
@@ -112,6 +117,7 @@ if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "$LAST_SESSION_ID" ]; then
   LAST_REMINDER=0
   LAST_SUGGESTIONS_REMINDER=0
   LAST_COMPACT_REMINDER=0
+  LAST_CLAIM_REMINDER=0
   LAST_STATE_ACTIVITY=0
   PREV_STATE_MTIME=0
 fi
@@ -138,6 +144,7 @@ _newest_state_mtime() {
 }
 case "$PREV_STATE_MTIME" in ''|*[!0-9]*) PREV_STATE_MTIME=0 ;; esac
 case "$LAST_STATE_ACTIVITY" in ''|*[!0-9]*) LAST_STATE_ACTIVITY=0 ;; esac
+case "$LAST_CLAIM_REMINDER" in ''|*[!0-9]*) LAST_CLAIM_REMINDER=0 ;; esac
 CUR_STATE_MTIME=$(_newest_state_mtime)
 if [ "$CUR_STATE_MTIME" -gt "$PREV_STATE_MTIME" ]; then
   LAST_STATE_ACTIVITY=$PROMPT_COUNT     # a state file was written since last turn
@@ -158,12 +165,12 @@ _set_primary() { [ -z "$PRIMARY_TRIGGER" ] && PRIMARY_TRIGGER="$1"; }
 # grep -c prints "0" on no match — no `|| echo "0"` fallback needed. With
 # `set -e` active (or in arithmetic context), the || branch was producing
 # "0\n0" for the variable, which broke the integer comparison below.
-PROJECT_CHANGES=$(git diff --name-only HEAD 2>/dev/null | grep -cE "$PROJECT_PATTERN")
+PROJECT_CHANGES=$(git -C "$REPO_ROOT" diff --name-only --relative HEAD 2>/dev/null | grep -cE "$PROJECT_PATTERN")
 # State-file regex (STATE_PREFIX is always .claude/; framework-self redirect retired)
 # AND per-file layouts (decisions/*.md, contracts/*.md). Either a
 # monolithic file or any file in the per-file dirs counts as state.
 STATE_REGEX="^${STATE_PREFIX}(TASKS|STATUS|DECISIONS|ECOSYSTEM)\.md|^${STATE_PREFIX}claude-progress\.txt|^${STATE_PREFIX}(decisions|contracts)/.*\.md"
-STATE_CHANGES=$(git diff --name-only HEAD 2>/dev/null | grep -cE "$STATE_REGEX")
+STATE_CHANGES=$(git -C "$REPO_ROOT" diff --name-only --relative HEAD 2>/dev/null | grep -cE "$STATE_REGEX")
 if [ "$PROJECT_CHANGES" -gt 3 ] && [ "$STATE_CHANGES" -eq 0 ]; then
   REMINDERS="${REMINDERS}⚠ You have ${PROJECT_CHANGES} uncommitted project file changes but NO state file updates. Update TASKS.md with current task status.\n"
   DRIFT_DETECTED=true
@@ -178,6 +185,7 @@ SINCE_REMINDER=$((PROMPT_COUNT - LAST_REMINDER))
 if [ "$BOARD_STALE" -ge "$BOARD_STALE_TURNS_CFG" ] && [ "$SINCE_REMINDER" -ge "$BOARD_STALE_TURNS_CFG" ]; then
   REMINDERS="${REMINDERS}📋 Framework check-in: Are you following the framework? Update TASKS.md when task status changes. Review contracts before changing interfaces. Record significant decisions per your project's decision-logging convention.\n"
   DRIFT_DETECTED=true
+  CHECKIN_REMINDED=true
   _set_primary "periodic-checkin"
 fi
 
@@ -187,16 +195,45 @@ if [ -f "$STATE_ROOT/TASKS.md" ]; then
   # headings or list items). Grepping the whole file for "in.progress"
   # matched the section heading and lifecycle comments themselves, so the
   # count was >0 even on an empty board and this indicator never fired.
-  IN_PROGRESS=$(awk '/^### In Progress/{f=1; next} /^### /{f=0} f && (/^#### / || /^[-*] /){c++} END{print c+0}' "$STATE_ROOT/TASKS.md" 2>/dev/null)
-  IN_PROGRESS="${IN_PROGRESS:-0}"
+  #
+  # One awk pass, HTML comments stripped first (the board template carries a
+  # commented-out `#### [BUG-XXX]` example that used to count as a real
+  # task, so an EMPTY board nagged every prompt). Claimed = an entry under
+  # the feature lane's "### In Progress" OR the bug lane's "### Fixing".
+  # Total = real `#### [TASK-N]` / `#### [BUG-N]` headings (numeric id).
+  _counts=$(awk '
+    { line = $0
+      out = ""
+      while (line != "") {
+        if (inc) {
+          e = index(line, "-->"); if (e == 0) { line = ""; break }
+          line = substr(line, e + 3); inc = 0
+        } else {
+          s = index(line, "<!--"); if (s == 0) { out = out line; line = ""; break }
+          out = out substr(line, 1, s - 1); line = substr(line, s + 4); inc = 1
+        }
+      }
+      if (out ~ /^[ \t]*$/) next
+    }
+    out ~ /^### (In Progress|Fixing)/ { f = 1; next }
+    out ~ /^### / { f = 0 }
+    out ~ /^#### \[(TASK|BUG)-[0-9]/ { t++ }
+    f && (out ~ /^#### / || out ~ /^[-*] /) { c++ }
+    END { print c + 0, t + 0 }' "$STATE_ROOT/TASKS.md" 2>/dev/null)
+  IN_PROGRESS="${_counts%% *}"; TOTAL_TASKS="${_counts##* }"
+  case "$IN_PROGRESS" in ''|*[!0-9]*) IN_PROGRESS=0 ;; esac
+  case "$TOTAL_TASKS" in ''|*[!0-9]*) TOTAL_TASKS=0 ;; esac
   # An entirely EMPTY board = a fresh project / pre-task setup (before /plan has
   # created anything) — there's nothing to claim yet, so stay quiet. Only nag when
-  # tasks EXIST but none is In Progress.
-  TOTAL_TASKS=$(grep -cE '^#### \[(TASK|BUG)-' "$STATE_ROOT/TASKS.md" 2>/dev/null || true)
-  TOTAL_TASKS="${TOTAL_TASKS:-0}"
-  if [ "$IN_PROGRESS" -eq 0 ] && [ "$TOTAL_TASKS" -gt 0 ] && [ "$PROMPT_COUNT" -gt 3 ]; then
-    REMINDERS="${REMINDERS}⚠ No task is marked 'In Progress' in TASKS.md. Claim a task before working on it.\n"
+  # tasks EXIST but none is claimed. Throttled on its OWN counter (at most once
+  # per CLAUDE_DRIFT_BOARD_STALE_TURNS prompts): firing every prompt used to
+  # reset the shared last_reminder each turn and starve Indicator 2 forever.
+  SINCE_CLAIM=$((PROMPT_COUNT - LAST_CLAIM_REMINDER))
+  if [ "$IN_PROGRESS" -eq 0 ] && [ "$TOTAL_TASKS" -gt 0 ] && [ "$PROMPT_COUNT" -gt 3 ] \
+     && { [ "$LAST_CLAIM_REMINDER" -eq 0 ] || [ "$SINCE_CLAIM" -ge "$BOARD_STALE_TURNS_CFG" ]; }; then
+    REMINDERS="${REMINDERS}⚠ No task is marked 'In Progress' (or bug 'Fixing') in TASKS.md. Claim a task before working on it.\n"
     DRIFT_DETECTED=true
+    CLAIM_REMINDED=true
     _set_primary "no-task-claimed"
   fi
 fi
@@ -263,8 +300,15 @@ fi
 NEW_LAST_REMINDER=$LAST_REMINDER
 NEW_LAST_SUGGESTIONS=$LAST_SUGGESTIONS_REMINDER
 NEW_LAST_COMPACT=$LAST_COMPACT_REMINDER
-if [ "$DRIFT_DETECTED" = true ]; then
+NEW_LAST_CLAIM=$LAST_CLAIM_REMINDER
+# Each indicator advances ONLY its own throttle. last_reminder used to move
+# on ANY drift, so an every-prompt indicator (no-task-claimed, the dep
+# advisory) kept SINCE_REMINDER at 0 and Indicator 2 could never fire.
+if [ "${CHECKIN_REMINDED:-false}" = true ]; then
   NEW_LAST_REMINDER=$PROMPT_COUNT
+fi
+if [ "${CLAIM_REMINDED:-false}" = true ]; then
+  NEW_LAST_CLAIM=$PROMPT_COUNT
 fi
 if [ "${SUGGESTIONS_REMINDED:-false}" = true ]; then
   NEW_LAST_SUGGESTIONS=$PROMPT_COUNT
@@ -278,10 +322,11 @@ jq -n --argjson count "$PROMPT_COUNT" \
       --argjson reminder "$NEW_LAST_REMINDER" \
       --argjson suggestions "$NEW_LAST_SUGGESTIONS" \
       --argjson compact "$NEW_LAST_COMPACT" \
+      --argjson claim "$NEW_LAST_CLAIM" \
       --argjson activity "${LAST_STATE_ACTIVITY:-0}" \
       --argjson smtime "${CUR_STATE_MTIME:-0}" \
       --arg session "${SESSION_ID:-$LAST_SESSION_ID}" \
-  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, last_state_activity: $activity, state_mtime: $smtime, session_id: $session}' > "$_dtmp" \
+  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, last_claim_reminder: $claim, last_state_activity: $activity, state_mtime: $smtime, session_id: $session}' > "$_dtmp" \
   && mv -f "$_dtmp" "$DRIFT_STATE" 2>/dev/null || rm -f "$_dtmp" 2>/dev/null
 # tmp+mv (DA-H6): a direct truncate-write left partial JSON behind on an
 # interrupted write or concurrent UserPromptSubmit fire — the next read

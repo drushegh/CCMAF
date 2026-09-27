@@ -27,6 +27,13 @@ any `[modes.<name>]` you have defined). No argument → SHOW.
 
 ## With a mode name — SWITCH
 1. Normalise the requested name (trim, lowercase).
+   **Registry predates `[modes]`?** If the live `.claude/advisors.toml` has no `[modes]` table (it
+   was created before TASK-132 — the updater never rewrites this consumer-owned file), migrate it
+   first: append the whole "Modes" block — the `[modes]` table with `active = "normal"` plus every
+   `[modes.watcher-*]` table — copied verbatim from the shipped template
+   `.claude/framework/advisors/advisors.template.toml` to the END of the live registry. Leave every
+   existing row untouched, tell the user you added it, then continue. (Switching to `normal` needs
+   no migration — it is the implicit default when `[modes]` is absent; just confirm it.)
 2. **VALIDATE fail-closed BEFORE writing:**
    `bash -c '. .claude/framework/advisors/advisors-lib.sh; mode_validate "<name>"'`.
    - exit 0 → valid, continue.
@@ -40,7 +47,7 @@ any `[modes.<name>]` you have defined). No argument → SHOW.
    or set it first; do not create the marker for them.
 4. On valid: set the mode by editing the SINGLE `active = "..."` line in `.claude/advisors.toml`
    (the LIVE registry — NEVER the shipped template `advisors.template.toml`). Use Edit; change only
-   that line.
+   that line (it exists after step 1's migration, if one was needed).
 5. Confirm the new mapping (as in SHOW) and note: it takes effect on the **next `/review`** (and
    `/build`'s review step) — read fresh each time, no restart. `normal` = the safe default (all-
    Claude, zero codex spend); a watcher tier is a spend decision.

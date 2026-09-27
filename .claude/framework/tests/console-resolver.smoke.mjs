@@ -53,6 +53,15 @@ function runDriver(root, verb, { env = {}, extraPath } = {}) {
   return { status: r.status, stderr: r.stderr || "", stdout: r.stdout || "" };
 }
 
+// A PATH exposing ONLY <dir> (+ System32 on Windows, which `where` needs and
+// which never holds npx). On POSIX no system dir is added: the resolver's
+// `command -v` runs under node's shell:true, which spawns /bin/sh by ABSOLUTE
+// path, so it needs nothing on PATH — and adding /usr/bin would expose a
+// distro-packaged /usr/bin/npx (apt/dnf nodejs), false-failing Check C.
+function isolatedPath(dir) {
+  return WIN ? `${dir};${join(process.env.SystemRoot || "C:\\Windows", "System32")}` : dir;
+}
+
 // --- Check A: CONSOLE_DIR override wins (route 1) -----------------------------
 // Even with npx on the real PATH, an explicit dev checkout must be chosen first.
 {
@@ -79,12 +88,10 @@ function runDriver(root, verb, { env = {}, extraPath } = {}) {
   writeFileSync(join(fakebin, "npx"), "#!/bin/sh\nexit 0\n");
   chmodSync(join(fakebin, "npx"), 0o755);
   if (WIN) writeFileSync(join(fakebin, "npx.cmd"), "@echo off\r\nexit /b 0\r\n");
-  // PATH = fakebin + the OS system dir (so `where`/`command -v` themselves run),
-  // but NOT the node install dir → the real npx / any global ccmaf-console are
-  // out of reach; only our fake npx resolves.
-  const sysDir = WIN ? join(process.env.SystemRoot || "C:\\Windows", "System32") : "/usr/bin:/bin";
-  const sep = WIN ? ";" : ":";
-  const { status, stderr } = runDriver(root, "stop", { extraPath: `${fakebin}${sep}${sysDir}` });
+  // PATH = fakebin (+ System32 on Windows so `where` itself runs), but NOT the
+  // node install dir → the real npx / any global ccmaf-console are out of
+  // reach; only our fake npx resolves.
+  const { status, stderr } = runDriver(root, "stop", { extraPath: isolatedPath(fakebin) });
   check(
     "B: only npx present → resolver uses the npx fallback (route 3)",
     stderr.includes("using npx ccmaf-console@"),
@@ -96,8 +103,9 @@ function runDriver(root, verb, { env = {}, extraPath } = {}) {
 // --- Check C: no CONSOLE_DIR, no global bin, no npx → clean die ---------------
 {
   const root = makeRepo();
-  const sysDir = WIN ? join(process.env.SystemRoot || "C:\\Windows", "System32") : "/usr/bin:/bin";
-  const { status, stderr } = runDriver(root, "stop", { extraPath: sysDir });
+  const emptybin = join(root, "emptybin");
+  mkdirSync(emptybin, { recursive: true });
+  const { status, stderr } = runDriver(root, "stop", { extraPath: isolatedPath(emptybin) });
   check(
     "C: nothing resolvable → dies with the no-console message (exit 1)",
     status === 1 && stderr.includes("no ccmaf-console found"),

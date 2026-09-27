@@ -1,3 +1,6 @@
+---
+description: Log an ad-hoc bug into the TASKS.md Bug-Fix Lane in the shared on-disk bug shape (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check
@@ -35,15 +38,23 @@ concise clarifying question if the title is unclear).
 ## 1. Read the current bug lane
 
 Read `.claude/TASKS.md`. Locate the **`## Bug-Fix Lane`** and its **`### Reported`**
-section. Collect every existing bug id with `grep -oE '\[BUG-[0-9]+\]' .claude/TASKS.md`.
+section. Collect the highest bug number ever issued — across the live board, the
+archives housekeeping rotates entries into, and the verify-seed filenames (an archived
+bug's id is still taken, and a stale `.claude/console/verify/BUG-N.json` seed would
+attach itself to a reused id):
+
+    { cat .claude/TASKS.md .claude/archive/*.md .claude/docs/archives/*.md \
+          .claude/framework/docs/archives/*.md 2>/dev/null
+      ls .claude/console/verify/ 2>/dev/null; } \
+      | grep -oE 'BUG-[0-9]+' | sed 's/^BUG-0*//' | sort -n | tail -1
 
 ## 2. Allocate the next id — **HARD (parse-critical)**
 
-- `n` = (highest existing `BUG-<number>` across the whole file) **+ 1**. If there are
-  no bugs yet, `n = 1`.
+- `n` = (that highest `BUG-<number>` — live board, archives and seeds, not just the live
+  file) **+ 1**. If there are no bugs anywhere yet, `n = 1`.
 - Format **bracketed and zero-padded to 3 digits**: `[BUG-001]`, `[BUG-013]`, … This
-  matches a board tool's `nextBugId` (max existing BUG number + 1), so both writers
-  agree on the next id.
+  matches a board tool's `nextBugId` (max existing BUG number + 1) on a board with no
+  archived bugs; where the two disagree, the higher number wins — never reuse an id.
 
 ## 3. Dedup check — confirm before creating a near-duplicate
 

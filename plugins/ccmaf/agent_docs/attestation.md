@@ -31,8 +31,18 @@ model; every attested turn is a fresh spawn.
 ## Verifying after the dispatch returns
 
 ```bash
-glob="$HOME/.claude/projects/*/*/subagents/*.jsonl"
-transcript="$(grep -lF -- "ATTEST-<nonce>" $glob 2>/dev/null | xargs -r ls -t | head -1)"
+# Quote the $HOME prefix (a home dir with a space must not word-split) and
+# leave only the glob part unquoted; pick the newest match with a read loop
+# (no `xargs ls`, which also splits on spaces).
+shopt -s nullglob
+cands=( "$HOME"/.claude/projects/*/*/subagents/*.jsonl )
+shopt -u nullglob
+transcript=""
+if [ "${#cands[@]}" -gt 0 ]; then
+  while IFS= read -r f; do
+    if [ -z "$transcript" ] || [ "$f" -nt "$transcript" ]; then transcript="$f"; fi
+  done < <(grep -lF -- "ATTEST-<nonce>" "${cands[@]}" 2>/dev/null || true)
+fi
 [ -n "$transcript" ] || { echo "FAIL: no transcript found for nonce"; exit 1; }
 jq -r 'select(.type=="assistant") | .message.model // empty' "$transcript" | sort -u
 ```

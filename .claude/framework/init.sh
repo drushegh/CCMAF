@@ -59,11 +59,23 @@ case "$STACK" in
       # venv layout is OS-specific: POSIX puts the interpreter in .venv/bin,
       # Windows in .venv/Scripts — .venv/bin/pip is dead on Windows Git Bash.
       # Resolve the venv python (either layout) and drive pip via `-m pip`.
-      (
-        cd "$PROJECT_DIR" && python -m venv .venv \
-          && { VENV_PY=".venv/bin/python"; [ -x ".venv/Scripts/python.exe" ] && VENV_PY=".venv/Scripts/python"; \
-               "$VENV_PY" -m pip install -q -r requirements.txt; }
-      ) || echo "⚠️ pip install had issues"
+      # Probe the interpreter by EXECUTING it — on Windows `python3`/`python` can be
+      # the Microsoft Store stub (exits 49), which `command -v` alone accepts (BUG-032).
+      SYS_PY=""
+      for _cand in python3 python; do
+        if command -v "$_cand" >/dev/null 2>&1 && "$_cand" -c 'import sys' >/dev/null 2>&1; then
+          SYS_PY="$_cand"; break
+        fi
+      done
+      if [ -z "$SYS_PY" ]; then
+        echo "⚠️ No working python3/python found — cannot create .venv"
+      else
+        (
+          cd "$PROJECT_DIR" && "$SYS_PY" -m venv .venv \
+            && { VENV_PY=".venv/bin/python"; [ -x ".venv/Scripts/python.exe" ] && VENV_PY=".venv/Scripts/python"; \
+                 "$VENV_PY" -m pip install -q -r requirements.txt; }
+        ) || echo "⚠️ pip install had issues"
+      fi
     fi
     ;;
   go)
@@ -109,7 +121,12 @@ if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
   echo "✅ Dev server already running on http://localhost:$PORT"
 else
   echo "🚀 Starting dev server..."
-  (cd "$PROJECT_DIR" && npm run dev) &
+  # Detach the server's stdio: a backgrounded child that inherits this script's
+  # stdout/stderr keeps the CALLER's pipe open, so a tool that captures init.sh
+  # output (the agent's Bash tool) waits on the server forever. Log to a file.
+  DEV_LOG="${TMPDIR:-/tmp}/ccmaf-dev-server-$PORT.log"
+  (cd "$PROJECT_DIR" && npm run dev) </dev/null >"$DEV_LOG" 2>&1 &
+  echo "   (server output → $DEV_LOG)"
 
   echo "⏳ Waiting for server..."
   for _ in $(seq 1 30); do
@@ -127,8 +144,13 @@ fi
 
 # Optional smoke test
 if curl -s "http://localhost:$PORT" > /dev/null 2>&1; then
-  HEALTH=$(curl -s "http://localhost:$PORT/api/health" 2>/dev/null)
-  if echo "$HEALTH" | grep -q "ok"; then
+  # Require HTTP 200 AND an explicit ok body — a bare `grep ok` matched any page
+  # containing "ok" (e.g. "token", "broken", an HTML 404 page).
+  HEALTH=$(curl -s -w '\n%{http_code}' "http://localhost:$PORT/api/health" 2>/dev/null)
+  HEALTH_CODE="${HEALTH##*$'\n'}"
+  HEALTH_BODY="${HEALTH%$'\n'*}"
+  if [ "$HEALTH_CODE" = "200" ] \
+     && printf '%s' "$HEALTH_BODY" | grep -Eqi '^[[:space:]]*"?ok"?[[:space:]]*$|"status"[[:space:]]*:[[:space:]]*"(ok|healthy|up|pass)"'; then
     echo "✅ /api/health → ok"
   fi
 fi

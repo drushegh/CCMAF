@@ -35,6 +35,7 @@
 cat >/dev/null 2>&1 || true
 
 _lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hook-common.sh"
+# shellcheck source=/dev/null
 [ -f "$_lib" ] && . "$_lib"
 if command -v hook_enabled >/dev/null 2>&1 && ! hook_enabled guard-interpreter-check safety; then
   echo "{}"; exit 0
@@ -61,8 +62,8 @@ if [ -n "$ROOT" ] && command -v telemetry_emit >/dev/null 2>&1; then
   telemetry_emit "$ROOT" "guard-interpreter-check" "no-interpreter" "flagged"
 fi
 
-SYS_MSG="WARNING: the destructive-command safety guard (block-dangerous-commands.py) has NO working Python interpreter on this host, so it is NOT running - Bash commands are not being screened for destructive patterns. Install Python (python3 or python must resolve on PATH and actually execute) to restore it."
-CTX_MSG="SessionStart check: block-dangerous-commands.py could not find a working Python interpreter, so the PreToolUse safety guard is not screening Bash commands for destructive patterns (e.g. a filesystem-root wipe or a whole-device write). This hook is defense-in-depth, not a security boundary, so nothing is blocked while it is inert - but you should know it is currently not running and mention this to the user if relevant. Installing Python 3 (python3 or python resolving on PATH and able to execute) restores the check; no other action needed."
+SYS_MSG="WARNING: the destructive-command safety guard (block-dangerous-commands.py) has NO working Python interpreter on this host, so it is NOT running - shell commands (Bash, PowerShell, Monitor) are not being screened for destructive patterns. Install Python (python3 or python must resolve on PATH and actually execute) to restore it."
+CTX_MSG="SessionStart check: block-dangerous-commands.py could not find a working Python interpreter, so the PreToolUse safety guard is not screening shell commands (Bash, PowerShell, Monitor) for destructive patterns (e.g. a filesystem-root wipe or a whole-device write). This hook is defense-in-depth, not a security boundary, so nothing is blocked while it is inert - but you should know it is currently not running and mention this to the user if relevant. Installing Python 3 (python3 or python resolving on PATH and able to execute) restores the check; no other action needed."
 
 if command -v jq >/dev/null 2>&1; then
   jq -n --arg sys "$SYS_MSG" --arg ctx "$CTX_MSG" \

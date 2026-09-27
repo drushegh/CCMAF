@@ -1,3 +1,6 @@
+---
+description: End-of-session handoff — flush context to disk, commit and push before a restart or machine switch (CCMAF v2)
+---
 ## Context check
 
 This command runs only in a **CCMAF v2** project. Check

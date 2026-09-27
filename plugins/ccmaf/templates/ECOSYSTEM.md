@@ -34,13 +34,17 @@
 <!-- DELETE THIS EXAMPLE — replace with your project's actual contracts. -->
 <!-- The example is deliberately status:draft so the developer agent refuses to
      implement against it if it's accidentally left in place. Your real contracts
-     get status:stable once the design is confirmed. -->
-<!-- contract:user-registration status:draft -->
+     get status:stable once the design is confirmed.
+     Order matters: heading, then prose, then the anchor IMMEDIATELY before the
+     fenced block — tools (e.g. the Console) take the contract's title from the
+     preceding ### heading and its spec from the fence right after the anchor. -->
 
 ### POST /api/users — User Registration
 
 Creates a new user account. Returns 409 if email already exists.
 Rate limit: 5 attempts per IP per hour.
+
+<!-- contract:user-registration status:draft -->
 
 ```typescript
 // Request

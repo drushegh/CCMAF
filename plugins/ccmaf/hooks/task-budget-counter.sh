@@ -37,25 +37,66 @@ root="${CLAUDE_PROJECT_DIR:-.}"
 tdir="$root/.claude/telemetry"
 [ -d "$tdir" ] || exit 0
 
+# Session scoping: a marker left behind by a session that died mid-dispatch
+# used to be counted — and nagged about — by EVERY later session until the
+# 2-day sweep below. Each marker is now claimed by the first session whose
+# tool call sees it (in practice the session that wrote it: writing the
+# marker is itself a tool call, so its own PostToolUse fires first) via
+# .task-owner.<ID>; other sessions skip it. A re-armed marker (newer than
+# its owner stamp — build re-dispatched that ID) is re-claimed. No
+# session_id in the payload → no scoping (previous behaviour). When a
+# marker exists the payload is drained fully; only the head is parsed (the
+# envelope's session_id precedes tool_input/tool_response).
+
 # Opportunistic housekeeping: markers/counters from dead runs (build clears
-# its markers on return; anything older than 2 days is an orphan).
-find "$tdir" -maxdepth 1 \( -name '.task-dispatch.*' -o -name '.task-count.*' \) -mtime +2 -delete 2>/dev/null || true
+# its markers on return; anything older than 2 days is an orphan). Owner
+# stamps whose marker is gone are dropped at once.
+find "$tdir" -maxdepth 1 \( -name '.task-dispatch.*' -o -name '.task-count.*' -o -name '.task-owner.*' \) -mtime +2 -delete 2>/dev/null || true
+for o in "$tdir"/.task-owner.*; do
+  [ -e "$o" ] || continue
+  [ -e "$tdir/.task-dispatch.${o##*/.task-owner.}" ] || rm -f "$o" 2>/dev/null
+done
+
+# Fast path (hook must stay FAST; PostToolUse payloads can be multi-MB): no
+# live dispatch marker -> nothing to count, so exit WITHOUT reading the
+# payload (the harness tolerates an unread stdin). Runs after housekeeping
+# so orphaned owner stamps/counters are still swept.
+ls "$tdir"/.task-dispatch.* >/dev/null 2>&1 || exit 0
+payload=$(cat 2>/dev/null || true)
+sid=$(printf '%s' "${payload:0:4096}" \
+  | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+  | head -n 1 \
+  | sed 's/.*"\([^"]*\)"$/\1/' | tr -cd 'A-Za-z0-9._-')
+
+# _mine <marker> <id> — true if this session owns (or just claimed) it.
+_mine() {
+  [ -n "$sid" ] || return 0
+  local of="$tdir/.task-owner.$2" owner=""
+  [ -f "$of" ] && owner=$(head -n 1 "$of" 2>/dev/null | tr -d '\r')
+  if [ -z "$owner" ] || [ "$1" -nt "$of" ]; then
+    printf '%s\n' "$sid" > "$of" 2>/dev/null || true
+    return 0
+  fi
+  [ "$owner" = "$sid" ]
+}
 
 # Honest multi-marker semantics (review swarm P1): PostToolUse events carry
 # no per-task attribution, so with N tasks armed EVERY event increments ALL
 # N counters — parallel-wave counts are session-shared and therefore
 # CONSERVATIVE (they overcount each task, never undercount). The nag names
 # this when N>1; /ccmaf:build documents it.
-armed=0
-for m in "$tdir"/.task-dispatch.*; do
-  [ -e "$m" ] && armed=$((armed + 1))
-done
-
-rc=0
+mine=()
 for m in "$tdir"/.task-dispatch.*; do
   [ -e "$m" ] || continue
   id="${m##*/.task-dispatch.}"
   case "$id" in ''|*[!A-Za-z0-9._-]*) continue;; esac
+  _mine "$m" "$id" && mine+=("$m")
+done
+armed=${#mine[@]}
+
+rc=0
+for m in ${mine[@]+"${mine[@]}"}; do
+  id="${m##*/.task-dispatch.}"
 
   cf="$tdir/.task-count.$id"
   n=0

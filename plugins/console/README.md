@@ -45,13 +45,24 @@ the enclosing git toplevel of the current directory. (This plugin copy
 cannot infer the project from its own location — it lives in the plugin
 cache, not in your repo.)
 
-## Behaviour in full-CCMAF projects
+## Session-end teardown — `/console:stop`
 
-In a project scaffolded with the full framework (marked by
-`.claude/.framework-version`), this plugin **self-defers**: the framework's
-own bundled console-autostart/console-heartbeat registrations handle the
-lifecycle, and running both would double every heartbeat's process cost and
-race two autostarts. The deference gate lives in `hooks/hooks.json`.
+`/console:stop` gracefully stops this project's Console. It is the teardown
+seam `/ccmaf:wrapup` invokes by name at session end, and is safe to run by
+hand; in a project that is not opted in, or with nothing running, it is a
+clean no-op. It targets the same project root autostart uses (the git
+toplevel).
+
+## Behaviour in v1 full-CCMAF projects
+
+In a project on the **v1** framework line — a `.claude/.framework-version`
+file with no `FRAMEWORK_LINE=v2` entry — this plugin's hooks
+**self-defer**: the v1 framework's own bundled
+console-autostart/console-heartbeat registrations handle the lifecycle, and
+running both would double every heartbeat's process cost and race two
+autostarts. On the **v2** line (`FRAMEWORK_LINE=v2` in
+`.claude/.framework-version`) the v1 registrations are retired, so this
+plugin runs normally. The deference gate lives in `hooks/hooks.json`.
 
 ## Maintenance invariants
 

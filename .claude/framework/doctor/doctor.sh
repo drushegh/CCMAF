@@ -12,6 +12,9 @@
 # surfaces findings via AskUserQuestion.
 #
 # Invariants checked:
+#   -- v2 migration state (legacy-layout, TASK-166; runs FIRST): flags a
+#      half-migrated tree (tombstone without FRAMEWORK_LINE=v2, or the v2 line
+#      set while this bundled v1 doctor still runs). Skipped in the dev repo.
 #   1. Hook scripts referenced in settings.json exist on disk,
 #      and every hook file on disk is referenced in settings.json.
 #   2. Cross-references (markdown links to local paths) in CLAUDE.md,
@@ -22,7 +25,9 @@
 #   4. Every path in .claude/framework/update/framework-manifest.txt exists
 #      locally. Missing paths mean apply-update.sh will fail mid-copy.
 #   5. .framework-version (if present) has all required fields set.
-#   6. TASKS.md has no duplicate TASK-NNN heading IDs.
+#   6. (retired — multi-project mode removed, TASK-023; number kept stable)
+#   7. TASKS.md has no duplicate TASK-NNN heading IDs.
+#   8. (retired — framework-self mode removed, TASK-054; number kept stable)
 #   9. Detector-consumer determinism: if any framework code added in
 #      recent commits references .claude/review-findings.md or its
 #      rotated archive as INPUT (not just output), warn unless
@@ -54,8 +59,9 @@
 #      for NON-CANONICAL suffixed sub-IDs, which older board tools drop/mis-parse.)
 #  16. State-file size budgets (OPT P3): each live state file vs a ceiling in
 #      framework/doctor/state-budgets.conf (or .claude/state-budgets.local.conf).
-#      >=80% -> WARNING, >=100% -> CRITICAL; finding names rotate-state.sh. This
-#      is the missing half of the enforcement asymmetry (Stop defends freshness;
+#      >=80% -> WARNING, >=100% -> WARNING ("OVER") -- never CRITICAL, which
+#      would halt unattended runs; the finding names a per-file remedy
+#      (rotate-state.sh only rotates TASKS + DECISIONS). This is the missing half of the enforcement asymmetry (Stop defends freshness;
 #      nothing defended bounds). Never blocks — enforce at boot, remediate at will.
 #
 # Exit codes:
@@ -69,8 +75,11 @@ set -euo pipefail
 # Bash 4+ guard (DA-C8): this script uses mapfile, which bash 3.2 (stock
 # macOS) lacks — without the guard it dies mid-run with a confusing error
 # and NO checks execute. Fail loudly and early instead.
-if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ]; then
-  echo "doctor: bash >= 4 required (found ${BASH_VERSION:-unknown})." >&2
+# 4.4, not just 4: under `set -u`, bash 4.0-4.3 treat "${arr[@]}" of an EMPTY
+# array as an unbound variable and abort mid-run (several checks expand
+# possibly-empty arrays).
+if [ "${BASH_VERSINFO[0]:-0}" -lt 4 ] || { [ "${BASH_VERSINFO[0]:-0}" -eq 4 ] && [ "${BASH_VERSINFO[1]:-0}" -lt 4 ]; }; then
+  echo "doctor: bash >= 4.4 required (found ${BASH_VERSION:-unknown})." >&2
   echo "doctor: on macOS: brew install bash, then re-run. No checks were performed." >&2
   exit 1
 fi
@@ -933,7 +942,7 @@ check_state_budgets() {
   local override="$PROJECT_ROOT/.claude/state-budgets.local.conf"
   [ -f "$override" ] && conf="$override"
   [ -f "$conf" ] || return 0
-  local line rel budget path sz pct
+  local line rel budget path sz pct fix
   while IFS= read -r line; do
     line="${line%$'\r'}"
     case "$line" in ''|'#'*) continue ;; esac
@@ -944,10 +953,25 @@ check_state_budgets() {
     [ -f "$path" ] || continue
     sz=$(wc -c < "$path" 2>/dev/null | tr -d ' '); case "$sz" in ''|*[!0-9]*) continue ;; esac
     pct=$(( sz * 100 / budget ))
+    # Per-file remedy: rotate-state.sh only rotates TASKS + DECISIONS.
+    case "$rel" in
+      *TASKS.md|*DECISIONS.md)
+        fix="run /housekeeping (\`bash .claude/framework/housekeeping/rotate-state.sh\`) to archive old entries" ;;
+      *claude-progress.txt)
+        fix="run /housekeeping — its '## Rolling Summary' step archives older entries past ~30 (rotate-state.sh does not rotate this file)" ;;
+      *STATUS.md)
+        fix="prune superseded session prose per /housekeeping's '## State File Archiving' STATUS rule (rotate-state.sh does not rotate this file)" ;;
+      *GOTCHAS.md)
+        fix="retire resolved/superseded entries per /housekeeping's '## Memory reconciliation' and '### Semantic decay' sections (rotate-state.sh does not rotate this file)" ;;
+      *)
+        fix="archive or prune old entries (see /housekeeping)" ;;
+    esac
+    # Over budget is WARNING, never CRITICAL: a doctor CRITICAL halts unattended
+    # runs, and size is loud-but-recoverable ("never blocks").
     if [ "$pct" -ge 100 ]; then
-      add_finding "CRITICAL" "state-budget" "\`$rel\` is ${sz}B, OVER its ${budget}B budget (${pct}%) — boot reads and board loading are at risk. Fix: run /housekeeping (\`bash .claude/framework/housekeeping/rotate-state.sh\`) to archive old entries."
+      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, OVER its ${budget}B budget (${pct}%) — boot reads and board loading are at risk. Fix: $fix."
     elif [ "$pct" -ge 80 ]; then
-      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, ${pct}% of its ${budget}B budget — approaching the ceiling. Fix: run /housekeeping soon (\`bash .claude/framework/housekeeping/rotate-state.sh\`)."
+      add_finding "WARNING" "state-budget" "\`$rel\` is ${sz}B, ${pct}% of its ${budget}B budget — approaching the ceiling. Fix (soon): $fix."
     fi
   done < "$conf"
 }

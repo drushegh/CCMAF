@@ -17,7 +17,7 @@ The fix is two rules, both NON-NEGOTIABLE:
 1. **One board task per user story / feature** — never bundle multiple features under a
    single umbrella task. The 1:1 *story → task* mapping is what lets each feature become
    its own reviewable Verify story.
-2. **On reaching Ready for Test, emit a verify-handback seed** — one
+2. **On PASS, as the task moves to Verify, emit a verify-handback seed** — one
    `.claude/console/verify/<TASK-ID>.json` file per task, whose `items[]` are that
    feature's use-cases / acceptance criteria. The human reviews these in the **Verify**
    lifecycle stage; passing → Done. (A consumer's verify UI — e.g. the Console — renders
@@ -27,8 +27,9 @@ A task therefore maps to a *story*; its `items[]` map to that story's *use-cases
 
 ## When to emit (and the opt-in gate)
 
-- Emit when a task moves to **Ready for Test** (the Tester's handback — see
-  `commands/test.md`). The Tester owns the use-case content.
+- Emit on the Tester's **PASS, as it moves the task from Ready for Test to Verify** (the
+  Tester's handback — see `commands/test.md`). A task sitting in Ready for Test has not
+  been tested yet and has no seed. The Tester owns the use-case content.
 - **Gated on `.claude/console/` existing.** If the directory is absent, the consumer
   isn't using a verify UI — **do nothing** (zero coupling, no cost). If it exists, write
   the seed to `.claude/console/verify/<TASK-ID>.json`.
@@ -88,7 +89,7 @@ see the `contract:board-coherence` block in `.claude/ECOSYSTEM.md`.
    each task carrying that story's acceptance criteria / use-cases (so the items are
    already known when the seed is emitted).
 3. **`/build`** implements one task → Ready for Review → (review) → Ready for Test.
-4. **`/test`** (Tester): on moving the task to **Ready for Test / Verify**, emit the seed
+4. **`/test`** (Tester): on PASS, moving the task from Ready for Test to **Verify**, emit the seed
    — `items[]` = the task's use-cases. The human verifies; passing → Done.
 
 ## Retroactive path — a batch was delivered under one umbrella task

@@ -28,7 +28,11 @@ last="$run_dir/last.txt"
 
 expected_model="$(registry_get "advisors.$advisor" model)"
 pin="$(registry_get providers.codex version_pin)"
+# Same resolution order as codex-preflight.sh / codex-run.sh: CODEX_BIN → PATH → cache copy.
 CODEX="${CODEX_BIN:-$(command -v codex || true)}"
+if [[ -z "$CODEX" && -x "${CODEX_HOME:-$HOME/.codex}/.sandbox-bin/codex.exe" ]]; then
+  CODEX="${CODEX_HOME:-$HOME/.codex}/.sandbox-bin/codex.exe"
+fi
 
 fail() { printf 'verify-sol: FAIL — %s\n' "$1" >&2; exit 1; }
 
@@ -46,14 +50,26 @@ run_status="$(cat "$run_dir/status")"
 [[ -n "$pin" ]] || fail "providers.codex version_pin is BLANK — pin the proven codex version before trusting a consult"
 
 # 4) codex version must still match the pin (A4 — drift → fail).
-[[ -n "$CODEX" ]] || fail "codex binary not resolvable (CODEX_BIN unset + not on PATH)"
-ver="$("$CODEX" --version 2>/dev/null | head -1 | tr -d '\r')"
-[[ -n "$ver" && "$ver" == *"$pin"* ]] || fail "codex version '$ver' != pinned '$pin' — re-run the smoke test + re-pin"
+[[ -n "$CODEX" ]] || fail "codex binary not resolvable (CODEX_BIN unset, not on PATH, no cache copy)"
+#    Compared on the EXACT semver token (as codex-preflight.sh does) — never a substring, so a
+#    pin of "0.14" cannot pass codex 0.144.1 and an empty version can never pass.
+semver_token() {
+  printf '%s\n' "$1" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?([-+][0-9A-Za-z.+-]*)?' | head -1 || true
+}
+ver="$("$CODEX" --version 2>/dev/null | head -1 | tr -d '\r' || true)"
+ver_tok="$(semver_token "$ver")"
+pin_tok="$(semver_token "$pin")"
+[[ -n "$pin_tok" ]] || fail "version_pin '$pin' holds no MAJOR.MINOR[.PATCH] version — fix the registry pin"
+[[ -n "$ver_tok" && "$ver_tok" == "$pin_tok" ]] || fail "codex version '$ver' != pinned '$pin_tok' — re-run the smoke test + re-pin"
 
 # 5) Model attestation: EVERY "model":"…" in the session must be the expected model; any other
 #    (or none) → FAIL. This catches the Fable→Opus analog (wrong model requested / config drift).
-mapfile -t models < <(grep -oE '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$session" \
-                        | sed -E 's/.*"([^"]*)"$/\1/' | sort -u)
+#    (A while-read loop, not `mapfile` — stock macOS ships bash 3.2, which has no mapfile.)
+models=()
+while IFS= read -r m; do
+  if [[ -n "$m" ]]; then models+=("$m"); fi
+done < <(grep -oE '"model"[[:space:]]*:[[:space:]]*"[^"]*"' "$session" \
+           | sed -E 's/.*"([^"]*)"$/\1/' | sort -u || true)
 [[ "${#models[@]}" -ge 1 ]] || fail "no model field found in the session — cannot attest"
 for m in "${models[@]}"; do
   [[ "$m" == "$expected_model" ]] || fail "session contains an UNEXPECTED model '$m' (expected only '$expected_model')"

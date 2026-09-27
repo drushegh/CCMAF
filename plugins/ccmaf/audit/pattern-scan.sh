@@ -132,9 +132,14 @@ check_crlf_strip() {
           break
         fi
       done
+      # An `if`, not `[ ... ] && _report`: as the loop's LAST command, a false
+      # test would make the loop (and so the function) return 1, and `set -e`
+      # would then kill the scan — breaking the always-exit-0 contract.
       # shellcheck disable=SC2128
-      [ "$found" -eq 0 ] && _report "$file" "$line_num" \
-        "\`while IFS= read -r $varname\` reads from a file without CRLF strip — on Windows (core.autocrlf=true) \\r survives. Fix: add \`${varname}=\"\${${varname}%\$'\\\\r'}\"\` on the next line."
+      if [ "$found" -eq 0 ]; then
+        _report "$file" "$line_num" \
+          "\`while IFS= read -r $varname\` reads from a file without CRLF strip — on Windows (core.autocrlf=true) \\r survives. Fix: add \`${varname}=\"\${${varname}%\$'\\\\r'}\"\` on the next line."
+      fi
     done < <(grep -nE '^[[:space:]]*while IFS= read -r' "$file" 2>/dev/null)
   done < <(_sh_files)
 }

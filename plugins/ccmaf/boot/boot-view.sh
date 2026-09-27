@@ -10,9 +10,11 @@ set -uo pipefail
 # cross-review's rule: a stateless view kills staleness; extraction-completeness
 # verification kills silent omission — you need BOTH).
 #
-# FAIL-CLOSED completeness: for TASKS, two INDEPENDENT counts (entries in the
-# emitted view + Done entries counted by a separate pass) must sum to the file's
-# total; IDs must be unique. Any anomaly prints ONE line to stderr and exits 2 —
+# FAIL-CLOSED completeness: for TASKS, the entry headings in the emitted view must
+# EQUAL (same headings, same order) the non-Done entry headings derived by a
+# SEPARATE pass (a heading-only shell scan, not the awk emitter), and that pass's
+# non-Done + Done counts must sum to the file's total; IDs must be unique. Any
+# anomaly prints ONE line to stderr and exits 2 —
 # the caller then falls back to the full-file reads. Dependency-light (awk/grep/
 # sed only — runs every cold start). CRLF-tolerant.
 #
@@ -48,11 +50,12 @@ printf '\n'
 if [ -f "$TASKS" ]; then
   total=$(grep -cE '^#### \[' "$TASKS" 2>/dev/null); total=${total:-0}
   # Emit: keep every frame line + heading + non-Done entry block; drop Done-section
-  # entry blocks. Block-end stops at #### / ### / ## (so a ## lane heading is never
-  # swallowed — same fix rotate-state.sh needed).
+  # entry blocks. Block-end stops at the next ENTRY heading (#### [) / ### / ## (so
+  # a ## lane heading is never swallowed — same fix rotate-state.sh needed). A plain
+  # `#### Notes` sub-heading INSIDE an entry is part of that entry, never a boundary —
+  # otherwise a Done entry's sub-section body would leak into the view as frame lines.
   out=$(_cat "$TASKS" | awk '
     function isentry(l){ return l ~ /^#### \[/ }
-    function ish4(l){ return l ~ /^#### / }
     function ish3(l){ return l ~ /^### / }
     function ish2(l){ return l ~ /^## / }
     { lines[NR]=$0 }
@@ -63,7 +66,7 @@ if [ -f "$TASKS" ]; then
         if(ish2(l)){ sec=""; print l; continue }
         if(ish3(l)){ sec=l;  print l; continue }
         if(isentry(l)){
-          j=i+1; while(j<=n && !ish4(lines[j]) && !ish3(lines[j]) && !ish2(lines[j])) j++
+          j=i+1; while(j<=n && !isentry(lines[j]) && !ish3(lines[j]) && !ish2(lines[j])) j++
           if(index(sec,"Done")==0){ for(k=i;k<j;k++) print lines[k] }
           i=j-1; continue
         }
@@ -71,15 +74,26 @@ if [ -f "$TASKS" ]; then
       }
     }')
   sel=$(printf '%s\n' "$out" | grep -cE '^#### \['); sel=${sel:-0}
-  # Independent Done-entry count (a second derivation — must reconcile with total).
-  exc=$(_cat "$TASKS" | awk '
-    function isentry(l){ return l ~ /^#### \[/ }
-    function ish3(l){ return l ~ /^### / }
-    function ish2(l){ return l ~ /^## / }
-    { if(ish2($0)){sec="";next} if(ish3($0)){sec=$0;next} if(isentry($0) && index(sec,"Done")>0) c++ }
-    END{ print c+0 }')
-  exc=${exc:-0}
-  [ $((sel + exc)) -eq "$total" ] || fail "TASKS count: view $sel + Done $exc != total $total"
+  # INDEPENDENT derivation (a heading-only shell scan — shares no code with the awk
+  # emitter above): the expected non-Done entry headings, in order, and the Done count.
+  # The view is then checked against it by IDENTITY, not just by a count that the
+  # emitter's own partition would satisfy by construction.
+  expected=""; exp_n=0; exc=0; hsec=""
+  while IFS= read -r h; do
+    case "$h" in
+      '#### ['*)
+        case "$hsec" in
+          *Done*) exc=$((exc + 1)) ;;
+          *)      expected="$expected$h"$'\n'; exp_n=$((exp_n + 1)) ;;
+        esac ;;
+      '### '*) hsec="$h" ;;
+      '## '*)  hsec="" ;;
+    esac
+  done < <(_cat "$TASKS" | grep -E '^(## |### |#### \[)')
+  [ $((exp_n + exc)) -eq "$total" ] || fail "TASKS count: non-Done $exp_n + Done $exc != total $total"
+  got="$(printf '%s\n' "$out" | grep -E '^#### \[')"$'\n'
+  [ "$sel" -eq "$exp_n" ] || fail "TASKS count: view $sel != expected non-Done $exp_n"
+  [ "$got" = "$expected" ] || [ "$exp_n" -eq 0 ] || fail "TASKS view entry headings differ from the independent non-Done scan"
   # Duplicate-HEADING check only (a prose body reference like "supersedes
   # [TASK-071]" is NOT a duplicate — match the heading-scoped form, as doctor Check 6 does).
   dupe=$(grep -oE '^#### \[(TASK|BUG)-[0-9]+\]' "$TASKS" | grep -oE '\[(TASK|BUG)-[0-9]+\]' | sort | uniq -d | head -1)

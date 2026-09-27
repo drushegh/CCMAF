@@ -64,8 +64,10 @@ Run `bash .claude/framework/advisors/verify-sol.sh sol <topic> <NONCE>`.
 
 ## Step 5 — Continue or close
 For another turn, repeat Steps 3–4 with a NEW background run + NEW nonce (continuity lives in
-`conversation.md`). The `.run-sol/` scratch (incl. the ephemeral token copy) is scrubbed by the
-driver on exit; the workbench stays (git-ignored) for the next `/sol`.
+`conversation.md`). Only the ephemeral codex home (incl. the OAuth token copy) is scrubbed by the
+driver on exit — it lives in a private temp dir outside the repo, never in `.run-sol/`. The
+`.run-sol/` run artefacts (`last.txt`, `session.jsonl`, `status`, …) persist, overwritten by the
+next run; they and the rest of the workbench stay (git-ignored) for the next `/sol`.
 
 ## Guards recap
 1. **Fresh-run-only** (no `codex exec resume`). 2. **Model + effort are registry config**, pinned

@@ -162,15 +162,25 @@ hook_enabled() {
 # against the bundled v1 hooks, two conflicting update mechanisms firing
 # in one session (CORE-DESIGN §0). `migrate-v2.sh` / `/ccmaf:init` writing
 # the v2 line is the single switch that turns core on in a project;
-# presence of the file alone must never do it. This is the opposite
-# gating rule from the kernel/devhooks plugins, which correctly gate on
-# bare presence — deferring in BOTH v1 and v2 projects is right for them,
-# just not for core, which must stay dark until a project has actually
-# migrated.
+# presence of the file alone must never do it. The sibling plugins gate
+# differently, each for its own reason: the kernel defers on bare presence
+# (any CCMAF project, v1 or v2, already has core or the bundled v1 hooks
+# covering it), while devhooks defers only in a v1 project (presence AND
+# no v2 line — the bundled v1 copies still run there) and stays live in v2
+# projects and non-CCMAF repos. Core alone must stay dark until a project
+# has actually migrated.
 #
 # Every core hook calls `core_active || exit 0` as its first effective
 # act after sourcing this lib, so it is a silent no-op in v1 projects and
-# in any non-CCMAF repo.
+# in any non-CCMAF repo. Hooks that must still work if this lib fails to
+# load carry an inline fallback copy of this function — keep its regex
+# IDENTICAL to the one below (`grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2'`).
+#
+# Project root: once core_active has passed, the v2 marker is known to
+# live at ${CLAUDE_PROJECT_DIR:-.}/.claude, so every core hook resolves its
+# root as "${CLAUDE_PROJECT_DIR:-$PWD}" — never `git rev-parse
+# --show-toplevel`, which in a nested project (monorepo sub-dir) points at
+# a DIFFERENT .claude/ than the one this gate just checked.
 core_active() {
   local f="${CLAUDE_PROJECT_DIR:-.}/.claude/.framework-version"
   [ -f "$f" ] && grep -Eq '^[[:space:]]*FRAMEWORK_LINE=v2' "$f" 2>/dev/null
@@ -295,3 +305,55 @@ node_project_dir_for() {
   fi
   nearest_package_json_dir "$(dirname "$f")" "$ceiling"
 }
+
+# Portable timeout — canonical copy of this block (and kv_file_get below).
+# Scripts source this file when they can and keep a byte-identical inline
+# fallback when they must run standalone; tests/shared_helpers_drift.bats
+# enforces every copy identical to this one.
+# >>> run_tmo
+_TMO_BIN=""
+if command -v timeout >/dev/null 2>&1; then _TMO_BIN=timeout
+elif command -v gtimeout >/dev/null 2>&1; then _TMO_BIN=gtimeout
+fi
+run_tmo() { # <secs> <cmd> [args...] — exit 124 when killed at the budget
+  local secs="$1"; shift
+  if [ -n "$_TMO_BIN" ]; then "$_TMO_BIN" "$secs" "$@"; return $?; fi
+  if command -v perl >/dev/null 2>&1; then
+    # fork+wait (not alarm+exec: an alarm does not survive exec on every
+    # platform); the child leads its own process group so on expiry TERM
+    # then KILL reach grandchildren too (a surviving grandchild would hold a
+    # $(...) pipe open past the budget), and exit 124 like GNU timeout.
+    perl -e 'my $t = shift; my $pid = fork; defined $pid or exit 127;
+      if (!$pid) { setpgrp(0, 0); exec { $ARGV[0] } @ARGV or exit 127 }
+      setpgrp($pid, $pid);
+      $SIG{ALRM} = sub { kill "TERM", -$pid; sleep 1; kill "KILL", -$pid; exit 124 };
+      alarm $t; waitpid($pid, 0);
+      exit(($? & 127) ? 128 + ($? & 127) : $? >> 8)' "$secs" "$@"
+    return $?
+  fi
+  "$@"
+}
+# <<< run_tmo
+
+# >>> kv_file_get
+kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if absent
+  # Never sources the file (it may be project-owned and committed — sourcing
+  # would execute arbitrary shell from any clone). CRLF-safe; the LAST
+  # assignment wins; an optional `export ` prefix is accepted. A value that
+  # starts with a quote runs to its matching close quote (so `KEY="a b"  #
+  # note` is `a b`); an unquoted value ends at the first whitespace followed
+  # by `#` (`KEY=x   # OPTIONAL` is `x`), trailing whitespace trimmed.
+  local _line _val
+  _line=$(tr -d '\r' < "$1" 2>/dev/null \
+    | grep -E "^[[:space:]]*(export[[:space:]]+)?$2=" | tail -1)
+  [ -n "$_line" ] || return 1
+  _val="${_line#*=}"
+  case "$_val" in
+    \"*) _val="${_val#\"}"; _val="${_val%%\"*}" ;;
+    \'*) _val="${_val#\'}"; _val="${_val%%\'*}" ;;
+    *) _val="${_val%%[[:space:]]#*}"
+       _val="${_val%"${_val##*[![:space:]]}"}" ;;
+  esac
+  printf '%s' "$_val"
+}
+# <<< kv_file_get

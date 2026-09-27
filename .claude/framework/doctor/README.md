@@ -15,6 +15,7 @@ file when any invariant is broken.
 
 | # | Check | Severity if broken | Why it matters |
 | --- | --- | --- | --- |
+| — | v2 migration state (`legacy-layout`, TASK-166; runs FIRST; skipped in the framework dev repo): a migration tombstone with no `FRAMEWORK_LINE=v2`, or `FRAMEWORK_LINE=v2` while this bundled v1 doctor still runs | CRITICAL (interrupted migration) / WARNING (both lines active) | A half-migrated tree makes the later checks fire misleading per-path CRITICALs — the one correct diagnosis must lead |
 | 1 | Hook scripts in `settings.json` exist on disk | CRITICAL | Missing file = hook silently doesn't fire |
 | 1 | Hook scripts on disk are referenced in `settings.json` | WARNING | Dead code — either wire it or delete it |
 | 2 | Markdown cross-references in framework docs resolve to real files | WARNING | Dead links are invisible until someone clicks |
@@ -30,6 +31,8 @@ file when any invariant is broken.
 | 12 | Root `GOTCHAS.md` / `FRAMEWORK-SUGGESTIONS.md` free of leaked upstream framework-dev entries | WARNING | Pre-2026-06-10 clones inherited the upstream repo's own dev notes (TASK-027 leak) — noise that misleads every session reading state files |
 | 13 | State-file structural grammar (TASKS/DECISIONS/GOTCHAS/ECOSYSTEM: lane headings, status-section placement, lane routing, the middot separator, the Confidence marker, contract status enum) | WARNING (INFO for the telemetry frozen-keys sub-check) | Drift here SILENTLY drops entries from downstream machine-readers — a task vanishes from a board, a decision's Status won't parse, a contract goes undetected |
 | 14 | Reconcile cadence: N tasks entered Done since `.last-reconcile`'s mtime, N >= `RECONCILE_DUE_THRESHOLD` (default 5) | NAG | The horizontal auditor (duplicate/seam/contract/convention drift) is falling behind the vertical build cadence — nothing else notices this gap |
+| 15 | Board ↔ reality coherence (`contract:board-coherence`): Verify tasks with no verify seed (Console opt-in), orphan seeds, a base ID in >1 lifecycle column, a Ready-for-Review pile-up | WARNING (NAG for the pile-up) | The Stop hook proves state files were *touched*, not *truthful* — this is the drift `/board-heal` restores. Detect-only; never writes TASKS.md or seeds |
+| 16 | State-file size budgets vs `state-budgets.conf` (or `.claude/state-budgets.local.conf`) | WARNING at >=80% and when OVER (never CRITICAL — a doctor CRITICAL halts unattended runs, and size is recoverable) | Unbounded state files end up "too large to include" at boot. The finding names a per-file remedy: `rotate-state.sh` for TASKS/DECISIONS; the `/housekeeping` steps for STATUS, GOTCHAS and `claude-progress.txt` (rotate-state.sh doesn't rotate those) |
 
 ## Running it
 

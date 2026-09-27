@@ -21,7 +21,10 @@ set -euo pipefail
 #   <brief-file> a file containing the image brief (the command stages this).
 #
 # Writes bookkeeping to _advisors/.imageruns/<slug>/ (git-ignored) and the image to <outdir>.
-# Prints, and records in .../status: OK <path> | TIMEOUT | ERROR | UNAVAILABLE.
+# Prints, and records in .../status: OK <path> | TIMEOUT | ERROR | UNAVAILABLE (RUNNING while in
+# flight — reset at start, with an ERR trap, so a previous run's OK never survives this one).
+# An existing <outdir>/<slug>.png is MOVED ASIDE (not deleted) before generating and restored
+# on any failure, so a failed regeneration never loses the current master.
 #
 # Verified mechanism (TERRA-IMAGEGEN-RECIPE, 2026-07-15, codex-cli 0.144.1, Windows). Gen takes
 # ~1.5-3 min (past a 2-min foreground cap) so the call is BACKGROUNDED with a hard timeout and a
@@ -43,6 +46,11 @@ run_dir="$repo/_advisors/.imageruns/$slug"
 mkdir -p "$run_dir"
 
 status() { printf '%s\n' "$1" > "$run_dir/status"; printf 'codex-image-run: %s\n' "$1"; }
+# Reset FIRST — a stale OK from an earlier run must never survive a run that dies early.
+status "RUNNING started $(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || true)"
+# Any unexpected strict-mode death still leaves a truthful, non-OK status behind.
+# shellcheck disable=SC2154  # _rc is assigned inside the trap body itself
+trap '_rc=$?; status "ERROR unexpected failure (rc=$_rc) near line $LINENO — see stderr"' ERR
 
 # ── Registry bootstrap (first use) + resolution (codex-only) ─────────────────────────────
 # Standalone repos start with NO registry anywhere; create the live one from the shipped
@@ -67,20 +75,63 @@ if ! bash "$CODEX_PREFLIGHT" > "$run_dir/preflight.txt" 2>&1; then
   cat "$run_dir/preflight.txt"
   status "UNAVAILABLE preflight FAILED — see $run_dir/preflight.txt (codex not ready)"; exit 3
 fi
-CODEX="${CODEX_BIN:-$(command -v codex)}"
-
 # ── The REAL codex home (the imagegen skill lives there — NOT an ephemeral copy) ──────────
 real_home="${CODEX_HOME:-$HOME/.codex}"
+# Resolve the binary EXACTLY as the preflight just did: CODEX_BIN → PATH → the cache copy
+# (the preflight passes, with a WARN, on the cache copy alone — so must we).
+CODEX="${CODEX_BIN:-}"
+[[ -n "$CODEX" ]] || CODEX="$(command -v codex 2>/dev/null || true)"
+if [[ -z "$CODEX" && -x "$real_home/.sandbox-bin/codex.exe" ]]; then
+  CODEX="$real_home/.sandbox-bin/codex.exe"
+fi
+if [[ -z "$CODEX" ]]; then
+  status "UNAVAILABLE codex binary not resolvable (CODEX_BIN unset, not on PATH, no cache copy)"; exit 3
+fi
 if [[ ! -e "$real_home/skills/.system/imagegen/SKILL.md" ]]; then
   # Not fatal — some builds resolve the skill differently — but warn so a missing skill is visible.
   printf 'codex-image-run: WARNING imagegen skill not found under %s/skills/.system/imagegen (may still resolve)\n' "$real_home" >&2
 fi
 
 # ── Output dir (workspace-write is scoped to this) + the deterministic target path ────────
-mkdir -p "$outdir"
-outdir_abs="$(cd "$outdir" && pwd)"
+mkdir -p "$outdir" 2>/dev/null || { status "ERROR cannot create output dir: $outdir"; exit 2; }
+outdir_abs="$(cd "$outdir" 2>/dev/null && pwd)" || { status "ERROR cannot enter output dir: $outdir"; exit 2; }
 target="$outdir_abs/$slug.png"
-rm -f "$target"
+# Move an existing master ASIDE (never delete it up front): the target must be absent so a
+# stale file is never mistaken for this run's output, but any failure below restores it.
+backup=""
+done_ok=0
+codex_pid=""
+_restore_master() {
+  if [[ "$done_ok" -ne 1 && -n "$backup" && -f "$backup" ]]; then
+    if mv -f "$backup" "$target" 2>/dev/null; then
+      printf 'codex-image-run: restored the previous %s (this run did not replace it)\n' "$target" >&2
+    fi
+  fi
+}
+_interrupted() {
+  if [[ -n "$codex_pid" ]]; then kill -TERM "$codex_pid" 2>/dev/null || true; fi
+  status "ERROR interrupted (signal) — image run aborted"
+}
+trap _restore_master EXIT
+trap '_interrupted; exit 129' HUP
+trap '_interrupted; exit 130' INT
+trap '_interrupted; exit 143' TERM
+# A run killed hard (SIGKILL / crash — no EXIT trap) can leave the master moved aside with the
+# target absent. Put the newest such orphan back FIRST so it is treated as the existing master
+# below and is restored again if this run fails too — a moved-aside master is never stranded.
+if [[ ! -e "$target" ]]; then
+  orphan="$(ls -t "$run_dir/previous-$slug.png" "$run_dir/previous-$slug."*.png 2>/dev/null | head -n 1 || true)"
+  if [[ -n "$orphan" && -f "$orphan" ]]; then
+    mv -f "$orphan" "$target" \
+      || { status "ERROR cannot restore the orphaned $orphan to $target"; exit 2; }
+    printf 'codex-image-run: restored an orphaned previous master from a killed run -> %s\n' "$target" >&2
+  fi
+fi
+if [[ -e "$target" ]]; then
+  # Timestamped (+ PID): a move-aside never overwrites an orphan left by an earlier killed run.
+  backup="$run_dir/previous-$slug.$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo 0).$$.png"
+  mv -f "$target" "$backup" || { status "ERROR cannot move the existing $target aside"; exit 2; }
+fi
 
 # ── Build the prompt: use image_gen, save to the exact path, honour the copy-zone contract ─
 prompt="$(cat <<PROMPT
@@ -151,7 +202,7 @@ if [[ -s "$target" ]]; then
   saved="$target"
 else
   # The model may have written elsewhere; trust its reported path if it exists.
-  reported="$(grep -aE '^SAVED:' "$run_dir/last.txt" 2>/dev/null | tail -1 | sed 's/^SAVED:[[:space:]]*//')"
+  reported="$(grep -aE '^SAVED:' "$run_dir/last.txt" 2>/dev/null | tail -1 | sed 's/^SAVED:[[:space:]]*//' || true)"
   if [[ -n "$reported" && -f "$reported" ]]; then
     cp -f "$reported" "$target" 2>/dev/null && saved="$target" || saved="$reported"
   fi
@@ -160,7 +211,7 @@ if [[ -z "$saved" ]]; then
   # Fallback: built-in mode may leave it under $CODEX_HOME/generated_images/<session>/ un-moved.
   # Constrain to files created AFTER this run started (preflight.txt is the run-start marker) —
   # a stale image from an earlier session must never be reported as this run's output.
-  newest="$(find "$real_home/generated_images" -type f \( -iname '*.png' -o -iname '*.webp' -o -iname '*.jpg' \) -newer "$run_dir/preflight.txt" 2>/dev/null | sort | tail -1)"
+  newest="$(find "$real_home/generated_images" -type f \( -iname '*.png' -o -iname '*.webp' -o -iname '*.jpg' \) -newer "$run_dir/preflight.txt" 2>/dev/null | sort | tail -1 || true)"
   if [[ -n "$newest" && -f "$newest" ]]; then
     cp -f "$newest" "$target" 2>/dev/null && saved="$target" || saved="$newest"
   fi
@@ -170,6 +221,12 @@ if [[ -z "$saved" ]]; then
   status "ERROR codex finished (rc=0) but no image was found — see $run_dir/last.txt / err.txt"
   exit 5
 fi
+# The master was replaced → drop the moved-aside copy. (If the image could only be left at the
+# model's reported path, the EXIT trap puts the previous master back at the target instead.)
+if [[ "$saved" == "$target" ]]; then
+  done_ok=1
+  if [[ -n "$backup" ]]; then rm -f "$backup"; fi
+fi
 
 # ── Auto-emit a compressed WebP sibling (Pillow-guarded; opt-out CLAUDE_IMAGE_NO_WEBP=1) ──
 # Built-in mode emits multi-MB PNG; READMEs/docs want a ~KB webp. Emit one next to the PNG so
@@ -177,8 +234,14 @@ fi
 # a missing Python/Pillow just skips it — never fails the run.
 webp=""
 if [[ "$saved" == *.png && "${CLAUDE_IMAGE_NO_WEBP:-0}" != 1 ]]; then
-  _py="$(command -v python3 || command -v python || true)"
-  if [[ -n "$_py" ]] && "$_py" -c 'import PIL' >/dev/null 2>&1; then
+  # Probe by executing — `python3` may be the Windows Store stub (BUG-032).
+  _py=""
+  for _cand in python3 python; do
+    if command -v "$_cand" >/dev/null 2>&1 && "$_cand" -c 'import PIL' >/dev/null 2>&1; then
+      _py="$_cand"; break
+    fi
+  done
+  if [[ -n "$_py" ]]; then
     webp="${saved%.png}.webp"
     "$_py" - "$saved" "$webp" >/dev/null 2>&1 <<'PYEOF' || webp=""
 import sys

@@ -10,7 +10,8 @@
 #      directly if installed, else via `npx bats` if Node is present.
 #   2. console-resolver.smoke.mjs — plain-Node smoke for tools/console.mjs's
 #      resolver order (no bats harness needed for this one).
-#   3. shellcheck static analysis over hooks + framework shell scripts.
+#   3. shellcheck static analysis over hooks + framework + tools shell scripts
+#      (+ plugins/ in the framework dev repo).
 #
 # Exit codes:
 #   0 — all present tools passed (or were skipped because absent)
@@ -73,15 +74,20 @@ echo
 
 # --- Layer 3: shellcheck static analysis -----------------------------
 if command -v shellcheck >/dev/null 2>&1; then
-  echo "== shellcheck: hooks + framework + tools shell scripts =="
+  echo "== shellcheck: hooks + framework + tools (+ plugins) shell scripts =="
   # F6 fix: tools/ added — tools/console.sh is a manifest-listed,
   # framework-owned script (framework-manifest.txt) that lived outside the
   # two originally-scanned directories and so was never linted, locally or
   # in CI. Scope now covers every framework shell script, not just the two
   # directories that happened to hold all of them at the time this was
   # written.
+  # plugins/ added: the v2 plugin scripts (plugins/<name>/**/*.sh) are the
+  # LIVE workflow and were never linted. Gated on plugins/ccmaf so a
+  # consumer's own unrelated plugins/ dir is not swept in.
+  lint_roots=("$REPO_ROOT/.claude/hooks" "$REPO_ROOT/.claude/framework" "$REPO_ROOT/tools")
+  [ -d "$REPO_ROOT/plugins/ccmaf" ] && lint_roots+=("$REPO_ROOT/plugins")
   mapfile -t sh_files < <(
-    find "$REPO_ROOT/.claude/hooks" "$REPO_ROOT/.claude/framework" "$REPO_ROOT/tools" \
+    find "${lint_roots[@]}" \
       -type f -name '*.sh' -not -path '*/tests/fixtures/*' 2>/dev/null | sort
   )
   if [ ${#sh_files[@]} -gt 0 ]; then

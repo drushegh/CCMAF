@@ -53,8 +53,9 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
 ## Step 3 — Choose the slug + output dir
 - Derive a short kebab **`<slug>`** from the brief (e.g. `mountain-sunset-hero`).
 - **Output dir** defaults to **`docs/images/`** (created if absent) — keep source masters there.
-  If the user named a target directory/path in the brief, honour it. `workspace-write` is scoped
-  to this dir, so the model can only write there.
+  If the user named a target directory/path in the brief, honour it. Call the chosen dir
+  **`<out-dir>`** — Step 5 passes it to the runner. `workspace-write` is scoped to this dir, so the
+  model can only write there.
 
 ## Step 4 — Stage the brief
 Write the brief text (Step 1's remainder) to `_advisors/.imageruns/<slug>/brief.txt`. Ensure
@@ -64,7 +65,8 @@ the text sits and pin that region as the darkest part of the frame — or overla
 is a coin-flip (the runner's prompt nudges this, but the brief is where it belongs).
 
 ## Step 5 — Run (FRESH, BACKGROUND)
-`bash .claude/framework/advisors/codex-image-run.sh <advisor> docs/images <slug> _advisors/.imageruns/<slug>/brief.txt`
+`bash .claude/framework/advisors/codex-image-run.sh <advisor> <out-dir> <slug> _advisors/.imageruns/<slug>/brief.txt`
+(`<out-dir>` = Step 3's output dir — `docs/images` unless the user named another)
 via your Bash tool with **`run_in_background: true`** — generation takes ~1.5–3 min, past the
 Bash tool's 600s foreground cap (same reason `/sol` backgrounds). The runner has its own hard
 `timeout` and a tree-scoped straggler reap. Never `codex exec resume`.

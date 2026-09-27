@@ -45,9 +45,21 @@ fi
 flag="$root/.claude/.framework-doctor-findings.md"
 if [ -f "$flag" ] && head -n 10 "$flag" | grep -Eq '\*\*Findings:\*\*[[:space:]]+[1-9][0-9]*[[:space:]]+CRITICAL'; then
   case "$tool" in
-    Read|Glob|Grep|WebFetch|WebSearch|TodoWrite|TaskOutput|ToolSearch|Skill|Monitor)
+    Read|Glob|Grep|WebFetch|WebSearch|TodoWrite|TaskOutput|ToolSearch|Skill)
       # Read-only / harness-internal tools stay available so the model can
-      # triage and report; everything else is fail-safe denied.
+      # triage and report; everything else is fail-safe denied. Keep this
+      # list to tools that can neither execute commands nor write files:
+      # Monitor is deliberately ABSENT — its `command` field runs an
+      # arbitrary shell script in the Bash environment, so allowing it would
+      # let any denied Bash action through unchanged. Skill stays allowed
+      # with a KNOWN residual risk: a skill may run inline !`command`
+      # preprocessing at load time, which never passes through a PreToolUse
+      # Bash/Monitor call. That is accepted because those commands are fixed,
+      # installed skill content (not model-authored — the model can only pick
+      # which skill loads, not what its preprocessing runs), and every tool
+      # call the loaded instructions then lead to is still screened here.
+      # Drop Skill from this list if an installed skill's preprocessing can
+      # mutate state.
       exit 0
       ;;
     *)
