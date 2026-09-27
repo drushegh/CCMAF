@@ -227,6 +227,7 @@ seed_state_commit() {
 # ---------- publish: exec bit carried across ----------
 
 @test "U14 publish: _copy_normalized keeps the source exec bit" {
+  [ -f "$FW_REPO_ROOT/tools/publish.sh" ] || skip "tools/publish.sh is dev-repo only"
   [ "$(uname -s | cut -c1-5)" != "MINGW" ] && [ "$(uname -s | cut -c1-4)" != "MSYS" ] || skip "exec bits not modelled on Git Bash"
   local fn
   fn=$(sed -n '/^_copy_normalized() {/,/^}/p' "$FW_REPO_ROOT/tools/publish.sh")
@@ -239,6 +240,7 @@ seed_state_commit() {
 }
 
 @test "U14 publish: a dir mirror ships only TRACKED files (untracked + ignored are skipped)" {
+  [ -f "$FW_REPO_ROOT/tools/publish.sh" ] || skip "tools/publish.sh is dev-repo only"
   local fn PROJECT_ROOT target
   for fn in _copy_normalized _tracked_files _apply_dir _report_dir _files_differ; do
     eval "$(sed -n "/^$fn() {/,/^}/p" "$FW_REPO_ROOT/tools/publish.sh")"

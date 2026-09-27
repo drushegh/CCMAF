@@ -175,12 +175,20 @@ _ckpt() {  # _ckpt <sid>
 
 @test "U12 statusline: caches context % per session_id" {
   command -v jq >/dev/null 2>&1 || skip "jq not available"
-  run bash "$FW_REPO_ROOT/.claude/statusline.sh" <<<"{\"session_id\":\"abc-1\",\"context_window\":{\"used_percentage\":42},\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$REPO\"}}"
+  run bash "$FW_REPO_ROOT/.claude/hooks/statusline.sh" <<<"{\"session_id\":\"abc-1\",\"context_window\":{\"used_percentage\":42},\"model\":{\"display_name\":\"Opus\"},\"workspace\":{\"current_dir\":\"$REPO\"}}"
   [ "$status" -eq 0 ]
   [[ "$output" == ctx:42%* ]]
   grep -q '^PCT=42$' "$REPO/.claude/telemetry/.context-pct.abc-1"
   # Legacy unkeyed copy still written for pre-keying readers (the v2 plugin hook).
   grep -q '^PCT=42$' "$REPO/.claude/telemetry/.context-pct"
+}
+
+@test "U12 statusline: dev-repo .claude/statusline.sh matches the shipped hooks/statusline.sh" {
+  # .claude/statusline.sh is this dev repo's live statusline (not manifest-
+  # carried); the shipped v1 source is .claude/hooks/statusline.sh. A fix made
+  # in only one copy (the U12 keyed-cache miss) must fail here.
+  [ -f "$FW_REPO_ROOT/.claude/statusline.sh" ] || skip ".claude/statusline.sh is dev-repo only"
+  cmp -s "$FW_REPO_ROOT/.claude/statusline.sh" "$FW_REPO_ROOT/.claude/hooks/statusline.sh"
 }
 
 @test "U12 checkpoint-watermark: unkeyed cache ignored once a keying statusline is in use" {
