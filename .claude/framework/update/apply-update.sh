@@ -789,6 +789,17 @@ if [ -f "$_merge_helper" ] && [ -f "$_canon_settings" ] && [ -f "$PROJECT_ROOT/.
   [ -n "$_pinned_settings" ] && rm -f "$_pinned_settings"
 fi
 
+# Prune redundant Write(X) deny rules that have an exact Edit(X) twin (BUG-033 /
+# TASK-192 — the one named exception to "updates never write settings.json"):
+# Claude Code warns at startup on every Write(...) rule and the Edit twin already
+# covers Write. Removes only those twins; refuses (file untouched) on any doubt.
+# Fail-soft: a refusal or failure warns and never aborts the update.
+_prune_helper="$PROJECT_ROOT/.claude/framework/update/prune-write-deny.sh"
+if [ -f "$_prune_helper" ] && [ -f "$PROJECT_ROOT/.claude/settings.json" ]; then
+  bash "$_prune_helper" "$PROJECT_ROOT/.claude/settings.json" \
+    || echo "apply-update: WARNING — prune-write-deny.sh could not prune settings.json (see above); update continues." >&2
+fi
+
 # Update .framework-version: new pinned SHA, refresh last-checked.
 # mktemp -p alongside the destination (audit minor a): mktemp's default
 # (system temp — C: on Windows) plus `mv` to a project-drive file is a

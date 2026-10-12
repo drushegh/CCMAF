@@ -65,6 +65,8 @@
 #  17. Hook admission budget: routes post-edit hooks' skip `reason` telemetry
 #      (tool-ineligible at volume -> WARNING; ~100% no-tool -> NAG, two-branch).
 #  18. Project-local agents whose `tools:` allowlist omits Skill (INFO).
+#  19. settings.json deny has Write(X) rules with an Edit(X) twin (WARNING —
+#      Claude Code startup warnings; /ccmaf:update prunes them, TASK-192).
 #  (Audit 2026-10-12 additions inside existing checks: Check 13 flags task
 #  headings inside HTML comments and duplicate ECOSYSTEM.md contract anchor
 #  IDs; Check 15 validates verify-seed schema and is archive-aware.)
@@ -1284,6 +1286,24 @@ check_agent_skill_tool() {
   add_finding "INFO" "agent-skills" "Project agents with a \`tools:\` allowlist that omits \`Skill\`: ${lacking% } — these subagents cannot load any skill (the allowlist silently drops the Skill tool). Fix: add \`Skill\` to each agent's \`tools:\` line, unless the restriction is deliberate."
 }
 
+# --- Check 19: redundant Write(...) deny rules (BUG-033, TASK-192) -----
+# Claude Code prints a startup warning for every Write(path) permission rule
+# (only Edit(path) rules are matched, and they cover Write). Pre-bd6d8ca
+# scaffolds shipped 13 Write(X) deny rules, each with an Edit(X) twin. Cheap
+# grep scan of the deny block (from the "deny" key to the first line holding
+# a "]") — no jq dependency. Fix path: /ccmaf:update (prune-write-deny.sh).
+check_write_deny_twins() {
+  [ -f "$SETTINGS_FILE" ] || return 0
+  local n
+  n=$(awk '/"deny"[ \t]*:/ { f = 1 } f { print } f && /\]/ { exit }' "$SETTINGS_FILE" 2>/dev/null \
+    | { grep -oE '"(Write|Edit)\(([^"\\]|\\.)*\)"' || true; } \
+    | awk '/^"Edit\(/ { e[substr($0, 7)] = 1; next }
+           /^"Write\(/ { w[substr($0, 8)] = 1 }
+           END { c = 0; for (k in w) if (k in e) c++; print c }')
+  [ "${n:-0}" -gt 0 ] || return 0
+  add_finding "WARNING" "settings-write-deny" "$n redundant Write(...) deny rules cause Claude Code startup warnings — run /ccmaf:update (or bash ${CLAUDE_PLUGIN_ROOT:-<plugin>}/update/prune-write-deny.sh). Each has an identical Edit(...) twin, which already covers Write."
+}
+
 # --- Run all checks --------------------------------------------------
 _DOCTOR_START=$(_dnow_ms)
 _run check_hooks
@@ -1303,6 +1323,7 @@ _run check_board_coherence
 _run check_state_budgets
 _run check_hook_admission_budget
 _run check_agent_skill_tool
+_run check_write_deny_twins
 
 if [ "$DOCTOR_PROFILE" = 1 ]; then
   printf 'PROFILE %-26s %6s ms (total)\n' "ALL-CHECKS" "$(( $(_dnow_ms) - _DOCTOR_START ))" >&2

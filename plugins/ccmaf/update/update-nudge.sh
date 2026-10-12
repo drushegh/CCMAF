@@ -75,6 +75,26 @@ TELEMETRY_DIR="$PROJECT_ROOT/.claude/telemetry"
 THROTTLE="$TELEMETRY_DIR/.last-plugin-update-nudge"
 UPDATE_NUDGE_INTERVAL_DAYS="${UPDATE_NUDGE_INTERVAL_DAYS:-7}"
 
+# Scaffold-rev lag (TASK-192): unlike plugin freshness this IS a known local
+# diff — the project's SCAFFOLD_REV vs the installed plugin's shipped
+# templates/.scaffold-rev — so it is reported on every cold start, ahead of
+# (and independent of) the cadence throttle. Without this line nothing at
+# boot told a project that /ccmaf:update had a scaffold delta to apply.
+_ver_file="$PROJECT_ROOT/.claude/.framework-version"
+_shipped_file="$(dirname "${BASH_SOURCE[0]}")/../templates/.scaffold-rev"
+if [ -f "$_ver_file" ] && [ -f "$_shipped_file" ] \
+   && grep -q '^FRAMEWORK_LINE=v2' "$_ver_file" 2>/dev/null; then
+  _proj_rev="$(grep -m1 '^SCAFFOLD_REV=' "$_ver_file" 2>/dev/null | cut -d= -f2 | tr -d '\r[:space:]')"
+  _ship_rev="$(head -n 1 "$_shipped_file" 2>/dev/null | tr -d '\r[:space:]')"
+  case "$_proj_rev$_ship_rev" in
+    ''|*[!0-9]*) ;;  # missing/non-numeric: doctor Check 5 owns that
+    *)
+      if [ "$_proj_rev" -lt "$_ship_rev" ]; then
+        echo "scaffold update available: this project is at scaffold rev $_proj_rev, the installed ccmaf plugin ships rev $_ship_rev — run /ccmaf:update to apply it."
+      fi ;;
+  esac
+fi
+
 if [ -f "$THROTTLE" ]; then
   now_e=$(date -u +%s)
   last_e=$(date -u -r "$THROTTLE" +%s 2>/dev/null || stat -c '%Y' "$THROTTLE" 2>/dev/null || echo 0)

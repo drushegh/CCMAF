@@ -10,6 +10,6 @@ FRAMEWORK_LINE=v2
 # update`, never this file. The value below is a FALLBACK ONLY — /ccmaf:init
 # stamps this line from templates/.scaffold-rev at write time (single source
 # of truth; round-2 review caught the two files diverging).
-SCAFFOLD_REV=2
+SCAFFOLD_REV=3
 # Upstream reference (migration provenance + where to file feedback).
 FRAMEWORK_UPSTREAM_URL=https://github.com/drushegh/CCMAF

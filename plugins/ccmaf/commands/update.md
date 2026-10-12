@@ -36,6 +36,16 @@ out, say so and continue; never block on it.)
     `/ccmaf:update` (CORE-DESIGN §7: settings changes are suggestions,
     never auto-merged, at update time; first-time `/ccmaf:init` still
     merges as normal).
+  - **The single named exception — redundant `Write(...)` deny pruning
+    (rev 3, TASK-192).** When the project rev is < 3, run
+    `bash ${CLAUDE_PLUGIN_ROOT}/update/prune-write-deny.sh` and print its
+    output in the report. It REMOVES only `"Write(X)"` entries in
+    `permissions.deny` whose exact `"Edit(X)"` twin is in the same list
+    (Claude Code warns at startup on every `Write(...)` rule; the Edit twin
+    already covers Write) — it adds nothing and touches nothing else. Exit
+    0 = pruned / nothing to prune; exit 1 = it refused (file left
+    byte-identical) — print its manual instruction and continue the sync.
+    No other settings change is ever written by this command.
   - **Missing-piece flow (tombstone write side).** Steps 1/4 already
     respect `.claude/.scaffold-removed` tombstones (read side: a listed
     path is reported TOMBSTONED and never recreated). For a Step 1/4 path
