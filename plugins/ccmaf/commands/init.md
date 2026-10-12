@@ -43,6 +43,30 @@ consumer content.
    2026-08-10: an init launched from System32 went hunting through the
    user's OneDrive for `.claude` folders.)
 
+## Brownfield adoption (an existing project)
+
+Init is an overlay: it adds files and never overwrites. That makes it safe
+on a repo that already has code, history and its own conventions. On a
+brownfield repo:
+
+- **Don't move the app.** `01_Project/` is a default, not a requirement.
+  Leave the code where it is and record the real layout instead: the
+  run/test/build commands in `CLAUDE.md`, and the source/test dirs in
+  `.claude/healthcheck.conf` if auto-detect guesses wrong.
+- **Existing `CLAUDE.md` and `.claude/`** are kept. Settings are merged
+  (Step 1.3), and an existing project command shadows its alias (Step 4).
+  Read the init report's SKIPPED lines to see what was kept.
+- **`.gitignore`** is appended to, never rewritten (Step 1.7).
+- **Seed the board from the work in flight**, not from scratch: run
+  `/ccmaf:plan` on the current backlog or roadmap, and `/ccmaf:bug` for
+  known defects. Don't backfill delivered history as tasks. If shipped
+  features need human sign-off, `/ccmaf:board-heal` (with
+  `verify-handback.md`'s retroactive path) turns them into Verify stories.
+- Fill in `docs/code-conventions.md` from the code that exists. Agents
+  follow the codebase's patterns until it is populated.
+- Check Step 1.8 (subdir apps) and Step 1.9 (dev-server ports). Older
+  repos are the ones most likely to need them.
+
 ## Step 1 — write the scaffold (report every path as CREATED / SKIPPED / MERGED)
 
 Templates live at `${CLAUDE_PLUGIN_ROOT}/templates/`. Rules: existing files
@@ -102,7 +126,27 @@ absence just means "not created yet".
    all-`pending` seeds. Say so in the init report; a user who wants them to
    travel replaces that entry with `.claude/console/*`,
    `!.claude/console/verify/`, `!.claude/console/comments/` and commits them.
-8. The **activation switch is NOT written here** — it is the last write of
+8. **Integration gate for an app in a subdirectory.** The build integration
+   gate only dispatches on a stack manifest at the repo ROOT. If the root
+   has none but one sits 2–3 levels down (`find . -mindepth 2 -maxdepth 3`
+   for `package.json` / `pyproject.toml` / `go.mod` / `Cargo.toml` /
+   `*.csproj`, skipping `node_modules/` and `.git/`, the same probe the gate
+   uses), the gate is a loud NO-OP that proves nothing. If
+   `.claude/integration-gate.local.sh` is absent, CREATE it: a bash script
+   with `set -euo pipefail` that `cd`s into each app directory and runs its
+   real build + test commands, read from that manifest (`npm test`,
+   `pytest`, `dotnet test`, ...). Never write a bare `exit 0` stub, because
+   an unedited pass-stub is worse than the gate's loud NO-OP. If you can't
+   work out the commands, create nothing and put the hint in the report
+   instead: "subdir app at `<dir>`, so add `.claude/integration-gate.local.sh`".
+9. **Dev-server port hint (report only, never edit app config).** If the
+   project runs a dev server (`vite.config.*`, a `dev`/`start` script, a
+   Playwright `webServer` block), say in the report that it should pin a
+   project-unique port with `strictPort: true` (or the stack's equivalent)
+   rather than a shared default like 5173 or 3000. With a default port and
+   `reuseExistingServer`, tests can attach to a different local project's
+   server, and a busy port silently moves the app somewhere else.
+10. The **activation switch is NOT written here** — it is the last write of
    the whole run (Step 4.5, after features and aliases). Acceptance-walk
    finding 2026-08-10: writing it at the end of this step still left the
    Step-2 feature markers and Step-4 aliases AFTER activation, so a crash

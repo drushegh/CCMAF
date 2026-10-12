@@ -70,4 +70,5 @@ it when those areas come up, not preemptively.
    merge or rebase blind.
 3. If the project app should run: `bash ${CLAUDE_PLUGIN_ROOT}/scripts/start-project.sh`.
 4. Pick the highest-priority unblocked task from the board; check
-   `.claude/GOTCHAS.md` for entries in that area.
+   `.claude/GOTCHAS.md` for entries in that area (platform quirks — harness,
+   Windows, shell, git/gh — are in the plugin's `agent_docs/platform-gotchas.md`).

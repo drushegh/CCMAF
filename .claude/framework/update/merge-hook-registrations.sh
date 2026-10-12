@@ -30,10 +30,14 @@
 # the human can remove it. It never auto-removes (consumer settings are sacred;
 # the additive-only, never-rewrite guarantee above still holds).
 #
-# Usage: merge-hook-registrations.sh <consumer-settings> <canonical-settings> [pinned-canonical-settings]
+# Usage: merge-hook-registrations.sh [--dry-run] <consumer-settings> <canonical-settings> [pinned-canonical-settings]
+#   --dry-run  print how many registrations WOULD be added (and the commands);
+#              never writes the consumer settings.
 # Prints summary/advisory lines to stderr; exit 0 always (advisory, never blocks update).
 
 set -u
+DRY_RUN=0
+if [ "${1:-}" = "--dry-run" ]; then DRY_RUN=1; shift; fi
 CONSUMER="${1:-}"
 CANON="${2:-}"
 PINNED="${3:-}"   # optional — previous (pinned) canonical settings.json
@@ -99,13 +103,17 @@ if [ -n "$PINNED" ] && [ -f "$PINNED" ] && jq -e . "$PINNED" >/dev/null 2>&1; th
   [ -n "$_pinned_arg" ] || _pinned_arg="null"
 fi
 merged="$(jq --slurpfile fw "$CANON" --argjson pinned "$_pinned_arg" '
+  # Matcher normalisation (audit U2): an absent matcher and matcher:"" both mean
+  # "match everything" — one key, so a "" group never double-registers a hook
+  # that already sits in an unmatchered group (or vice versa).
+  def nm: (.matcher // "") | if . == "" then null else . end;
   ($fw[0].hooks // {}) as $fwhooks
   | ( if $pinned == null then []
       else [ $pinned | to_entries[] as $e | ($e.value // [])[]? as $g | ($g.hooks // [])[]?
-             | [$e.key, ($g.matcher // null), .command] ]
+             | [$e.key, ($g | nm), .command] ]
       end ) as $pinned_keys
   | [ $fwhooks | to_entries[] as $e | $e.value[] as $g | $g.hooks[] as $h
-      | {ev: $e.key, m: ($g.matcher // null), h: $h, cmd: $h.command}
+      | {ev: $e.key, m: ($g | nm), h: $h, cmd: $h.command}
       | select( ([.ev, .m, .cmd] as $k | $pinned_keys | index([$k])) == null ) ] as $tuples
   | reduce $tuples[] as $t (
       .;
@@ -118,12 +126,12 @@ merged="$(jq --slurpfile fw "$CANON" --argjson pinned "$_pinned_arg" '
       # registration silently masked the new one. (This also brings the
       # code in line with the (event, matcher, command) key that the
       # header comment above has always documented.)
-      if ( [ (.hooks[$t.ev] // [])[] | select((.matcher // null) == $t.m) | (.hooks // [])[] | .command ] | index($t.cmd) ) != null
+      if ( [ (.hooks[$t.ev] // [])[] | select(nm == $t.m) | (.hooks // [])[] | .command ] | index($t.cmd) ) != null
       then .                                              # same matcher already has it → skip
       else
         .hooks = (.hooks // {})
         | .hooks[$t.ev] = (.hooks[$t.ev] // [])
-        | ( .hooks[$t.ev] | map(.matcher // null) | index($t.m) ) as $gi
+        | ( .hooks[$t.ev] | map(nm) | index($t.m) ) as $gi
         | if $gi != null
           then .hooks[$t.ev][$gi].hooks = ((.hooks[$t.ev][$gi].hooks // []) + [$t.h])
           else .hooks[$t.ev] += [ (if $t.m == null then {hooks: [$t.h]} else {matcher: $t.m, hooks: [$t.h]} end) ]
@@ -142,6 +150,19 @@ added=$(( after - before ))
 
 if [ "$added" -le 0 ]; then
   echo "merge-hook-registrations: all framework hook registrations already present (or deliberately removed) — no change."
+  exit 0
+fi
+
+if [ "$DRY_RUN" -eq 1 ]; then
+  echo "merge-hook-registrations: dry run — would register $added new framework hook(s) in $CONSUMER:"
+  # List (event, matcher, command) triples, not bare commands: a command that
+  # is already registered under ANOTHER matcher and is being added under the
+  # canonical one would vanish from a command-level `$a - $b` (array
+  # subtraction drops every equal element), undercounting the listing.
+  _cmds_json() { jq -c '[.hooks // {} | to_entries[] as $e | ($e.value // [])[]? as $g | ($g.hooks // [])[]
+                        | "\(.command)  (\($e.key), matcher \($g.matcher // "" | if . == "" then "*" else . end))"]' 2>/dev/null; }
+  jq -rn --argjson b "$(_cmds_json < "$CONSUMER")" --argjson a "$(printf '%s' "$merged" | _cmds_json)" \
+    '($a - $b)[] | "  + " + .' 2>/dev/null
   exit 0
 fi
 

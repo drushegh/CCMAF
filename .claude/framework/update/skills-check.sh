@@ -167,7 +167,7 @@ kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if
 # <<< kv_file_get
 fi
 for _sv_key in SKILLS_UPSTREAM_URL SKILLS_UPSTREAM_BRANCH SKILLS_PINNED_SHA \
-               SKILLS_SELECTED SKILLS_CHECK_INTERVAL_HOURS SKILLS_LAST_CHECKED; do
+               SKILLS_SELECTED SKILLS_SECTIONS SKILLS_CHECK_INTERVAL_HOURS SKILLS_LAST_CHECKED; do
   if _sv_val=$(kv_file_get "$VERSION_FILE" "$_sv_key"); then
     printf -v "$_sv_key" '%s' "$_sv_val"
   fi
@@ -261,7 +261,7 @@ The skills upstream has new content since this project last synced.
 - **Pinned:** \`$pinned_short\`
 - **Latest:** \`$latest_short\`
 - **Upstream:** $SKILLS_UPSTREAM_URL ($SKILLS_UPSTREAM_BRANCH)
-- **Selected skills:** ${SKILLS_SELECTED:-(none selected)}
+- **Selected skills:** ${SKILLS_SELECTED:-(none selected)}${SKILLS_SECTIONS:+ (+ packs: $SKILLS_SECTIONS)}
 
 ## To update
 

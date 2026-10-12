@@ -52,10 +52,15 @@ files finish there, verified with `_fable/verify-turn.sh`; new topics always use
 > `.claude/GOTCHAS.md`, `.claude/console/`, or `CLAUDE.md` / `CLAUDE.framework.md`. You ARE
 > free to use the Skill tool — skills live under `.claude/skills/`, and consulting them is
 > encouraged. Make NO file changes anywhere except the single response file named below.
-> Echo this nonce verbatim on your first line: `<NONCE>`.
+> Do NOT start background work (no background shells, no background agents) — finish in this
+> turn. Write the response file EARLY (a first draft as soon as you have a position) and refine
+> it in place, so a stopped seat still leaves a usable file.
+> The FIRST LINE OF THE RESPONSE FILE must be this nonce, verbatim: `<NONCE>` — in the file,
+> not (only) in your chat reply; verification reads the file.
 
 (Without this clause, CLAUDE.md's gravity makes the subagent run the cold start and edit
-state files.)
+state files. The background/early-write lines exist because a seat that backgrounds its work
+can stop with NOTHING written, and resume is forbidden — it drops the model override.)
 
 ## Advisory-only
 

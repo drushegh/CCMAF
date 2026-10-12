@@ -31,10 +31,11 @@ run_check() { # <label> <interpreter> <script> [args...]
   local s e rc; s=$(now_ms); "$@" >/dev/null 2>&1; rc=$?; e=$(now_ms)
   printf '%-16s %6s ms   exit=%s\n' "$label" "$((e - s))" "$rc"
   # The wrapped checks' documented contracts: 0 = ok / flag written, 2 = setup
-  # issue (non-fatal), 3 = offline (non-fatal). Anything else — notably 1, the
+  # issue (non-fatal), 3 = offline (non-fatal), 4 = check-updates clone failed
+  # after the remote answered (non-fatal; real git error printed). Anything else — notably 1, the
   # checks' own "fatal" code and what a `set -e` abort exits with — is a crash.
   case "$rc" in
-    0|2|3) ;;
+    0|2|3|4) ;;
     *) rc_all=1 ;;
   esac
 }

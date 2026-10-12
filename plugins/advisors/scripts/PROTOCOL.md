@@ -210,3 +210,34 @@ advisor, fail-closed) → assemble the evidence bundle → `codex-run.sh` (caged
 banner otherwise — never unverified content). `/review` launches it in the BACKGROUND (a consult
 can exceed the Bash 600s cap) and, on PASS, compiles a **cross-check**: both-flagged / only-Claude
 / only-codex. `/build` inherits all of this by calling `/review`.
+
+**Commit-pinned evidence.** The bundle is `git log -p` for the task's commits, NOT the working
+tree — a later commit or an uncommitted fix may already have changed a file. `watcher.sh` records
+the evidence commits + HEAD in the brief and the RESULT header; every file-content claim cites its
+commit, and the orchestrator refutes it against the current working tree before acting on it.
+
+## Operating codex + spawned CLIs (field notes)
+
+- **Native Windows sandbox.** codex blocks every shell command ("blocked by policy") until
+  `windows.sandbox` is set. `codex-run.sh` (ephemeral home, no user config) passes
+  `-c windows.sandbox="unelevated"` per run; `codex-image-run.sh` passes it only when the real
+  home's `config.toml` has no setting. Override with `CODEX_WINDOWS_SANDBOX=<value>` (empty =
+  pass nothing). `codex-preflight.sh` warns when the user config lacks it (direct codex use).
+- **codex as a doer (outside these runners).** Inline the brief on STDIN (the `codex-run.sh`
+  pattern) with the context pre-assembled, forbid repo exploration, and state an explicit
+  tool-call cap in the brief. A repo-exploring doer burned ~30% of a 5-hour quota in 3 minutes
+  and produced nothing; the stdin-inlined version finished in 12 calls.
+- **Quota.** `codex-quota.sh [--max <pct>]` prints the latest 5-hour / weekly `used_percent` from
+  the newest codex rollout (read-only); `--max` exits 1 at or above the ceiling, so a heavy run
+  can be gated on it. Record the reading before and after a long consult.
+- **Hard capability claims** ("tool X can't do Y") that gate a design get one cheap empirical
+  probe before anyone designs around them — advisors assert from priors and can be wrong.
+- **Clean-room `claude -p`.** No advisors lane spawns `claude -p` today (Fable runs as a
+  harness subagent). Any lane or tool that does must: run it from a `mktemp -d` cwd (otherwise
+  the child auto-loads the project `CLAUDE.md` and its imports), pass absolute paths
+  (`--mcp-config` etc.), and strip the parent's identity env — `env -u CLAUDECODE -u
+  CLAUDE_CODE_ENTRYPOINT -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_CHILD_SESSION claude -p …`
+  (dump the child's env first: any other inherited `CLAUDE_CODE_*` identity var goes too).
+  Without the strip the child runs as a nested session and persists NO transcript. Do not set
+  `CLAUDE_CODE_SIMPLE=1` for isolation — it forces API-key auth. Probe the result with "quote
+  any project instructions you were given, else NONE".

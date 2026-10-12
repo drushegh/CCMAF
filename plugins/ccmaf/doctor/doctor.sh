@@ -7,7 +7,7 @@
 #
 # Doctor answers "is the framework intact RIGHT NOW?" — static state
 # that should always hold. Runs on cold start (cheap, instantaneous;
-# no throttle) and on demand. Silent when clean; writes
+# no throttle) and on demand. One stdout line when clean; writes
 # .framework-doctor-findings.md when issues are detected. Cold start
 # surfaces findings via AskUserQuestion.
 #
@@ -62,6 +62,14 @@
 #      would halt unattended runs; the finding names a per-file remedy
 #      (rotate-state.sh only rotates TASKS + DECISIONS). This is the missing half of the enforcement asymmetry (Stop defends freshness;
 #      nothing defended bounds). Never blocks — enforce at boot, remediate at will.
+#  17. Hook admission budget: routes post-edit hooks' skip `reason` telemetry
+#      (tool-ineligible at volume -> WARNING; ~100% no-tool -> NAG, two-branch).
+#  18. Project-local agents whose `tools:` allowlist omits Skill (INFO).
+#  (Audit 2026-10-12 additions inside existing checks: Check 13 flags task
+#  headings inside HTML comments and duplicate ECOSYSTEM.md contract anchor
+#  IDs; Check 15 validates verify-seed schema and is archive-aware.)
+#
+# Output: one stdout line — "doctor: clean (N checks)" or the findings count.
 #
 # Exit codes:
 #   0 — all checks pass OR findings written to flag file (cold start continues)
@@ -130,7 +138,9 @@ add_finding() { findings+=("$1|$2|$3"); }
 DOCTOR_PROFILE=0; [ "${1:-}" = "--profile" ] && DOCTOR_PROFILE=1
 # Hardened: 13-digit epoch-millis only (uutils %3N emits ns — see cold-start.sh).
 _dnow_ms() { local t; t=$(date +%s%3N 2>/dev/null); case "$t" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) printf '%s' "$t" ;; *) printf '%s' "$(( $(date +%s) * 1000 ))" ;; esac; }
+DOCTOR_CHECKS_RUN=0
 _run() {
+  DOCTOR_CHECKS_RUN=$((DOCTOR_CHECKS_RUN + 1))
   if [ "$DOCTOR_PROFILE" = 1 ]; then
     local s e; s=$(_dnow_ms); "$1"; e=$(_dnow_ms)
     printf 'PROFILE %-26s %6s ms\n' "$1" "$((e - s))" >&2
@@ -760,6 +770,31 @@ check_state_structure() {
       add_finding "WARNING" "state-structure" "TASKS.md has $sfx_n task/bug entries with SUFFIXED IDs (e.g. \`$sfx_eg\`) — the canonical board ID is numeric \`(TASK|BUG)-[0-9]+\`. A trailing alpha suffix is NON-CANONICAL: current Console builds (ccmaf-console 0.2.3+) surface it flagged, older builds dropped/mis-parsed it — either way it's off-grammar. Fix: run \`/board-heal\` to renumber them to distinct numeric IDs, or allocate numeric IDs for sub-tasks up front."
     fi
 
+    # Task headings typed INSIDE an HTML comment (audit C8c): the strip above
+    # makes them invisible to every board reader, so an entry written into the
+    # commented-out template block silently vanishes. Inverse of the strip —
+    # keep only the comment text — then look for a numeric task/bug heading
+    # (the template's own placeholders are `TASK-XXX`, never numeric).
+    local cmt_ids
+    cmt_ids=$(awk '
+      function chk(p) {
+        if (match(p, /^[[:space:]]*##+[[:space:]]+\[?(TASK|BUG)-[0-9]+/)) {
+          p = substr(p, RSTART, RLENGTH); match(p, /(TASK|BUG)-[0-9]+/); ids = ids substr(p, RSTART, RLENGTH) " "
+        }
+      }
+      { s=$0
+        if (inc) { i=index(s,"-->"); if(i){ chk(substr(s,1,i-1)); s=substr(s,i+3); inc=0 } else { chk(s); next } }
+        while ((o=index(s,"<!--"))>0) {
+          s=substr(s,o+4); i=index(s,"-->")
+          if(i){ chk(substr(s,1,i-1)); s=substr(s,i+3) } else { chk(s); inc=1; break }
+        }
+      }
+      END { printf "%s", ids }
+    ' "$tasks")
+    if [ -n "$cmt_ids" ]; then
+      add_finding "WARNING" "state-structure" "TASKS.md has task/bug headings INSIDE an HTML comment (<!-- … -->): ${cmt_ids% } — every board reader strips comments, so these entries are invisible (usually typed into the commented-out template block). Fix: move each entry out of the comment, under its lane's status section."
+    fi
+
     # Verify-stage section in the FEATURE lane specifically: the canonical
     # lifecycle is `… Ready for Test → Verify → Done`; board writeback that moves
     # a task to Verify needs the section to exist (else target_missing).
@@ -829,6 +864,21 @@ check_state_structure() {
       case "$bad" in *"status:draft"*|*"status:stable"*) continue ;; esac
       add_finding "WARNING" "state-structure" "ECOSYSTEM.md contract anchor has an out-of-enum status (parsers accept ONLY \`status:draft\`/\`status:stable\`, case-sensitive — anything else means the contract is silently undetected): \`${bad#*:}\`. Fix: use \`status:draft\` or \`status:stable\`."
     done < <(grep -nE '<!--[^>]*contract:[^>]*status:[^>]*-->' "$eco")
+    # Duplicate anchor IDs (audit C18): grep-based contract discovery returns
+    # the FIRST match, so a second `contract:<id>` anchor (a /plan heading-
+    # placed anchor plus a later sweep's canonical one) silently shadows or
+    # is shadowed. Anchor attempts only, same predicate as above.
+    local dup_anchors
+    dup_anchors=$(awk '
+      /<!--[^>]*contract:[^[:space:]>]+[^>]*status:[^>]*-->/ {
+        match($0, /contract:[^[:space:]>]+/); id = substr($0, RSTART, RLENGTH)
+        if (++n[id] == 2) out = out id " "
+      }
+      END { printf "%s", out }
+    ' "$eco")
+    if [ -n "$dup_anchors" ]; then
+      add_finding "WARNING" "state-structure" "ECOSYSTEM.md declares the same contract anchor ID more than once: ${dup_anchors% } — grep-based contract discovery picks whichever comes first, so agents may implement against the wrong block. Fix: keep ONE anchor per ID, placed immediately before its fenced block; merge or rename the duplicate."
+    fi
   fi
 
   # ---- Telemetry frozen keys (INFO; hook-generated) ----
@@ -1044,17 +1094,75 @@ check_board_coherence() {
     fi
 
     # --- Invariant 2: orphan seeds (seed with no board entry) ---
+    # Archive-aware (audit C8b): an ID that appears in .claude/archive/*.md is
+    # accepted history (rotate-state.sh moved the task there), not an orphan.
+    # Only TOP-LEVEL seeds are scanned — seeds already moved to verify/archive/
+    # (DECISIONS 2026-10-11) are retired by convention and never counted.
     if [ -d "$verify_dir" ]; then
-      local board_ids orphans="" f sid
+      local board_ids orphans="" f sid archived_ids=""
       board_ids=$(printf '%s\n' "$rows" | awk -F'\t' '$3!=""{print $3}')
-      local _bids=$'\n'"$board_ids"$'\n'
+      if compgen -G "$PROJECT_ROOT/.claude/archive/*.md" >/dev/null; then
+        # Heading IDs only (`#### [TASK-N] …`): a bare mention in an archived
+        # decision or review note ("supersedes TASK-12") is not that task's entry.
+        archived_ids=$(grep -hE '^#{2,4}[[:space:]]+\[?(TASK|BUG)-[0-9]+' "$PROJECT_ROOT"/.claude/archive/*.md 2>/dev/null \
+          | grep -oE '(TASK|BUG)-[0-9]+' | sort -u || true)
+      fi
+      local _bids=$'\n'"$board_ids"$'\n'"$archived_ids"$'\n'
       for f in "$verify_dir"/*.json; do
         [ -f "$f" ] || continue
         sid="${f##*/}"; sid="${sid%.json}"                       # pure-bash basename (was basename/seed)
         case "$_bids" in *$'\n'"$sid"$'\n'*) : ;; *) orphans="${orphans:+$orphans, }$sid" ;; esac  # membership (was grep/seed)
       done
       if [ -n "$orphans" ]; then
-        add_finding "WARNING" "board-coherence" "Verify seeds exist in .claude/console/verify/ with no matching board entry in TASKS.md (a renamed/renumbered/deleted task leaves a stale story in the Verify tab): $orphans. Fix: run \`/board-heal\` to reconcile, or remove the stale seed."
+        add_finding "WARNING" "board-coherence" "Verify seeds exist in .claude/console/verify/ with no matching board entry in TASKS.md or .claude/archive/ (a renamed/renumbered/deleted task leaves a stale story in the Verify tab): $orphans. Fix: run \`/board-heal\` to reconcile, or move the stale seed to .claude/console/verify/archive/ (never delete a seed that carries verdicts)."
+      fi
+    fi
+
+    # --- Invariant 6: seed schema (contract:verify-handback) — audit C8a ---
+    # A seed that EXISTS but is malformed passes Invariants 1/2 yet is rejected
+    # by the Console, so the story is invisible. Validates the load-bearing
+    # keys only: schemaVersion==1, task==filename, status enum, items[] array
+    # whose entries carry a non-empty id (unique), string kind, non-empty
+    # title, and an enum verdict. ONE jq spawn for all seeds: each file is
+    # read with a bash builtin, newlines folded to spaces (a JSON string can't
+    # hold a raw newline, so this never changes meaning), and fed as one
+    # "<id>\t<json>" line; unparseable JSON is caught per line, not fatal.
+    if [ -d "$verify_dir" ] && command -v jq >/dev/null 2>&1; then
+      local seed_lines="" _c bad_seeds
+      for f in "$verify_dir"/*.json; do
+        [ -f "$f" ] || continue
+        sid="${f##*/}"; sid="${sid%.json}"
+        _c=$(<"$f"); _c="${_c//$'\r'/}"; _c="${_c//$'\n'/ }"; _c="${_c//$'\t'/ }"
+        seed_lines+="$sid"$'\t'"$_c"$'\n'
+      done
+      if [ -n "$seed_lines" ]; then
+        bad_seeds=$(printf '%s' "$seed_lines" | jq -Rrn '[inputs
+          | (index("\t")) as $i | .[:$i] as $id | (.[$i+1:] | try fromjson catch "__unparseable__") as $s
+          | if $s == "__unparseable__" then "\($id) (not valid JSON)"
+            elif ($s | type) != "object" then "\($id) (not a JSON object)"
+            else
+              [ (if $s.schemaVersion != 1 then "schemaVersion must be 1" else empty end),
+                (if $s.task != $id then "task must equal \"\($id)\"" else empty end),
+                (if (($s.status | IN("in-review","processing-fixes","done")) | not) then "status not in-review|processing-fixes|done" else empty end),
+                (if ($s.items | type) != "array" then "items must be an array"
+                 else
+                   ($s.items | to_entries[] | .key as $k | .value as $it
+                    | if ($it | type) != "object" then "items[\($k)] not an object"
+                      else
+                        (if (($it.id | type) != "string") or $it.id == "" then "items[\($k)].id missing" else empty end),
+                        (if ($it.kind | type) != "string" then "items[\($k)].kind missing" else empty end),
+                        (if (($it.title | type) != "string") or $it.title == "" then "items[\($k)].title missing" else empty end),
+                        (if (($it.verdict | IN("pending","pass","fail","cr","blocked","warn")) | not) then "items[\($k)].verdict not in enum" else empty end)
+                      end),
+                   (if ([$s.items[]? | objects | .id | strings] | length) != ([$s.items[]? | objects | .id | strings] | unique | length) then "duplicate item ids" else empty end)
+                 end)
+              ] as $errs
+              | if ($errs | length) > 0 then "\($id) (\($errs[:3] | join("; "))\(if ($errs | length) > 3 then "; +\(($errs | length) - 3) more" else "" end))" else empty end
+            end
+          ] | join(", ")' 2>/dev/null || true)
+        if [ -n "$bad_seeds" ]; then
+          add_finding "WARNING" "board-coherence" "Verify seeds in .claude/console/verify/ do not match \`contract:verify-handback\` — the Console rejects a malformed seed, so the story is invisible in the Verify tab even though doctor's seed-exists check passes: $bad_seeds. Fix: run \`/board-heal\` (its seed-repair step rewrites verdict-free seeds and structurally patches ones carrying verdicts)."
+        fi
       fi
     fi
   fi
@@ -1107,6 +1215,75 @@ check_state_budgets() {
   done < "$conf"
 }
 
+# --- Check 17: Hook admission budget (audit C13; FRAMEWORK-SUGGESTIONS
+# 2026-07-13) ------------------------------------------------------------
+# Turns the post-edit hooks' skip `reason` telemetry into a ROUTED signal —
+# never an alarm on raw skip%. Reads the last HOOK_ADMISSION_WINDOW events
+# (default 5000; one tail + one awk, cheap). Silent when telemetry is absent.
+#   reason=tool-ineligible > HOOK_INELIGIBLE_THRESHOLD (100) -> WARNING: the
+#     hook is admitted for tools it can't act on — its registration lost or
+#     lacks a matcher.
+#   reason=no-tool >= 95% of >= HOOK_NOTOOL_MIN_ADMISSIONS (500) -> NAG with
+#     two-branch wording (disable durably OR the hook misses your stack's
+#     tool) — never auto-diagnosed, never auto-disabled.
+#   reason=ext / not-test-cmd -> healthy content-based floor; not flagged.
+check_hook_admission_budget() {
+  local ev="$PROJECT_ROOT/.claude/telemetry/events.jsonl"
+  [ -f "$ev" ] || return 0
+  local kind hook n total
+  while IFS=$'\t' read -r kind hook n total; do
+    [ -n "$hook" ] || continue
+    case "$kind" in
+      W) add_finding "WARNING" "hook-admission" "Hook \`$hook\` skipped $n of its last $total admissions with reason=tool-ineligible — it is being invoked for tools it cannot act on, so its registration (settings.json / the plugin's hooks.json) lost or lacks a tool matcher. Fix: restore the matcher on that hook's registration (post-edit hooks match \`Write|Edit\`)." ;;
+      N) add_finding "NAG" "hook-admission" "Hook \`$hook\` skipped $n of its last $total admissions (~100%) with reason=no-tool. Either (a) no tool applies to this stack → disable it DURABLY via \`CLAUDE_DISABLED_HOOKS\` in the settings.json \`env\` block (a shell export evaporates and this re-nags), OR (b) your stack HAS a tool the hook doesn't dispatch → file a FRAMEWORK-SUGGESTIONS entry naming the tool." ;;
+    esac
+  done < <(tail -n "${HOOK_ADMISSION_WINDOW:-5000}" "$ev" 2>/dev/null | awk \
+      -v inel="${HOOK_INELIGIBLE_THRESHOLD:-100}" -v minadm="${HOOK_NOTOOL_MIN_ADMISSIONS:-500}" '
+    {
+      if (!match($0, /"hook": ?"[^"]*"/)) next
+      h = substr($0, RSTART, RLENGTH); sub(/^"hook": ?"/, "", h); sub(/"$/, "", h)
+      tot[h]++
+      if (match($0, /"reason": ?"[^"]*"/)) {
+        r = substr($0, RSTART, RLENGTH); sub(/^"reason": ?"/, "", r); sub(/"$/, "", r)
+        if (r == "tool-ineligible") ti[h]++
+        else if (r == "no-tool") nt[h]++
+      }
+    }
+    END {
+      for (h in tot) {
+        if (ti[h] + 0 > inel + 0) printf "W\t%s\t%d\t%d\n", h, ti[h], tot[h]
+        if (tot[h] >= minadm + 0 && nt[h] * 100 >= tot[h] * 95) printf "N\t%s\t%d\t%d\n", h, nt[h], tot[h]
+      }
+    }')
+}
+
+# --- Check 18: Project-local agents lacking the Skill tool (audit A16) --
+# A subagent whose frontmatter `tools:` allowlist omits `Skill` cannot load
+# ANY skill — the allowlist silently drops it, so curated skills never reach
+# that agent. Framework-shipped copies (.claude/agents/framework/, the
+# read-only council personas under .claude/agents/council/) are excluded:
+# only project-authored agents are checked. An agent with NO `tools:` line
+# inherits every tool (Skill included) and is fine. INFO only.
+check_agent_skill_tool() {
+  local ad="$PROJECT_ROOT/.claude/agents"
+  [ -d "$ad" ] || return 0
+  local files=()
+  mapfile -t files < <(find "$ad" -type f -name '*.md' -not -path "$ad/framework/*" -not -path "$ad/council/*" 2>/dev/null)
+  [ ${#files[@]} -gt 0 ] || return 0
+  local lacking
+  lacking=$(awk '
+    FNR == 1 { infm = 0; seen = 0; intools = 0; has = 0; if ($0 ~ /^---[[:space:]]*$/) { infm = 1 }; next }
+    infm && /^---[[:space:]]*$/ { if (seen && !has) print FILENAME; infm = 0; nextfile }
+    infm {
+      if ($0 ~ /^tools:/) { seen = 1; intools = 1; if ($0 ~ /(^|[^A-Za-z])Skill([^A-Za-z]|$)/) has = 1; next }
+      if (intools && $0 ~ /^[[:space:]]+-/) { if ($0 ~ /(^|[^A-Za-z])Skill([^A-Za-z]|$)/) has = 1; next }
+      intools = 0
+    }
+  ' "${files[@]}" 2>/dev/null | sed "s#^$PROJECT_ROOT/##" | tr '\n' ' ' || true)
+  [ -n "$lacking" ] || return 0
+  add_finding "INFO" "agent-skills" "Project agents with a \`tools:\` allowlist that omits \`Skill\`: ${lacking% } — these subagents cannot load any skill (the allowlist silently drops the Skill tool). Fix: add \`Skill\` to each agent's \`tools:\` line, unless the restriction is deliberate."
+}
+
 # --- Run all checks --------------------------------------------------
 _DOCTOR_START=$(_dnow_ms)
 _run check_hooks
@@ -1124,6 +1301,8 @@ _run check_state_structure
 _run check_reconcile_due
 _run check_board_coherence
 _run check_state_budgets
+_run check_hook_admission_budget
+_run check_agent_skill_tool
 
 if [ "$DOCTOR_PROFILE" = 1 ]; then
   printf 'PROFILE %-26s %6s ms (total)\n' "ALL-CHECKS" "$(( $(_dnow_ms) - _DOCTOR_START ))" >&2
@@ -1135,6 +1314,9 @@ if [ ${#findings[@]} -eq 0 ]; then
   # COMPLETED clean run: only now is removing the flag safe (see the
   # lifecycle note at the top — a killed run must never leave it absent).
   rm -f "$FLAG_FILE"
+  # One line on a clean run (audit C14) — silence was indistinguishable from
+  # "did not run". cold-start discards doctor stdout, so the digest is unchanged.
+  echo "doctor: clean ($DOCTOR_CHECKS_RUN checks)"
   exit 0
 fi
 

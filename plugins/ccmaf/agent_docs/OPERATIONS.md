@@ -74,6 +74,10 @@ version before relying on the patterns above; treat them as illustrative.
 (`settings.json` is strict JSON — no comments; keep this matrix documented
 here, not inline.)
 
+To change `settings.json` / `settings.local.json` (permissions, env vars,
+hooks), use Claude Code's built-in `update-config` skill. A direct Edit/Write
+of a settings file can be blocked as self-modification.
+
 ## MCP Servers
 
 - Only enable servers you're actively using — check `/mcp` for token costs.
@@ -157,6 +161,10 @@ it yourself: `claude plugin list --json` → the `ccmaf` entry's
   `docs/` — deposit material here as you work (the Console surfaces the
   `docs/` tree under its Docs tab); don't leave research or diagrams only
   in chat. See `docs/README.md`.
+- Platform gotchas (Claude Code harness and subagents, `claude` CLI facts,
+  Windows processes/ports, shell and encoding, git/gh multi-account, plugin
+  authoring) → the ccmaf plugin's `agent_docs/platform-gotchas.md`. Check it
+  before logging a platform quirk in your own GOTCHAS
 - Gotchas → `.claude/GOTCHAS.md` · Framework metrics →
   `.claude/framework-metrics.md`
 

@@ -93,6 +93,20 @@ else
   warn "   refuse to run unbounded. macOS: brew install coreutils. (Image generation is unaffected.)"
 fi
 
+# ── Windows sandbox (native Windows only) ────────────────────────────────────────────────
+# codex blocks every shell command ("blocked by policy") until windows.sandbox is set. The
+# advisor + image runners pass it per-invocation; direct / doer codex use needs it in config.
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if awk '/^[[:space:]]*\[/{sec=$0} sec ~ /^[[:space:]]*\[windows\]/ && /^[[:space:]]*sandbox[[:space:]]*=/{f=1} /^[[:space:]]*windows\.sandbox[[:space:]]*=/{f=1} END{exit !f}' "$CODEX_HOME_DIR/config.toml" 2>/dev/null; then
+      ok "windows sandbox: set in $CODEX_HOME_DIR/config.toml"
+    else
+      warn "windows sandbox: not set in $CODEX_HOME_DIR/config.toml — native-Windows codex blocks every"
+      warn "   shell command until it is. The advisors/image runners pass -c windows.sandbox=\"unelevated\""
+      warn "   per run; for direct codex use add:  [windows]  sandbox = \"unelevated\""
+    fi ;;
+esac
+
 # ── A7: auth is the ChatGPT sub, not the API key ─────────────────────────────────────────
 if [[ -f "$AUTH_JSON" ]]; then
   if grep -Eq '"(access_token|id_token|refresh_token|account_id)"[[:space:]]*:[[:space:]]*"[^"]' "$AUTH_JSON"; then

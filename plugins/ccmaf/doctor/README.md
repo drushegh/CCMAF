@@ -1,8 +1,8 @@
 # Framework Doctor
 
 Point-in-time integrity check for the framework itself. Runs on cold
-start (step 3) and on demand. Silent when clean; writes a findings
-file when any invariant is broken.
+start (step 3) and on demand. Prints `doctor: clean (N checks)` when clean;
+writes a findings file when any invariant is broken.
 
 ## Complements
 
@@ -29,10 +29,12 @@ file when any invariant is broken.
 | 10 | `statusLine.command` reads stdin, not the nonexistent `$CLAUDE_STATUS_JSON` env var | WARNING | Statusline renders permanent `?` placeholders — context-awareness rules assume the percentage is visible |
 | 11 | GNU toolchain capabilities present (`find -printf`, `date -d`, GNU `sed -i`) | WARNING | On BSD/macOS userlands these features go silently dead — throttles never engage, rewrites skip (DA-C8) |
 | 12 | Root `GOTCHAS.md` / `FRAMEWORK-SUGGESTIONS.md` free of leaked upstream framework-dev entries | WARNING | Pre-2026-06-10 clones inherited the upstream repo's own dev notes (TASK-027 leak) — noise that misleads every session reading state files |
-| 13 | State-file structural grammar (TASKS/DECISIONS/GOTCHAS/ECOSYSTEM: lane headings, status-section placement, lane routing, the middot separator, the Confidence marker, contract status enum) | WARNING (INFO for the telemetry frozen-keys sub-check) | Drift here SILENTLY drops entries from downstream machine-readers — a task vanishes from a board, a decision's Status won't parse, a contract goes undetected |
+| 13 | State-file structural grammar (TASKS/DECISIONS/GOTCHAS/ECOSYSTEM: lane headings, status-section placement, lane routing, the middot separator, the Confidence marker, contract status enum, task headings hidden inside HTML comments, duplicate ECOSYSTEM.md contract anchor IDs) | WARNING (INFO for the telemetry frozen-keys sub-check) | Drift here SILENTLY drops entries from downstream machine-readers — a task vanishes from a board, a decision's Status won't parse, a contract goes undetected |
 | 14 | Reconcile cadence: N tasks entered Done since `.last-reconcile`'s mtime, N >= `RECONCILE_DUE_THRESHOLD` (default 5) | NAG | The horizontal auditor (duplicate/seam/contract/convention drift) is falling behind the vertical build cadence — nothing else notices this gap |
-| 15 | Board ↔ reality coherence (`contract:board-coherence`): Verify tasks with no verify seed (Console opt-in), orphan seeds, a base ID in >1 lifecycle column, a Ready-for-Review pile-up | WARNING (NAG for the pile-up) | The Stop hook proves state files were *touched*, not *truthful* — this is the drift `/board-heal` restores. Detect-only; never writes TASKS.md or seeds |
+| 15 | Board ↔ reality coherence (`contract:board-coherence`): Verify tasks with no verify seed (Console opt-in), orphan seeds (archive-aware: IDs in `.claude/archive/*.md` are history, and seeds moved to `verify/archive/` are never scanned), seeds that break `contract:verify-handback` (schemaVersion, task, status, items[] id/kind/title/verdict), a base ID in >1 lifecycle column, a Ready-for-Review pile-up | WARNING (NAG for the pile-up) | The Stop hook proves state files were *touched*, not *truthful* — this is the drift `/board-heal` restores. Detect-only; never writes TASKS.md or seeds |
 | 16 | State-file size budgets vs `state-budgets.conf` (or `.claude/state-budgets.local.conf`) | WARNING at >=80% and when OVER (never CRITICAL — a doctor CRITICAL halts unattended runs, and size is recoverable) | Unbounded state files end up "too large to include" at boot. The finding names a per-file remedy: `rotate-state.sh` for TASKS/DECISIONS; the `/ccmaf:housekeeping` steps for STATUS, GOTCHAS and `claude-progress.txt` (rotate-state.sh doesn't rotate those) |
+| 17 | Hook admission budget, from `.claude/telemetry/events.jsonl` skip `reason` tokens (last `HOOK_ADMISSION_WINDOW`=5000 events): `tool-ineligible` above `HOOK_INELIGIBLE_THRESHOLD` (100), or `no-tool` on >=95% of >= `HOOK_NOTOOL_MIN_ADMISSIONS` (500) admissions | WARNING (tool-ineligible) / NAG (no-tool, two-branch wording) | A hook that skips nearly every firing is dead coverage. Routes on WHY it skipped (lost matcher vs no tool for this stack) instead of alarming on raw skip%. Silent without telemetry |
+| 18 | Project-local agents (`.claude/agents/`, excluding the framework/ and council/ copies) whose `tools:` allowlist omits `Skill` | INFO | The allowlist silently drops the Skill tool, so that subagent can never load a skill |
 
 ## Running it
 
@@ -42,7 +44,7 @@ Automatic on cold start (see `core-context.sh` / `boot/cold-start.sh`). On deman
 bash "${CLAUDE_PLUGIN_ROOT}/doctor/doctor.sh"
 ```
 
-Silent = clean. If anything's wrong, you'll see a summary line and the
+A clean run prints `doctor: clean (N checks)`. If anything's wrong, you'll see a summary line and the
 details will be in `.claude/.framework-doctor-findings.md` at the project root.
 
 ## Known v2 gap (Wave A1 port, TASK-171 — not silently papered over)
@@ -98,7 +100,8 @@ runs on every cold start — latency here is cold-start latency.
   `contract:foo` that doesn't exist in ECOSYSTEM.md"). Noisier, more
   false positives, diminishing returns. Can add later if needed.
 - **Agent tool-list validation.** The set of Claude Code tools is the
-  harness's domain, not ours to enumerate.
+  harness's domain, not ours to enumerate. The one exception is Check 18's
+  INFO for a missing `Skill`, because skills are a framework feature.
 
 ## Dependencies
 

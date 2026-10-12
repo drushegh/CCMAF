@@ -119,6 +119,9 @@ seed_state_commit() {
   printf 'x\n' >> "$REPO/.claude/claude-progress.txt"
   touch -d '2 hours ago' "$REPO/.claude/TASKS.md" "$REPO/.claude/STATUS.md" "$REPO/.claude/claude-progress.txt"
   run corehook hooks/session-start-marker.sh '{"session_id":"d1"}'
+  # Real work this session — without it the gate now skips (fleet audit C4b:
+  # a session that changed no non-state file has nothing to record).
+  printf 'y\n' >> "$REPO/code.txt"
   run corehook hooks/enforce-state-update.sh '{"session_id":"d1"}'
   [ "$status" -eq 2 ]
   [[ "$output" == *"STATE FILES NOT UPDATED"* ]]

@@ -36,12 +36,24 @@ delegate it):
      REAL consumer of the artefact and the check proving it works for them
      (e.g. "endpoint returns the contract shape the console renders") —
      never a proxy like "the build passes".
+   - **UI assertions:** scope to `main` (or the feature's landmark) by
+     default; page-wide queries trip on global shell elements. Assert
+     floors (`>= N`) or derive counts from fixtures, never exact content
+     counts. User-facing items name the running route/journey to drive
+     with real input events (curl is not a UI test). Look-and-feel items
+     list the visual channels in play (hue, value/contrast, silhouette,
+     type, spacing) and route to ux-critic or the human, because
+     correctness gates can't judge looks.
    - Reference the spec from the board entry: `**Spec:** .claude/specs/TASK-N.md`.
 5. **Per-task budget class (TASK-152):** add `**Budget:** S|M|L` to each
    board entry (S≈30 · M≈60 · L≈120 tool calls). Calibrate by scope: S =
    one-file fix; M = typical feature; L = cross-module feature. /ccmaf:build
    enforces these via the counter hook.
-6. Record decisions with rationale in `.claude/DECISIONS.md`.
+6. Record decisions with rationale in `.claude/DECISIONS.md`. Research
+   findings carried into specs, TASKS, or GOTCHAS keep their citation, or
+   are marked `[GAP]`. A ruling that amends a contract or spec but not
+   the code dispatches the code/test sync in the same step, or leaves an
+   In Progress task for it; otherwise the suite stays green and wrong.
 7. Optional quality pass: if the advisors plugin is installed (the
    `/advisors:consult` skill resolves) and the plan is high-stakes, run a
    spec review consult; fold verdicts in. Absent → skip with a note.

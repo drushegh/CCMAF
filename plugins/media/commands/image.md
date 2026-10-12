@@ -24,15 +24,27 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
   captions — NOT just atmospheric art. Give each label EXACTLY as you want it spelled ("label,
   EXACTLY: FOO"); it spells short labels reliably, even ~15 of them in one poster. **Do not assume
   it can't do text** — that assumption is false and has cost real rework.
-- **Aspect ratio goes in the brief** (there is no size flag). Say "a wide 16:9 banner" or "a
+- **Pin EVERY factual label, and bound the count.** List every label/filename/number verbatim
+  and say how many there are ("exactly these 6 labels, no others"). Any slot you leave unnamed
+  gets an INVENTED but plausible label (made-up filenames next to the real list).
+- **Diagram of record → drawio / mermaid / HTML, not an image model.** A generated diagram is an
+  illustration: when structure, values, or axes must be exact and maintainable, render it from
+  source instead. Local DIFFUSION models (ComfyUI / Stable Diffusion) are worse — they garble
+  text, numbers, and axes; use them for imagery only.
+- **Aspect ratio goes in the brief** (no size param is wired to `image_gen`; `--ratio W:H` just
+  pins it in the brief for you — Step 1). Say "a wide 16:9 banner" or "a
   square diagram" and orient the subject to match — a shield row tends square, a pipeline tends
   wide. Regenerate if the ratio comes out wrong.
 - **A compressed `.webp` is emitted automatically** next to the PNG (Pillow-guarded; opt out with
   `CLAUDE_IMAGE_NO_WEBP=1`). Use the webp for READMEs/docs (KB, not the multi-MB PNG master).
 - **For a cohesive SET** (several images that must read as one system), reuse ONE locked style
   prefix verbatim across every brief and change only the SUBJECT line; regenerate any outlier.
+  (There is no `set` mode yet — run `/image` once per subject with the same prefix and `--ratio`.)
 
 ## Step 1 — Parse the model override (default Terra; codex-only)
+- First, if `$ARGUMENTS` contains `--ratio <W:H>` (e.g. `--ratio 16:9`), remove it and append
+  this line to the brief: `Aspect ratio: EXACTLY <W:H> — compose for that frame.` Reject a value
+  that is not two positive integers joined by `:`. Parse the rest as below.
 - Split the FIRST whitespace token of `$ARGUMENTS`:
   - if it is exactly **`terra`**, **`sol`**, or **`luna`** → that is the advisor; the REST is the brief.
   - otherwise → advisor = **`terra`** (default) and the WHOLE `$ARGUMENTS` is the brief.
@@ -61,6 +73,9 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
   `-s workspace-write -C <this dir>`, so this dir is the model's workspace root — but codex's
   `workspace-write` also permits `/tmp` and `$TMPDIR` by default, and enforcement depends on the
   platform sandbox. Treat it as a guardrail on where the image lands, not a hard write jail.
+  Call the chosen dir **`<out-dir>`** — Step 5 passes it to the runner. **Cross-repo:** an
+  absolute path into a sibling clone (e.g. a publish repo) works; the run bookkeeping stays in
+  THIS repo's `_advisors/`, and the asset is committed in the target repo, not here.
 
 ## Step 4 — Stage the brief
 Write the brief text (Step 1's remainder) to `_advisors/.imageruns/<slug>/brief.txt`. Ensure
@@ -72,7 +87,8 @@ the text sits and pin that region as the darkest part of the frame — or overla
 is a coin-flip (the runner's prompt nudges this, but the brief is where it belongs).
 
 ## Step 5 — Run (FRESH, BACKGROUND)
-`bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-image-run.sh" <advisor> docs/images <slug> _advisors/.imageruns/<slug>/brief.txt`
+`bash "${CLAUDE_PLUGIN_ROOT}/scripts/codex-image-run.sh" <advisor> <out-dir> <slug> _advisors/.imageruns/<slug>/brief.txt`
+(`<out-dir>` = Step 3's output dir — `docs/images` unless the user named another)
 via your Bash tool with **`run_in_background: true`** — generation typically takes ~1.5–3 min,
 past the Bash tool's default 2-min (120s) foreground timeout, and the runner's own hard deadline
 (`providers.codex timeout_min`, default 20 min) exceeds the tool's 600s maximum. The runner
@@ -87,6 +103,9 @@ When it finishes, read `_advisors/.imageruns/<slug>/status`:
   hero vs the multi-MB PNG master) and embed it as a base64 `data:` URI.
 - **`TIMEOUT` / `ERROR` / `UNAVAILABLE`** → report the failure verbatim and point at
   `_advisors/.imageruns/<slug>/{err.txt,last.txt,preflight.txt}`. Do NOT claim an image exists.
+- **Labels (any image with text):** read the saved image and check EVERY label against the brief —
+  spelled exactly, none missing, no invented extras. A wrong or extra label is a regenerate, not
+  a pass.
 - **Legibility (if art-under-text):** don't call it done because it looks good — measure the real
   rendered contrast behind each text element: sample the rendered result in a grid over each text
   region and judge the WORST cell, not the average (≥4.5:1 for small text, ≥3:1 for large) before

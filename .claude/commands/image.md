@@ -25,15 +25,27 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
   captions — NOT just atmospheric art. Give each label EXACTLY as you want it spelled ("label,
   EXACTLY: FOO"); it spells short labels reliably, even ~15 of them in one poster. **Do not assume
   it can't do text** — that assumption is false and has cost real rework.
-- **Aspect ratio goes in the brief** (there is no size flag). Say "a wide 16:9 banner" or "a
+- **Pin EVERY factual label, and bound the count.** List every label/filename/number verbatim
+  and say how many there are ("exactly these 6 labels, no others"). Any slot you leave unnamed
+  gets an INVENTED but plausible label (made-up filenames next to the real list).
+- **Diagram of record → drawio / mermaid / HTML, not an image model.** A generated diagram is an
+  illustration: when structure, values, or axes must be exact and maintainable, render it from
+  source instead. Local DIFFUSION models (ComfyUI / Stable Diffusion) are worse — they garble
+  text, numbers, and axes; use them for imagery only.
+- **Aspect ratio goes in the brief** (no size param is wired to `image_gen`; `--ratio W:H` just
+  pins it in the brief for you — Step 1). Say "a wide 16:9 banner" or "a
   square diagram" and orient the subject to match — a shield row tends square, a pipeline tends
   wide. Regenerate if the ratio comes out wrong.
 - **A compressed `.webp` is emitted automatically** next to the PNG (Pillow-guarded; opt out with
   `CLAUDE_IMAGE_NO_WEBP=1`). Use the webp for READMEs/docs (KB, not the multi-MB PNG master).
 - **For a cohesive SET** (several images that must read as one system), reuse ONE locked style
   prefix verbatim across every brief and change only the SUBJECT line; regenerate any outlier.
+  (There is no `set` mode yet — run `/image` once per subject with the same prefix and `--ratio`.)
 
 ## Step 1 — Parse the model override (default Terra; codex-only)
+- First, if `$ARGUMENTS` contains `--ratio <W:H>` (e.g. `--ratio 16:9`), remove it and append
+  this line to the brief: `Aspect ratio: EXACTLY <W:H> — compose for that frame.` Reject a value
+  that is not two positive integers joined by `:`. Parse the rest as below.
 - Split the FIRST whitespace token of `$ARGUMENTS`:
   - if it is exactly **`terra`**, **`sol`**, or **`luna`** → that is the advisor; the REST is the brief.
   - otherwise → advisor = **`terra`** (default) and the WHOLE `$ARGUMENTS` is the brief.
@@ -55,7 +67,9 @@ backgrounded run — the opposite of the read-only, text-only, empty-world advis
 - **Output dir** defaults to **`docs/images/`** (created if absent) — keep source masters there.
   If the user named a target directory/path in the brief, honour it. Call the chosen dir
   **`<out-dir>`** — Step 5 passes it to the runner. `workspace-write` is scoped to this dir, so the
-  model can only write there.
+  model can only write there. **Cross-repo:** an absolute path into a sibling clone (e.g. a
+  publish repo) works; the run bookkeeping stays in THIS repo's `_advisors/`, and the asset is
+  committed in the target repo, not here.
 
 ## Step 4 — Stage the brief
 Write the brief text (Step 1's remainder) to `_advisors/.imageruns/<slug>/brief.txt`. Ensure
@@ -80,6 +94,9 @@ When it finishes, read `_advisors/.imageruns/<slug>/status`:
   recipe in `docs/`).
 - **`TIMEOUT` / `ERROR` / `UNAVAILABLE`** → report the failure verbatim and point at
   `_advisors/.imageruns/<slug>/{err.txt,last.txt,preflight.txt}`. Do NOT claim an image exists.
+- **Labels (any image with text):** read the saved image and check EVERY label against the brief —
+  spelled exactly, none missing, no invented extras. A wrong or extra label is a regenerate, not
+  a pass.
 - **Legibility (if art-under-text):** don't call it done because it looks good — measure the real
   rendered contrast behind each text element (worst cell, not average; 4.5:1 small / 3:1 large)
   before wiring it in. See `docs/` image-gen recipe §5b.

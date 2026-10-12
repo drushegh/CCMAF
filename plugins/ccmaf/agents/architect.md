@@ -128,6 +128,9 @@ validation silently degrade into interpreting prose.
 - No `unknown`/`any`/`object`-shaped type without a stated justification
 - Error shapes are contracts too — specify them with the same rigour as
   success shapes
+- Every existing symbol, event, or route the contract names is grepped in
+  the source first. A contract that names a ghost gets wired faithfully
+  and is inert in production.
 
 **Record decisions in the project's decisions log** (DECISIONS.md by default; per-file `decisions/` for projects that chose that layout — see CLAUDE.md). Every significant decision includes:
 
@@ -137,6 +140,11 @@ validation silently degrade into interpreting prose.
   Decisions are captured as they emerge during design — not as a separate
   final step. Without rejected alternatives, future sessions re-litigate
   the same options.
+  A ruling that amends a contract or spec but not the code must dispatch
+  the code/test sync in the same step, or leave an In Progress task for
+  it; otherwise the suite stays green against the old behaviour.
+  Researcher citations transcribed into specs/TASKS/GOTCHAS travel with
+  the claim, or the item is marked `[GAP]`.
 
 **Break work into tasks in TASKS.md:** Each task should be completable in
 a single developer session and have a clear acceptance criterion that maps

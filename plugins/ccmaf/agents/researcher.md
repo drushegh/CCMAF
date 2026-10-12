@@ -84,6 +84,10 @@ AGAINST: [best disconfirming evidence found, or "none found — searched X, Y"]
 GAPS: [each [GAP]/[ASSUMED] item, one line each]
 ```
 
-Every claim in ANSWER must be traceable to a line in EVIDENCE. If the
+Every claim in ANSWER must be traceable to a line in EVIDENCE. Write each
+EVIDENCE line so it survives copy-paste on its own (source + URL inline):
+whoever transcribes your findings into a spec, TASKS, or GOTCHAS must
+carry the citation or mark the item `[GAP]`. "Verified" without a
+citation is not verified. If the
 main session's question was ambiguous, answer the most likely reading
 and name the other reading in one line — don't stall on clarification.

@@ -26,13 +26,13 @@ which fetches upstream and overwrites only the paths listed in
 | File | Role |
 | --- | --- |
 | `framework-manifest.txt` | Authoritative list of framework-owned paths. Only these are overwritten on update. |
-| `check-updates.sh` | Compares pinned SHA to upstream. Writes the flag file if behind. Silent when up-to-date. Throttled (default 24h). |
+| `check-updates.sh` | Compares pinned SHA to upstream. Writes the flag file if behind. Silent when up-to-date. Throttled (default 24h); `--force` skips the throttle. |
 | `apply-update.sh` | Fetches upstream, mirrors manifest paths, updates `.framework-version`. Refuses to run if any framework path (including any path new-in-this-update) has uncommitted state (modified OR untracked), or if the project isn't a git repo (override: `--no-git`). Lists what will change and asks for confirmation before touching anything (`--yes`/`-y` to skip, for automation). |
 | `init-framework-version.sh` | Bootstraps `.claude/.framework-version` for a new project and gitignores the framework's ephemeral files. Run once per project. Flags: `--url`, `--branch`, `--interval`, `--subdir`, `--force` (`--help` for details). |
-| `merge-hook-registrations.sh` | Called by `apply-update.sh`: adds framework hook registrations that are new in the update to the consumer's `.claude/settings.json` (a registration the consumer deliberately removed is not re-added), and warns about stale ones. Needs `jq`; without it the merge is skipped and the doctor flags unregistered hooks. |
+| `merge-hook-registrations.sh` | Called by `apply-update.sh`: adds framework hook registrations that are new in the update to the consumer's `.claude/settings.json` (a registration the consumer deliberately removed is not re-added), and warns about stale ones. An absent matcher and `matcher: ""` are one key. `--dry-run` (first arg) prints what would be added without writing. Needs `jq`; without it the merge is skipped and the doctor flags unregistered hooks. |
 | `migrate-layout.sh` | One-time consumer migration from the pre-restructure `00_framework/` layout. Idempotent. |
 | `migrate-v2.sh` | One-shot v1 → v2 crossover: retires the bundled v1 copies (listed in `retired-paths.txt`) once the `ccmaf-kernel` + `ccmaf` plugins are verified active, and commits the migration as one revertible commit. `--dry-run` shows the plan. |
-| `skills-sync.sh` | Selectively syncs language/topic skills from a SEPARATE skills repo into `.claude/skills/` per `.claude/.skills-version` (`SKILLS_SELECTED`). `--suggest` prints stack-detected skill suggestions. Dirs not selected are never touched; apply-update never touches skills at all. See `contract:skills-sync`. |
+| `skills-sync.sh` | Selectively syncs language/topic skills from a SEPARATE skills repo into `.claude/skills/` per `.claude/.skills-version` (`SKILLS_SELECTED`, or whole packs via `SKILLS_SECTIONS`). Resolves both upstream layouts: flat `<name>/` and packs `plugins/*/skills/<name>/`. `--list` prints the live catalogue. `--suggest` prints stack-detected skill suggestions. Dirs not selected are never touched; apply-update never touches skills at all. See `contract:skills-sync`. |
 | `skills-check.sh` | Cold-start check: is the project's pinned skills SHA behind the skills upstream? Writes `.claude/.skills-update-available.md` if so (lists selected skills + the sync command). Silent if not opted in. Same throttle + DA-C4 flag discipline as `check-updates.sh`. |
 
 ## First-time setup (per project)
@@ -58,8 +58,7 @@ AskUserQuestion prompt listing the new commits. Choose *yes* to apply,
 
 ```bash
 # Force an immediate check, ignoring throttle:
-#   (edit FRAMEWORK_LAST_CHECKED in .claude/.framework-version to a past
-#    date, or just run apply-update.sh directly)
+bash .claude/framework/update/check-updates.sh --force
 
 # Apply without cold start (prompts for confirmation; --yes to skip):
 bash .claude/framework/update/apply-update.sh
@@ -91,6 +90,8 @@ rm .claude/.framework-update-available.md
   `git reflog` or `git show` is always available.
 - **Network failure is non-fatal.** If the upstream is unreachable,
   `check-updates.sh` exits quietly with code 3 and cold start continues.
+  If the remote answers but the inspection clone fails, it exits 4 and
+  prints git's own last error line (plus an SSH-alias hint for SSH URLs).
 - **Requires git, unless overridden.** Without git there's no dirty-check,
   no rollback, and no recovery path — `apply-update.sh` refuses to run
   unless you pass `--no-git` and accept that risk explicitly.

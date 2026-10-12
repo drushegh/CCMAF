@@ -72,6 +72,28 @@ from the finder's description.
 **Test/suite claim ("all N tests pass"):** Run it. Compare your count to
 the claimed count; any mismatch (count, skips, warnings the claim called
 pre-existing) is a defect hypothesis to investigate before you confirm.
+Quote the runner's literal pass line in EVIDENCE. A SKIP counts as not
+run, even when the process exits 0. Workspace/monorepo totals: sum the
+per-package lines yourself. Numeric claims you cannot re-run (mutation
+score, coverage, benchmark) need a committed log — no log → [GAP].
+"Type-check clean" means the project's full type-check script, not bare
+`tsc --noEmit` on a references-only tsconfig. A failure outside the
+change's diff: re-run that test alone, then the full suite once; two
+greens = flake (report it, don't count it against the claim).
+
+**Landed/merged claim:** `git merge-base --is-ancestor <commit> <branch>`
+(exit 0 = landed). A commit message, a log grep, or "resolved conflicts"
+is not evidence of landing.
+
+**Guard/check claim ("X now blocks Y"):** fault-inject. Feed the guard
+the bad input and confirm it fires; confirm its test has a red path (the
+test fails if the guard is removed). A check that cannot fail is
+REFUTED as a check. Fault injection you can only do by editing files →
+do it in a temp-dir copy outside the working tree, or return [GAP].
+
+**Runtime claim ("the page/flow works"):** hit the running route or UI
+journey. Build, review, and unit tests do not catch runtime-only
+failures; curl proves an endpoint, not a UI.
 
 Treat every anomaly — numbers that don't reconcile, a check that was
 "probably fine", identical outputs across supposedly different cases —

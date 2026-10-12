@@ -89,4 +89,6 @@ topic writes the next round). Relay the map to the user with the raw-turn paths.
 quarantine** — never present unverified content. 3. **Degrade loudly**, never fail the whole panel
 for one bad seat. 4. **Extractive, not synthetic** — preserve disagreement; attest identity, not
 argument weight. 5. **Fresh spawn/run per seat**, never resume. 6. Single-advisor
-`/advisors:sol`/`/advisors:fable`/… remain the fast path for one advisor.
+`/advisors:sol`/`/advisors:fable`/… remain the fast path for one advisor. 7. **Verify hard capability
+claims empirically** — a seat's "X can't do Y" that gates the design gets one cheap probe before
+anyone designs around it.

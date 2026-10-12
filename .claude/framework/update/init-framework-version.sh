@@ -147,7 +147,11 @@ for entry in "${ephemera[@]}"; do
     added=$((added + 1))
   fi
 done
-[ "$added" -gt 0 ] && echo "init-framework-version: added $added framework ephemera entr(y/ies) to .gitignore."
+# if-form, not `[ … ] && echo`: as a script's LAST command that form exits 1
+# whenever nothing was added (audit U8).
+if [ "$added" -gt 0 ]; then
+  echo "init-framework-version: added $added framework ephemera entr(y/ies) to .gitignore."
+fi
 
 # Context-window notice (scaffold-time). The checkpoint-watermark hook can't read
 # the live window, so it assumes a default; a 1M-context model must opt in or the

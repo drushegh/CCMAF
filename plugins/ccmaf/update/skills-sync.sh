@@ -27,6 +27,15 @@
 #   SKILLS_UPSTREAM_BRANCH=main                              # required in clone mode
 #   SKILLS_PINNED_SHA=<rewritten by this script on successful sync; "bundled" in bundle mode>
 #   SKILLS_SELECTED="python-development rust-development"    # skill dir names, space-separated
+#   SKILLS_SECTIONS="core,web"                               # OPTIONAL — whole packs (pack
+#                                                            # layout only); `core` or the full
+#                                                            # `ccmaf-skills-core` id; comma or
+#                                                            # space separated; adds every skill
+#                                                            # in the pack to the selection
+#
+# Upstream layouts (TASK-181) — a skill named <name> resolves at, in order:
+#   <root>/<name>/SKILL.md                     flat layout (old upstreams, bundled skills/)
+#   <root>/plugins/*/skills/<name>/SKILL.md    pack layout (CCMAF---Skills since TASK-180)
 #
 # Exit codes:
 #   0 — synced (or nothing to do / --suggest)
@@ -85,11 +94,31 @@ kv_file_get() { # <file> <KEY> — print KEY's value from a KEY=VALUE file; 1 if
 fi
 load_skills_version() {
   local _sv_key _sv_val
-  for _sv_key in SKILLS_UPSTREAM_URL SKILLS_UPSTREAM_BRANCH SKILLS_PINNED_SHA SKILLS_SELECTED; do
+  for _sv_key in SKILLS_UPSTREAM_URL SKILLS_UPSTREAM_BRANCH SKILLS_PINNED_SHA SKILLS_SELECTED SKILLS_SECTIONS; do
     if _sv_val=$(kv_file_get "$VERSION_FILE" "$_sv_key"); then
       printf -v "$_sv_key" '%s' "$_sv_val"
     fi
   done
+}
+
+# --- Catalogue layout helpers (TASK-181) -------------------------------
+# A skill dir is any dir carrying a SKILL.md, in either layout (see header).
+# Flat wins over pack so old/bundled sources behave exactly as before; the
+# SKILL.md requirement keeps non-skill top-level dirs (plugins/, scripts/)
+# from ever resolving as a skill.
+resolve_skill_src() {  # <root> <name> — print the skill's source dir; 1 if absent
+  local _c
+  if [ -f "$1/$2/SKILL.md" ]; then printf '%s' "$1/$2"; return 0; fi
+  for _c in "$1"/plugins/*/skills/"$2"; do
+    [ -f "$_c/SKILL.md" ] && { printf '%s' "$_c"; return 0; }
+  done
+  return 1
+}
+catalogue_names() {  # <root> — every skill name in a checked-out catalogue, one per line
+  local _d
+  for _d in "$1"/*/ "$1"/plugins/*/skills/*/; do
+    [ -f "$_d/SKILL.md" ] && basename "$_d"
+  done | sort -u
 }
 
 # This script's own real path, for the "re-run me" hint below. ${CLAUDE_PLUGIN_ROOT}
@@ -225,7 +254,7 @@ list_catalogue() {
   bundled="$PROJECT_ROOT/skills"
   if [ -z "$url" ] && [ -d "$bundled" ] && compgen -G "$bundled/*/" >/dev/null 2>&1; then
     echo "skills-sync: catalogue (bundled skills/):" >&2
-    for d in "$bundled"/*/; do [ -d "$d" ] && echo "$(basename "$d")"; done
+    catalogue_names "$bundled"
     return 0
   fi
   [ -z "$url" ] && url="${SKILLS_DEFAULT_UPSTREAM_URL:-https://github.com/drushegh/CCMAF---Skills.git}"
@@ -247,9 +276,12 @@ list_catalogue() {
       return 3
     fi
   fi
-  # Top-level directories are skills; drop dotdirs (.git/.github). Names print to
-  # stdout (pipeable); status/notes go to stderr.
-  git -C "$tmp" ls-tree -d --name-only HEAD 2>/dev/null | grep -v '^\.' | sort
+  # A skill is a dir holding a SKILL.md, flat (<name>/SKILL.md) or pack layout
+  # (plugins/<pack>/skills/<name>/SKILL.md) — TASK-181. Read from the tree (no
+  # blobs needed). Names print to stdout (pipeable); status/notes go to stderr.
+  git -C "$tmp" ls-tree -r --name-only HEAD 2>/dev/null \
+    | sed -n -E 's#^([^/.][^/]*)/SKILL\.md$#\1#p; s#^plugins/[^/]+/skills/([^/.][^/]*)/SKILL\.md$#\1#p' \
+    | sort -u
 }
 
 if [ "${1:-}" = "--suggest" ]; then
@@ -285,8 +317,9 @@ fi
 # Parsed, never sourced (see load_skills_version above).
 load_skills_version
 SKILLS_SELECTED="${SKILLS_SELECTED:-}"
+SKILLS_SECTIONS="${SKILLS_SECTIONS:-}"
 
-if [ -z "${SKILLS_SELECTED// /}" ]; then
+if [ -z "${SKILLS_SELECTED// /}" ] && [ -z "$(printf '%s' "$SKILLS_SECTIONS" | tr -d ', ')" ]; then
   echo "skills-sync: SKILLS_SELECTED is empty — nothing to sync." >&2
   echo "skills-sync: add skill names (e.g. SKILLS_SELECTED=\"python-development\") to .claude/.skills-version." >&2
   exit 0
@@ -360,7 +393,39 @@ fi
 synced=0
 refused=0
 missing=0
-for name in "${SELECTED_NAMES[@]}"; do
+
+# --- SKILLS_SECTIONS: expand whole packs into skill names (TASK-181) -----
+# Pack layout only. An unknown pack counts as "not found" (pin held), the
+# same fail-safe as an unknown skill name.
+read -r -a SECTION_NAMES <<< "${SKILLS_SECTIONS//,/ }"
+for sec in ${SECTION_NAMES[@]+"${SECTION_NAMES[@]}"}; do
+  sec="${sec%$'\r'}"
+  [ -z "$sec" ] && continue
+  case "$sec" in
+    */*|*\\*|.*)
+      echo "skills-sync: SKIP section '$sec' — pack ids must be plain names." >&2
+      continue
+      ;;
+  esac
+  pack_dir=""
+  for cand in "$SRC_ROOT/plugins/$sec/skills" "$SRC_ROOT/plugins/ccmaf-skills-$sec/skills"; do
+    [ -d "$cand" ] && { pack_dir="$cand"; break; }
+  done
+  if [ -z "$pack_dir" ]; then
+    echo "  - section $sec: no such pack upstream — skipped. WARNING: check SKILLS_SECTIONS (\`--list\` prints skill names; pack ids live under plugins/ in the skills repo)." >&2
+    missing=$((missing + 1))
+    continue
+  fi
+  for d in "$pack_dir"/*/; do
+    [ -f "$d/SKILL.md" ] || continue
+    sname="$(basename "$d")"
+    case " $SKILLS_SELECTED " in *" $sname "*) continue ;; esac
+    SELECTED_NAMES+=("$sname")
+    SKILLS_SELECTED+=" $sname"
+  done
+done
+
+for name in ${SELECTED_NAMES[@]+"${SELECTED_NAMES[@]}"}; do
   name="${name%$'\r'}"
   [ -z "$name" ] && continue
   # Defensive: a skill name is a plain dir name, never a path. Reject forward
@@ -373,10 +438,9 @@ for name in "${SELECTED_NAMES[@]}"; do
       ;;
   esac
 
-  src="$SRC_ROOT/$name"
   dst="$SKILLS_DIR/$name"
 
-  if [ ! -d "$src" ]; then
+  if ! src="$(resolve_skill_src "$SRC_ROOT" "$name")"; then
     # Not necessarily "yet": a typo in SKILLS_SELECTED or a skill removed
     # upstream looks identical. Say so, and hold the pin (below) so the
     # gap is not silently recorded as "in sync".
@@ -453,25 +517,28 @@ fi
 # too.
 if [ "$synced" -gt 0 ]; then
   catalogue_dirs=()
-  for d in "$SRC_ROOT"/*/; do
-    [ -d "$d" ] || continue
-    catalogue_dirs+=("$(basename "$d")")
-  done
+  while IFS= read -r d; do
+    [ -n "$d" ] && catalogue_dirs+=("$d")
+  done < <(catalogue_names "$SRC_ROOT")
   companions=""
+  # ONE grep per synced skill against the whole name list (a grep per name x
+  # skill took minutes on Windows once the catalogue passed 100 skills).
+  # -F fixed strings, -w whole word: a hyphenated skill name must appear as a
+  # bounded token, not a substring of a longer identifier.
+  ref_file="$(mktemp)"
+  printf '%s\n' ${catalogue_dirs[@]+"${catalogue_dirs[@]}"} > "$ref_file"
   for name in "${SELECTED_NAMES[@]}"; do
     name="${name%$'\r'}"
     [ -d "$SKILLS_DIR/$name" ] || continue
-    for ref in "${catalogue_dirs[@]}"; do
+    found=" $(grep -rhoFw -f "$ref_file" -- "$SKILLS_DIR/$name" 2>/dev/null | sort -u | tr '\n' ' ') "
+    for ref in ${catalogue_dirs[@]+"${catalogue_dirs[@]}"}; do
       [ "$ref" = "$name" ] && continue
       case " $SKILLS_SELECTED " in *" $ref "*) continue ;; esac   # already selected
       case " $companions " in *" $ref "*) continue ;; esac        # already noted
-      # -F fixed string, -w whole word: the hyphenated skill name must appear as
-      # a bounded token, not a substring of a longer identifier.
-      if grep -rqFw -- "$ref" "$SKILLS_DIR/$name" 2>/dev/null; then
-        companions+="$ref "
-      fi
+      case "$found" in *" $ref "*) companions+="$ref " ;; esac
     done
   done
+  rm -f "$ref_file"
   if [ -n "$companions" ]; then
     echo ""
     echo "skills-sync: your synced skills reference companion skills not in SKILLS_SELECTED:"
@@ -483,6 +550,6 @@ fi
 
 echo ""
 echo "skills-sync: $synced skill(s) synced, $refused refused/failed, $missing not found upstream (upstream ${upstream_sha:0:7})."
-[ "$missing" -gt 0 ] && [ "$synced" -gt 0 ] && echo "skills-sync: pin NOT advanced — fix or remove the not-found name(s) in SKILLS_SELECTED, then re-run." >&2
+[ "$missing" -gt 0 ] && [ "$synced" -gt 0 ] && echo "skills-sync: pin NOT advanced — fix or remove the not-found name(s) in SKILLS_SELECTED (skill) or SKILLS_SECTIONS (pack), then re-run." >&2
 [ "$refused" -gt 0 ] && exit 1
 exit 0

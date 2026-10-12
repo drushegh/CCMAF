@@ -47,7 +47,7 @@ fi
 [ -n "$resp" ] && [ -f "$resp" ] || die "no response file: $resp"
 
 # 2) The response must carry THIS turn's nonce (proves it's this turn, not a stale file).
-grep -qF -- "$nonce" "$resp" || die "response $resp does not echo nonce '$nonce'"
+grep -qF -- "$nonce" "$resp" || die "response $resp does not echo nonce '$nonce' — it was expected in the RESPONSE FILE (its first line), not the seat's chat reply"
 
 # 3) Find the subagent transcript for this turn BY the nonce (it appears in the spawn
 #    prompt, which the transcript records), newest first. Override the search root with

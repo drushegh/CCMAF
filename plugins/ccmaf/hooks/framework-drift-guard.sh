@@ -70,6 +70,7 @@ mkdir -p "$STATE_DIR"
 # list of directories) or directly via the `FRAMEWORK_DRIFT_SOURCE_PATTERN`
 # env var (complete regex).
 PROJECT_PATTERN="^01_Project/"
+PROJECT_PATTERN_DEFAULT=true
 if [ -f "$REPO_ROOT/.claude/healthcheck.conf" ]; then
   # Extract ONLY the two variables this hook needs — do NOT source the
   # file (DA-M12: sourcing executes arbitrary shell from a committed
@@ -84,8 +85,9 @@ if [ -f "$REPO_ROOT/.claude/healthcheck.conf" ]; then
   _v=$(_hc_get FRAMEWORK_DRIFT_SOURCE_PATTERN); [ -n "$_v" ] && FRAMEWORK_DRIFT_SOURCE_PATTERN="$_v"
 fi
 if [ -n "${FRAMEWORK_DRIFT_SOURCE_PATTERN:-}" ]; then
-  PROJECT_PATTERN="$FRAMEWORK_DRIFT_SOURCE_PATTERN"
+  PROJECT_PATTERN="$FRAMEWORK_DRIFT_SOURCE_PATTERN"; PROJECT_PATTERN_DEFAULT=false
 elif [ -n "${HEALTHCHECK_SOURCE_DIRS:-}" ]; then
+  PROJECT_PATTERN_DEFAULT=false
   # Build "^(dir1|dir2|dir3)/" from space-separated HEALTHCHECK_SOURCE_DIRS.
   _sd=$(echo "$HEALTHCHECK_SOURCE_DIRS" | tr -s ' \t' '\n' | sed 's|/$||' | grep -v '^$' | paste -sd '|' -)
   [ -n "$_sd" ] && PROJECT_PATTERN="^($_sd)/"
@@ -102,6 +104,8 @@ LAST_REMINDER=$(jq -r '.last_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "
 LAST_SUGGESTIONS_REMINDER=$(jq -r '.last_suggestions_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_COMPACT_REMINDER=$(jq -r '.last_compact_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
 LAST_CLAIM_REMINDER=$(jq -r '.last_claim_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
+LAST_STALE_REMINDER=$(jq -r '.last_stale_reminder // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
+LAYOUT_WARNED=$(jq -r '.layout_warned // false' "$DRIFT_STATE" 2>/dev/null || echo "false")
 LAST_SESSION_ID=$(jq -r '.session_id // empty' "$DRIFT_STATE" 2>/dev/null || true)
 # P6 (TASK-140): board-write tracking for staleness-gated (not cadence) reminders.
 LAST_STATE_ACTIVITY=$(jq -r '.last_state_activity // 0' "$DRIFT_STATE" 2>/dev/null || echo "0")
@@ -118,6 +122,7 @@ if [ -n "$SESSION_ID" ] && [ "$SESSION_ID" != "$LAST_SESSION_ID" ]; then
   LAST_SUGGESTIONS_REMINDER=0
   LAST_COMPACT_REMINDER=0
   LAST_CLAIM_REMINDER=0
+  LAST_STALE_REMINDER=0
   LAST_STATE_ACTIVITY=0
   PREV_STATE_MTIME=0
 fi
@@ -145,6 +150,8 @@ _newest_state_mtime() {
 case "$PREV_STATE_MTIME" in ''|*[!0-9]*) PREV_STATE_MTIME=0 ;; esac
 case "$LAST_STATE_ACTIVITY" in ''|*[!0-9]*) LAST_STATE_ACTIVITY=0 ;; esac
 case "$LAST_CLAIM_REMINDER" in ''|*[!0-9]*) LAST_CLAIM_REMINDER=0 ;; esac
+case "$LAST_STALE_REMINDER" in ''|*[!0-9]*) LAST_STALE_REMINDER=0 ;; esac
+case "$LAYOUT_WARNED" in true) ;; *) LAYOUT_WARNED=false ;; esac
 CUR_STATE_MTIME=$(_newest_state_mtime)
 if [ "$CUR_STATE_MTIME" -gt "$PREV_STATE_MTIME" ]; then
   LAST_STATE_ACTIVITY=$PROMPT_COUNT     # a state file was written since last turn
@@ -165,15 +172,43 @@ _set_primary() { [ -z "$PRIMARY_TRIGGER" ] && PRIMARY_TRIGGER="$1"; }
 # grep -c prints "0" on no match — no `|| echo "0"` fallback needed. With
 # `set -e` active (or in arithmetic context), the || branch was producing
 # "0\n0" for the variable, which broke the integer comparison below.
-PROJECT_CHANGES=$(git -C "$REPO_ROOT" diff --name-only --relative HEAD 2>/dev/null | grep -cE "$PROJECT_PATTERN")
+#
+# Dead-default guard (fleet audit C5): the `^01_Project/` default silently
+# matched nothing in other layouts, so Indicator 1 never fired there. When
+# the default is in effect, no tracked file lives under 01_Project/, and the
+# repo does track project files outside .claude/, fall back to "any
+# non-.claude path" and say so ONCE per project (layout_warned is
+# deliberately NOT reset per session).
+# Not done: excluding paths owned by armed .task-dispatch.* markers — the
+# markers record only the budget class, not an ownership manifest.
+PROJECT_EXCLUDE='^$'
+if [ "$PROJECT_PATTERN_DEFAULT" = true ] \
+   && [ -z "$(git -C "$REPO_ROOT" ls-files -- 01_Project/ 2>/dev/null | head -n 1)" ] \
+   && git -C "$REPO_ROOT" ls-files 2>/dev/null | grep -qvE '^\.claude/'; then
+  PROJECT_PATTERN='.'
+  PROJECT_EXCLUDE='^\.claude/'
+  if [ "$LAYOUT_WARNED" != true ]; then
+    REMINDERS="${REMINDERS}ℹ Drift guard: no tracked file matches the default project-source pattern ^01_Project/, so the uncommitted-changes check now counts any changed path outside .claude/. To pin your layout, set HEALTHCHECK_SOURCE_DIRS=\"src/ app/\" in .claude/healthcheck.conf (or FRAMEWORK_DRIFT_SOURCE_PATTERN). Shown once.\n"
+    DRIFT_DETECTED=true
+    LAYOUT_WARNED=true
+    _set_primary "layout-fallback"
+  fi
+fi
+PROJECT_CHANGES=$(git -C "$REPO_ROOT" diff --name-only --relative HEAD 2>/dev/null | grep -vE "$PROJECT_EXCLUDE" | grep -cE "$PROJECT_PATTERN")
 # State-file regex (STATE_PREFIX is always .claude/; framework-self redirect retired)
 # AND per-file layouts (decisions/*.md, contracts/*.md). Either a
 # monolithic file or any file in the per-file dirs counts as state.
 STATE_REGEX="^${STATE_PREFIX}(TASKS|STATUS|DECISIONS|ECOSYSTEM)\.md|^${STATE_PREFIX}claude-progress\.txt|^${STATE_PREFIX}(decisions|contracts)/.*\.md"
 STATE_CHANGES=$(git -C "$REPO_ROOT" diff --name-only --relative HEAD 2>/dev/null | grep -cE "$STATE_REGEX")
-if [ "$PROJECT_CHANGES" -gt 3 ] && [ "$STATE_CHANGES" -eq 0 ]; then
+# Throttled on its OWN counter like Indicators 2-4 (fleet audit C5: it used
+# to fire on every prompt for as long as the tree stayed dirty): first fire
+# at once, then at most every CLAUDE_DRIFT_BOARD_STALE_TURNS prompts.
+SINCE_STALE=$((PROMPT_COUNT - LAST_STALE_REMINDER))
+if [ "$PROJECT_CHANGES" -gt 3 ] && [ "$STATE_CHANGES" -eq 0 ] \
+   && { [ "$LAST_STALE_REMINDER" -eq 0 ] || [ "$SINCE_STALE" -ge "$BOARD_STALE_TURNS_CFG" ]; }; then
   REMINDERS="${REMINDERS}⚠ You have ${PROJECT_CHANGES} uncommitted project file changes but NO state file updates. Update TASKS.md with current task status.\n"
   DRIFT_DETECTED=true
+  STALE_REMINDED=true
   _set_primary "stale-state"
 fi
 
@@ -301,6 +336,7 @@ NEW_LAST_REMINDER=$LAST_REMINDER
 NEW_LAST_SUGGESTIONS=$LAST_SUGGESTIONS_REMINDER
 NEW_LAST_COMPACT=$LAST_COMPACT_REMINDER
 NEW_LAST_CLAIM=$LAST_CLAIM_REMINDER
+NEW_LAST_STALE=$LAST_STALE_REMINDER
 # Each indicator advances ONLY its own throttle. last_reminder used to move
 # on ANY drift, so an every-prompt indicator (no-task-claimed, the dep
 # advisory) kept SINCE_REMINDER at 0 and Indicator 2 could never fire.
@@ -309,6 +345,9 @@ if [ "${CHECKIN_REMINDED:-false}" = true ]; then
 fi
 if [ "${CLAIM_REMINDED:-false}" = true ]; then
   NEW_LAST_CLAIM=$PROMPT_COUNT
+fi
+if [ "${STALE_REMINDED:-false}" = true ]; then
+  NEW_LAST_STALE=$PROMPT_COUNT
 fi
 if [ "${SUGGESTIONS_REMINDED:-false}" = true ]; then
   NEW_LAST_SUGGESTIONS=$PROMPT_COUNT
@@ -323,10 +362,12 @@ jq -n --argjson count "$PROMPT_COUNT" \
       --argjson suggestions "$NEW_LAST_SUGGESTIONS" \
       --argjson compact "$NEW_LAST_COMPACT" \
       --argjson claim "$NEW_LAST_CLAIM" \
+      --argjson stale "$NEW_LAST_STALE" \
+      --argjson layoutw "$LAYOUT_WARNED" \
       --argjson activity "${LAST_STATE_ACTIVITY:-0}" \
       --argjson smtime "${CUR_STATE_MTIME:-0}" \
       --arg session "${SESSION_ID:-$LAST_SESSION_ID}" \
-  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, last_claim_reminder: $claim, last_state_activity: $activity, state_mtime: $smtime, session_id: $session}' > "$_dtmp" \
+  '{prompt_count: $count, last_reminder: $reminder, last_suggestions_reminder: $suggestions, last_compact_reminder: $compact, last_claim_reminder: $claim, last_stale_reminder: $stale, layout_warned: $layoutw, last_state_activity: $activity, state_mtime: $smtime, session_id: $session}' > "$_dtmp" \
   && mv -f "$_dtmp" "$DRIFT_STATE" 2>/dev/null || rm -f "$_dtmp" 2>/dev/null
 # tmp+mv (DA-H6): a direct truncate-write left partial JSON behind on an
 # interrupted write or concurrent UserPromptSubmit fire — the next read

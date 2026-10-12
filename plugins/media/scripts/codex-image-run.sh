@@ -91,6 +91,17 @@ if [[ ! -e "$real_home/skills/.system/imagegen/SKILL.md" ]]; then
   # Not fatal — some builds resolve the skill differently — but warn so a missing skill is visible.
   printf 'codex-image-run: WARNING imagegen skill not found under %s/skills/.system/imagegen (may still resolve)\n' "$real_home" >&2
 fi
+# Native Windows: codex's sandbox blocks every command ("blocked by policy") until
+# windows.sandbox is set. Respect the owner's own setting in the real home's config.toml; pass
+# it per-invocation only when absent. Override with CODEX_WINDOWS_SANDBOX=<value> (empty = never).
+win_sandbox=()
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [[ -n "${CODEX_WINDOWS_SANDBOX-unelevated}" ]] \
+       && { [[ -n "${CODEX_WINDOWS_SANDBOX:-}" ]] || ! awk '/^[[:space:]]*\[/{sec=$0} sec ~ /^[[:space:]]*\[windows\]/ && /^[[:space:]]*sandbox[[:space:]]*=/{f=1} /^[[:space:]]*windows\.sandbox[[:space:]]*=/{f=1} END{exit !f}' "$real_home/config.toml" 2>/dev/null; }; then
+      win_sandbox=(-c "windows.sandbox=\"${CODEX_WINDOWS_SANDBOX-unelevated}\"")
+    fi ;;
+esac
 
 # ── Output dir (workspace-write is scoped to this) + the deterministic target path ────────
 mkdir -p "$outdir" 2>/dev/null || { status "ERROR cannot create output dir: $outdir"; exit 2; }
@@ -143,6 +154,8 @@ $(cat "$brief_file")
 
 SAVE the final image as a PNG to EXACTLY this absolute path (create nothing else, edit no other
 files): $target
+Use ONLY image_gen plus the single save — do not list, read, or search any other files, and run
+no other commands (the brief above is complete; exploring burns quota and adds nothing).
 Then, as the VERY LAST line of your reply, print exactly:
 SAVED: <the absolute path you actually wrote>
 
@@ -157,6 +170,7 @@ PROMPT
 printf '%s' "$prompt" | env CODEX_HOME="$real_home" "$CODEX" exec \
   -m "$model" \
   -c "model_reasoning_effort=$effort" \
+  ${win_sandbox[@]+"${win_sandbox[@]}"} \
   -s workspace-write \
   -C "$outdir_abs" \
   --skip-git-repo-check \

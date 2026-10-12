@@ -42,7 +42,9 @@ still mid-change — mark it PROVISIONAL rather than CRITICAL and say so.
   signature
 - Contract conformance — implementations vs the machine-readable
   `contract:ID` blocks in ECOSYSTEM.md (or per-file `contracts/`) and the
-  Module Boundaries / Module Structure lists in architecture.md
+  Module Boundaries / Module Structure lists in architecture.md —
+  including ghost names: grep for every symbol/event/route a contract
+  names; one nothing defines or emits is a finding
 - Convention drift — the same problem solved divergent ways across
   modules where code-conventions.md (or repo precedent) implies one way
 

@@ -178,7 +178,18 @@ fi
 # --relative: paths relative to ROOT and limited to ROOT's subtree (a no-op
 # when ROOT is the git toplevel; in a nested project another project's
 # TASKS.md no longer satisfies this one's gate).
-UNCOMMITTED=$(git -C "$ROOT" diff --name-only --relative HEAD 2>/dev/null; git -C "$ROOT" diff --name-only --relative --cached 2>/dev/null)
+#
+# Untracked files count too (fleet audit C4a): a brand-new (`??`) state
+# file — e.g. a freshly scaffolded claude-progress.txt — is invisible to
+# `git diff`, so the gate nagged every turn. `ls-files --others
+# --exclude-standard` is the `??` set of `git status --porcelain`, but
+# relative to ROOT and limited to its subtree like the diffs above (the
+# porcelain form prints toplevel-relative paths, wrong for a nested project).
+# --directory collapses a wholly-untracked dir to one `dir/` entry (an
+# un-ignored build/output tree otherwise fed one stat fork per file into the
+# freshness loop below, on every Stop); the second, pathspec-limited call
+# still names untracked state files inside such a dir individually.
+UNCOMMITTED=$(git -C "$ROOT" diff --name-only --relative HEAD 2>/dev/null; git -C "$ROOT" diff --name-only --relative --cached 2>/dev/null; git -C "$ROOT" ls-files --others --exclude-standard --directory --no-empty-directory 2>/dev/null; git -C "$ROOT" ls-files --others --exclude-standard -- '*TASKS.md' '*STATUS.md' '*claude-progress.txt' 2>/dev/null)
 
 # Dirty-before-this-session filter: a state file left UNCOMMITTED by an
 # earlier session is dirty vs HEAD without anyone touching it now, and used
@@ -214,6 +225,22 @@ if ! _touched "TASKS\.md"; then MISSING="$MISSING TASKS.md"; fi
 if ! _touched "STATUS\.md"; then MISSING="$MISSING STATUS.md"; fi
 if ! _touched "claude-progress\.txt"; then MISSING="$MISSING claude-progress.txt"; fi
 
+# Read-only / rehydrate / post-compact turns (fleet audit C4b): when THIS
+# session changed nothing but framework bookkeeping — the state files,
+# top-level .claude/*.md|*.txt board files, .claude/telemetry/, and dot-files
+# or dot-dirs directly under .claude/ (markers, .drift-state, archives) —
+# there is no work to record, so don't block. Code under .claude/ (hooks,
+# commands, agents) still counts as work. Post-compaction is covered by the same rule: session-start-marker.sh
+# re-stamps this session's marker (sha + started=) on the compact
+# SessionStart, so pre-compaction work drops out of the window and a
+# rehydrate turn that only reads sees no change. Only applies when the window
+# is session-scoped; the repo-wide fallback keeps the previous behaviour.
+SKIP_REASON=""
+if [ -n "$MISSING" ] && [ "$SESSION_SCOPED" -eq 1 ] \
+   && ! printf '%s\n' "$ALL_CHANGES" | grep -v '^[[:space:]]*$' | grep -qvE '(^|/)\.claude/(\.|telemetry/|[^/]+\.(md|txt)$)|(^|/)(TASKS\.md|STATUS\.md|claude-progress\.txt)$'; then
+  SKIP_REASON="no-work"
+fi
+
 # --- Telemetry: emit one event per Stop ---
 # Schema-v2 via hook-common.sh (contract:telemetry-schema). Lib absent →
 # no event; any failure must not break the hook's normal function.
@@ -221,7 +248,9 @@ if ! _touched "claude-progress\.txt"; then MISSING="$MISSING claude-progress.txt
 # (REPO_ROOT already resolved above for the session-scoping marker.)
 if [ -n "$REPO_ROOT" ]; then
   if command -v telemetry_emit >/dev/null 2>&1; then
-    if [ -n "$MISSING" ]; then
+    if [ -n "$SKIP_REASON" ]; then
+      telemetry_emit "$REPO_ROOT" "stop" "skipped" "skipped" ",\"detail\":{\"reason\":\"$SKIP_REASON\"}"
+    elif [ -n "$MISSING" ]; then
       # Normalise leading-space trim and CSV the missing files for analysis.
       _missing_csv=$(echo "$MISSING" | awk '{$1=$1}1' | tr ' ' ',')
       telemetry_emit "$REPO_ROOT" "stop" "blocked" "blocked" ",\"missing\":\"$_missing_csv\""
@@ -242,7 +271,7 @@ if [ -n "$REPO_ROOT" ]; then
   fi
 fi
 
-if [ -n "$MISSING" ]; then
+if [ -n "$MISSING" ] && [ -z "$SKIP_REASON" ]; then
   echo "STATE FILES NOT UPDATED:$MISSING" >&2
   echo "You must update these files before finishing. Update task statuses, current status, and session progress." >&2
   exit 2

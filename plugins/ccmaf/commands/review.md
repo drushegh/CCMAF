@@ -64,7 +64,10 @@ description: Review Ready-for-Review tasks — receipts to the orchestrator, fin
    - **Escaped-defect ratchet (§5.8):** any confirmed finding that tests
      SHOULD have caught becomes a new test case in the task's
      `.claude/specs/` file — the plan learns; the orchestrator does not
-     start reading more.
+     start reading more. Any ruling here that amends a spec or contract
+     but not the code dispatches the code/test sync in the same step, or
+     leaves the task In Progress; never a green suite against a stale
+     implementation.
    - Commit linkage check, then commit state updates (task ID).
    - Report the RECEIPT (verdict + top-3 + counts) to the user — detail
      stays on disk, pulled on demand.

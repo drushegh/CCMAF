@@ -13,16 +13,38 @@
 # without ever running the guard. The guard's own opt-out
 # (CLAUDE_DISABLED_HOOKS=block-dangerous) lives inside the .py and applies
 # here identically.
+#
+# Opt-in wave mode (CCMAF_WAVE_GUARD=1) chains scripts/wave-guard.sh AFTER
+# the guard, from this one hook entry, so the default path costs no second
+# bash process per call. Unset: the guard is exec'd exactly as before.
 set -u
 GUARD="${CLAUDE_PLUGIN_ROOT}/scripts/block-dangerous-commands.py"
-if [ ! -f "$GUARD" ]; then
-  echo "ccmaf-kernel guard SKIPPED: guard file missing at $GUARD - this command was NOT screened for destructive patterns" >&2
+WAVE="${CLAUDE_PLUGIN_ROOT}/scripts/wave-guard.sh"
+
+payload=""
+[ "${CCMAF_WAVE_GUARD:-}" = "1" ] && payload=$(cat)
+
+# skipped <reason>: the guard could not run. Wave mode still screens (its
+# block wins); otherwise report the gap, non-blocking.
+skipped() {
+  if [ "${CCMAF_WAVE_GUARD:-}" = "1" ]; then
+    printf '%s' "$payload" | bash "$WAVE"
+    [ $? -eq 2 ] && exit 2
+  fi
+  echo "ccmaf-kernel guard SKIPPED: $1 - this command was NOT screened for destructive patterns" >&2
   exit 1
-fi
+}
+
+[ -f "$GUARD" ] || skipped "guard file missing at $GUARD"
 for cand in python3 python; do
   if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys' >/dev/null 2>&1; then
-    exec "$cand" "$GUARD"
+    [ "${CCMAF_WAVE_GUARD:-}" = "1" ] || exec "$cand" "$GUARD"
+    printf '%s' "$payload" | "$cand" "$GUARD"
+    rc=$?
+    [ "$rc" -eq 2 ] && exit 2
+    printf '%s' "$payload" | bash "$WAVE"
+    [ $? -eq 2 ] && exit 2
+    exit "$rc"
   fi
 done
-echo "ccmaf-kernel guard SKIPPED: no working Python interpreter found on PATH - this command was NOT screened for destructive patterns" >&2
-exit 1
+skipped "no working Python interpreter found on PATH"

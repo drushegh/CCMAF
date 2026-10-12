@@ -64,6 +64,11 @@ them; their absence is not an error.
    enforcement layer for *Simplicity First* and *Surgical Changes*. The
    Developer's self-review may have missed these; your clean-context
    read is the last line of defence before merge.
+5. Build/lint/type ground truth is the project's own scripts (`npm run
+   lint`, `npm run type-check`, `tsc -b`, `tsc -p tsconfig.app.json`), run
+   over the FULL project. Bare `tsc --noEmit` on a references-only
+   tsconfig (`"files": []`) checks nothing, and IDE diagnostics from
+   user-level plugins are not findings.
 
 ## Review Checklist
 
@@ -84,13 +89,23 @@ must be accounted for there.
    - If the contract has no machine-readable block, flag as WARNING
    - Is the contract marked `status:stable`? Flag any implementation
      against `status:draft` contracts as CRITICAL.
+   - **Widening gate:** for every `status:stable` contract the diff
+     touches, the ECOSYSTEM.md prose AND block must match the code. Code
+     wider than the block, or a block edited without an Architect
+     decision in the decisions log → CRITICAL.
+   - Grep the code for every symbol, event, route, and field the contract
+     names. A name nothing emits/defines is a ghost wire (green tests,
+     inert in production) → CRITICAL.
 2. **Convention compliance** — Does the code follow the patterns in
    code-conventions.md? Check naming, file organisation, imports, error
    handling against the documented conventions.
 3. **Domain language consistency** — Does the new code use the project's
    existing terminology? Flag any cases where a new name was introduced
    for a concept that already has a name in the codebase or the project's
-   contracts.
+   contracts. Inversely, internal vocabulary leaking into user-facing copy
+   (contract/decision/task IDs, DB column names, brief jargon) → WARNING:
+   grep the UI strings for those classes; "rewrote every string" claims
+   need that literal sweep.
 4. **Reuse / over-engineering** — Could the change reuse an existing helper,
    stdlib function, or already-present dependency instead of new code, or has
    it added complexity the task didn't require? Apply the *Over-engineering
@@ -105,6 +120,8 @@ must be accounted for there.
      touched by the task
    - Renames or refactors of adjacent code
    - Deletion of pre-existing dead code (unless the task asked for it)
+   - Whole-file reflow from a formatter the repo doesn't configure (no
+     formatter config or script in the project)
    - New abstractions or configuration knobs that the task didn't
      require (tag via the *Over-engineering review* lens, check 13)
    These inflate the diff, obscure the real change, and violate
@@ -150,7 +167,9 @@ reads as fluent and confident. Check for each:
     hunk that does that. If a claim has no supporting hunk — or the
     diff does something not described — flag as WARNING. "Description
     claims unimplemented changes" is the most common form of
-    AI-authored PR/commit drift.
+    AI-authored PR/commit drift. Numeric claims (test counts, coverage,
+    mutation scores) need the literal pass line or a committed log; an
+    uncited number → WARNING.
 
 10. **Generated-test quality (if the diff includes test files).**
     Tests written by AI are subject to the same skepticism as
@@ -167,6 +186,17 @@ reads as fluent and confident. Check for each:
       `assert result.ok` that don't verify actual behaviour → WARNING
     - Tests that only call the function and assert no exception →
       WARNING (this is happy-path-only coverage)
+    - **A check that cannot fail is not a check.** For each new guard or
+      assertion, name the input or code mutation that turns it red; if
+      none exists (tautology, assertion inside `if (x)`, guard never
+      reached) → WARNING, CRITICAL when it is the task's acceptance gate.
+    - Tests written by the implementer in the same pass as the code pin
+      its defects as expected behaviour — judge each expectation against
+      the spec, never against the code.
+    - UI tests driving `.click()` / `dispatchEvent` / programmatic focus
+      where real input events are available (Playwright locator actions,
+      user-event, keyboard) → WARNING: synthetic events skip hit-testing,
+      overlays, and disabled state.
     - **Modified pre-existing tests (highest-signal item in this
       check):** any existing test whose assertions or fixtures changed
       in the same diff that makes them pass. Diff each against
@@ -257,9 +287,11 @@ reads as fluent and confident. Check for each:
 
 ### Framework Hygiene
 
-15. **Commit linkage** — Run `git log --oneline --grep="TASK-XXX" -- . ':(exclude).claude'` for
-    the task under review (excludes framework bookkeeping commits). Confirm at least one commit references the
-    task ID. Flag missing linkage as WARNING.
+15. **Commit linkage** — Run `git log --oneline -E --grep='TASK-XXX([^0-9]|$)' -- . ':(exclude).claude'` for
+    the task under review (excludes framework bookkeeping commits; the anchor stops TASK-17 matching
+    TASK-170). Confirm at least one commit references the task ID. Flag missing linkage as WARNING.
+    Merge commits without an ID are normal, not findings — the bar is one ID-carrying implementation
+    commit. If the project commits after review (uncommitted working-tree review), report as a note.
 16. **Orchestrator-path check (subagent red-lines)** — Did the diff land
     via the orchestrator's verification path, or did a delegated subagent
     commit directly? Signals of the latter: commits authored mid-dispatch

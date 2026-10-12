@@ -81,6 +81,13 @@ the underlying laws and the taste bar when justifying a score — a passable-
 but-generic result should lose points on colour/typography discipline, not
 pass. Opt-in packs: note `[GAP]: <skill> not installed` if absent.
 
+Before scoring, list the visual channels the design relies on (hue,
+value/contrast, silhouette/shape, type, spacing, motion) and which ones
+actually vary. A design that passes correctness gates on one channel can
+still read flat. Grep the rendered copy for leaked internal vocabulary
+(contract/decision/task IDs, DB column names, brief jargon); each hit is
+a finding. Drive walkthroughs with real input events, never `.click()`.
+
 ## Verdict discipline
 
 - Banned verdicts: "this is fine", "acceptable", "usable", "they can do

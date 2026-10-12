@@ -320,7 +320,61 @@ state they can corrupt.** (Orchestrator-side discipline; the subagent half is §
   sibling developer may be mid-change, a compile/test failure can be the
   sibling's uncommitted work, not the reviewed task. Mark such a finding
   PROVISIONAL and re-check against a clean HEAD (or the task's own commit)
-  before flagging it CRITICAL.
+  before flagging it CRITICAL. The same holds for reading code: a file a live
+  writer is editing can be half-patched — cite from `git show HEAD:<path>`
+  (or the task's commit) and label anything read from the working tree
+  "in flight".
+- **Shared-tree git rules (field: one worker's `git stash` wiped three
+  agents' work; `git add -A` and bare `git commit` swept siblings' files into
+  the wrong, pushed commits).** Workers use READ-ONLY git: `status`, `diff`,
+  `log`, `show`. Never `git stash`, `git checkout -- <paths>` / `checkout .`,
+  `git restore`, `git reset`, `git clean`, `git add -A` / `add .` / `add -u`,
+  or `commit -a` — each rewrites files other agents own. Where staging is
+  granted, stage explicit paths only (`git add -- <file>`). The orchestrator
+  commits with explicit paths (`git add -- <paths> && git commit -m "…" --
+  <paths>` — the `add` first, because `git commit -- <path>` refuses a path
+  git does not track yet, i.e. every new file), so a sibling's staged file
+  can never ride along, and it ALONE regenerates whole-tree artefacts
+  (lockfiles, indexes, generated docs, snapshots) — once per wave, after all
+  workers return, never mid-wave (that bakes sibling WIP into the artefact).
+  Optional enforcement: the kernel's opt-in wave mode (`CCMAF_WAVE_GUARD=1`).
+- **Board moves and state-file surgery:** in a parallel wave, workers neither
+  commit nor move board entries — the receipt carries the requested move and
+  the orchestrator applies it with the ccmaf plugin's
+  `scripts/board-move.sh <ID> "<section>"` (`/ccmaf:build` gives the resolved
+  path; from a plain shell, `claude plugin list --json` → the `ccmaf` entry's
+  `installPath`) — it parses blocks by ID, refuses on a missing ID/section or
+  a board shape it cannot bound, keeps line endings, writes atomically. Any other edit to a state file goes through a tool that FAILS
+  on a missing target — never `sed -i "${n}s/…/"` (an empty `$n` once wiped a
+  2,630-line board), never string slicing on `index('### Verify')` (section
+  names repeat across lanes), never regex/heredoc rewrites of a CRLF file.
+  After every state-file write, `git diff --stat -- <file>`: a deletion count
+  you did not intend means restore and redo.
+- **Worktree limits (isolation is best-effort, not a guarantee):** harness
+  worktrees branch from `origin/HEAD`, so unpushed local commits are missing —
+  if `git rev-parse HEAD` != `git rev-parse origin/HEAD`, push first or create
+  the worktrees yourself from local HEAD. Past ~20 parallel worktrees creation
+  starts failing silently (~30 observed): use self-managed worktrees and
+  `git worktree prune` between waves. A fresh worktree has no `node_modules`
+  (install, or junction/symlink the main tree's) and resuming an agent does not
+  replay its worktree. Agents have committed to main despite isolation —
+  verify each worker's branch on return.
+- **One worker, one hand-back:** a worker processes ALL its items itself —
+  no nested subagents (one nested fan-out dropped 13 of 53 items). The
+  orchestrator checks the receipt covers every item 1:1; an empty or missing
+  hand-back gets a message asking for a resend, never a silent skip. Owner
+  messages that arrive mid-run are addressed to the orchestrator, who relays
+  any change in direction — workers act on their brief, not on broadcast
+  messages.
+- **Serial gate, own servers only:** parallel `npm ci` plus two test suites
+  produced 18 timeouts that passed in isolation. Workers verify only their
+  own files; the authoritative full gate runs ONCE, after every worker has
+  returned and the tree is quiet. A timeout is re-run alone before it counts
+  as a failure. Dev servers: briefs list the protected ports (the owner's
+  preview, shared dev servers); a worker stops only servers it started, by
+  the PID it recorded — never kill-by-port or kill-by-name — and prefers
+  `npm install` (or a worktree) over `npm ci`, which deletes the
+  `node_modules` a running shared server depends on.
 
 ---
 

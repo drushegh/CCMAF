@@ -87,6 +87,16 @@ TIMEOUT_BIN="$(command -v timeout 2>/dev/null || command -v gtimeout 2>/dev/null
 if [[ -z "$TIMEOUT_BIN" ]]; then
   status "UNAVAILABLE no 'timeout' or 'gtimeout' on PATH (macOS: brew install coreutils)"; exit 3
 fi
+# Native Windows: codex's sandbox blocks every command ("blocked by policy") until
+# windows.sandbox is set, and the ephemeral CODEX_HOME below carries no user config — so pin it
+# per-invocation. Override with CODEX_WINDOWS_SANDBOX=<value>; set it empty to pass nothing.
+win_sandbox=()
+case "$(uname -s 2>/dev/null || true)" in
+  MINGW*|MSYS*|CYGWIN*)
+    if [[ -n "${CODEX_WINDOWS_SANDBOX-unelevated}" ]]; then
+      win_sandbox=(-c "windows.sandbox=\"${CODEX_WINDOWS_SANDBOX-unelevated}\"")
+    fi ;;
+esac
 
 # ── Empty world: ephemeral CODEX_HOME + empty cwd, OUTSIDE the repo tree ─────────────────
 # The home holds a copy of the OAuth token, so it must never sit where git (or a sync tool)
@@ -132,6 +142,7 @@ rc=0
 printf '%s' "$prompt" | "$TIMEOUT_BIN" "${timeout_min}m" env CODEX_HOME="$home" "$CODEX" exec \
   -m "$model" \
   -c "model_reasoning_effort=$effort" \
+  ${win_sandbox[@]+"${win_sandbox[@]}"} \
   -s read-only \
   -C "$cwd" \
   --skip-git-repo-check \

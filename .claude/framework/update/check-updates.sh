@@ -5,15 +5,24 @@
 # .claude/.framework-update-available.md for the session to read
 # and offer to the user via AskUserQuestion.
 #
+# Usage: check-updates.sh [--force]
+#   --force  ignore the FRAMEWORK_CHECK_INTERVAL_HOURS throttle and check now
+#            (a throttled run exits 0 silently, even when the pin is behind).
+#
 # Exit codes:
 #   0  — up to date, OR update available (flag file written), OR skipped
 #        (recently checked). All of these are "cold start continues".
 #   2  — .framework-version missing or malformed (setup issue, not fatal).
 #   3  — network failure (can't reach upstream — offline mode, continue).
+#   4  — upstream answered ls-remote but the inspection clone failed (auth,
+#        branch, disk...); the real git error is printed. Not fatal.
 #
 # Dependencies: git, date (coreutils). No gh, no jq, no curl.
 
 set -euo pipefail
+
+FORCE=0
+if [ "${1:-}" = "--force" ]; then FORCE=1; fi
 
 # Portable timeout (review P1): stock macOS ships no GNU `timeout` (only
 # Homebrew coreutils' `gtimeout`) and a bare `timeout` there is exit 127 for
@@ -99,6 +108,10 @@ source <(tr -d '\r' < "$VERSION_FILE")
 : "${FRAMEWORK_UPSTREAM_BRANCH:?FRAMEWORK_UPSTREAM_BRANCH missing in .framework-version}"
 : "${FRAMEWORK_PINNED_SHA:?FRAMEWORK_PINNED_SHA missing in .framework-version}"
 FRAMEWORK_CHECK_INTERVAL_HOURS="${FRAMEWORK_CHECK_INTERVAL_HOURS:-24}"
+# Display form of the upstream URL: credentials embedded in an
+# https://user:token@host URL are never echoed or written to the flag file.
+redact_url() { printf "%s" "$1" | sed -E "s#(://)[^/@[:space:]]+@#\1***@#g"; }
+UPSTREAM_SHOWN="$(redact_url "$FRAMEWORK_UPSTREAM_URL")"
 FRAMEWORK_LAST_CHECKED="${FRAMEWORK_LAST_CHECKED:-1970-01-01T00:00:00Z}"
 # FRAMEWORK_SOURCE_SUBDIR (default empty = repo root). When set, the canonical
 # framework lives under <subdir>/ upstream, so commit/file filtering must use the
@@ -115,7 +128,7 @@ last_epoch=$(date -u -d "$FRAMEWORK_LAST_CHECKED" +%s 2>/dev/null \
   || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$FRAMEWORK_LAST_CHECKED" +%s 2>/dev/null \
   || echo 0)
 interval_seconds=$((FRAMEWORK_CHECK_INTERVAL_HOURS * 3600))
-if [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
+if [ "$FORCE" -eq 0 ] && [ $((now_epoch - last_epoch)) -lt "$interval_seconds" ]; then
   exit 0
 fi
 
@@ -123,7 +136,7 @@ fi
 # authenticated SSH URLs; needs no working tree.
 # Time-bounded (10s): an unresponsive remote must not stall cold start.
 if ! latest_sha=$(run_tmo 10 git ls-remote "$FRAMEWORK_UPSTREAM_URL" "refs/heads/$FRAMEWORK_UPSTREAM_BRANCH" 2>/dev/null | awk '{print $1}'); then
-  echo "check-updates: unable to reach $FRAMEWORK_UPSTREAM_URL (offline?) — continuing." >&2
+  echo "check-updates: unable to reach $UPSTREAM_SHOWN (offline?) — continuing." >&2
   exit 3
 fi
 
@@ -159,9 +172,22 @@ fi
 tmp_clone="$(mktemp -d)"
 trap 'rm -rf "$tmp_clone"' EXIT
 
-if ! git clone --quiet --depth 1 --branch "$FRAMEWORK_UPSTREAM_BRANCH" "$FRAMEWORK_UPSTREAM_URL" "$tmp_clone" >/dev/null 2>&1; then
+# Capture stderr (discard stdout) so the REAL clone error reaches the user —
+# a bare "clone failed" hid auth/branch problems behind a generic message.
+if ! clone_err="$(git clone --quiet --depth 1 --branch "$FRAMEWORK_UPSTREAM_BRANCH" "$FRAMEWORK_UPSTREAM_URL" "$tmp_clone" 2>&1 >/dev/null)"; then
   echo "check-updates: clone failed — continuing without commit detail." >&2
-  exit 3
+  clone_last="$(printf '%s\n' "$clone_err" | tr -d '\r' | sed '/^[[:space:]]*$/d' | tail -1)"
+  clone_last="$(redact_url "$clone_last")"
+  if [ -n "$clone_last" ]; then echo "check-updates: git: $clone_last" >&2; fi
+  case "$FRAMEWORK_UPSTREAM_URL|$clone_err" in
+    git@*|ssh://*|*"Permission denied (publickey)"*|*"Host key verification failed"*)
+      echo "check-updates: SSH hint — on a machine with multiple GitHub accounts, plain" >&2
+      echo "            github.com can pick the wrong key. Set FRAMEWORK_UPSTREAM_URL to your" >&2
+      echo "            SSH host alias (e.g. git@github.com-personal:owner/repo.git) and confirm" >&2
+      echo "            with: git ls-remote \"\$FRAMEWORK_UPSTREAM_URL\"." >&2
+      ;;
+  esac
+  exit 4
 fi
 
 if ! git -C "$tmp_clone" cat-file -e "$FRAMEWORK_PINNED_SHA" 2>/dev/null; then
@@ -348,7 +374,7 @@ cat > "$FLAG_FILE" <<EOF
 
 - **Current:** \`$pinned_short\`
 - **Latest:** \`$latest_short\`
-- **Upstream:** $FRAMEWORK_UPSTREAM_URL ($FRAMEWORK_UPSTREAM_BRANCH)
+- **Upstream:** $UPSTREAM_SHOWN ($FRAMEWORK_UPSTREAM_BRANCH)
 - **Latest SHA (full):** $latest_sha
 
 ## Commits since your pinned version (framework paths only)

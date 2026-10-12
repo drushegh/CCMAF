@@ -51,7 +51,7 @@ tdir="$root/.claude/telemetry"
 # Opportunistic housekeeping: markers/counters from dead runs (build clears
 # its markers on return; anything older than 2 days is an orphan). Owner
 # stamps whose marker is gone are dropped at once.
-find "$tdir" -maxdepth 1 \( -name '.task-dispatch.*' -o -name '.task-count.*' -o -name '.task-owner.*' \) -mtime +2 -delete 2>/dev/null || true
+find "$tdir" -maxdepth 1 \( -name '.task-dispatch.*' -o -name '.task-count.*' -o -name '.task-owner.*' -o -name '.task-wave*' \) -mtime +2 -delete 2>/dev/null || true
 for o in "$tdir"/.task-owner.*; do
   [ -e "$o" ] || continue
   [ -e "$tdir/.task-dispatch.${o##*/.task-owner.}" ] || rm -f "$o" 2>/dev/null
@@ -61,7 +61,7 @@ done
 # live dispatch marker -> nothing to count, so exit WITHOUT reading the
 # payload (the harness tolerates an unread stdin). Runs after housekeeping
 # so orphaned owner stamps/counters are still swept.
-ls "$tdir"/.task-dispatch.* >/dev/null 2>&1 || exit 0
+ls "$tdir"/.task-dispatch.* >/dev/null 2>&1 || { rm -f "$tdir"/.task-wave* 2>/dev/null; exit 0; }
 payload=$(cat 2>/dev/null || true)
 sid=$(printf '%s' "${payload:0:4096}" \
   | grep -o '"session_id"[[:space:]]*:[[:space:]]*"[^"]*"' \
@@ -83,8 +83,14 @@ _mine() {
 # Honest multi-marker semantics (review swarm P1): PostToolUse events carry
 # no per-task attribution, so with N tasks armed EVERY event increments ALL
 # N counters — parallel-wave counts are session-shared and therefore
-# CONSERVATIVE (they overcount each task, never undercount). The nag names
-# this when N>1; /ccmaf:build documents it.
+# CONSERVATIVE (they overcount each task, never undercount). So with N>1 the
+# per-call nags are SUPPRESSED (fleet audit C3: "570/60" wallpaper got the
+# hook disarmed) and ONE wave-level nag fires instead, at 2x and 4x the
+# largest armed budget, measured on the highest counter (the oldest
+# dispatch, i.e. the wave's span). .task-wave.<sid> records the highest
+# level already nagged so each fires once per wave; it is cleared when the
+# wave ends. The authoritative per-task check stays /ccmaf:build step 4's
+# return-time tool_uses audit.
 mine=()
 for m in "$tdir"/.task-dispatch.*; do
   [ -e "$m" ] || continue
@@ -94,7 +100,12 @@ for m in "$tdir"/.task-dispatch.*; do
 done
 armed=${#mine[@]}
 
+# Telemetry on nags only (never per call — PostToolUse is the hottest hook).
+export CLAUDE_HOOK_SESSION_ID="$sid"
+_emit() { command -v telemetry_emit >/dev/null 2>&1 && telemetry_emit "$root" "task-budget" "nagged" "flagged" "$1"; }
+
 rc=0
+wave_n=0 wave_b=0
 for m in ${mine[@]+"${mine[@]}"}; do
   id="${m##*/.task-dispatch.}"
 
@@ -110,12 +121,32 @@ for m in ${mine[@]+"${mine[@]}"}; do
   cls=$(sed -n 's/^class=\([SML]\)$/\1/p' "$m" 2>/dev/null | head -n 1)
   case "$cls" in S) b=30 ;; L) b=120 ;; *) cls="M"; b=60 ;; esac
   half=$((b / 2))
+  [ "$n" -gt "$wave_n" ] && wave_n=$n
+  [ "$b" -gt "$wave_b" ] && wave_b=$b
+  [ "$armed" -gt 1 ] && continue
 
   if [ "$n" -eq "$half" ] || [ "$n" -eq "$b" ] || { [ "$n" -gt "$b" ] && [ $(((n - b) % half)) -eq 0 ]; }; then
-    shared=""
-    [ "$armed" -gt 1 ] && shared=" (${armed} tasks in flight — counts are session-shared while parallel, so this is a conservative overcount)"
-    echo "[$id] $n tool calls against budget $cls=$b without green acceptance${shared}. At/over budget: apply the blocked-return protocol (stop, findings to disk, return 'blocked: <one-line question>') or justify continuing in one line." >&2
+    echo "[$id] $n tool calls against budget $cls=$b without green acceptance. At/over budget: apply the blocked-return protocol (stop, findings to disk, return 'blocked: <one-line question>') or justify continuing in one line." >&2
     rc=2
+    _emit ",\"detail\":{\"task\":\"$id\",\"count\":$n,\"budget\":$b}"
   fi
 done
+
+wf="$tdir/.task-wave${sid:+.$sid}"
+if [ "$armed" -gt 1 ]; then
+  lvl=0
+  [ -f "$wf" ] && lvl=$(cat "$wf" 2>/dev/null || echo 0)
+  case "$lvl" in *[!0-9]*|"") lvl=0;; esac
+  new=0
+  if [ "$wave_n" -ge $((wave_b * 4)) ]; then new=4
+  elif [ "$wave_n" -ge $((wave_b * 2)) ]; then new=2; fi
+  if [ "$new" -gt "$lvl" ]; then
+    printf '%s' "$new" > "$wf" 2>/dev/null || true
+    echo "[wave] ${armed} tasks in flight; ${wave_n} tool calls this wave = ${new}x the largest per-task budget (${wave_b}). Counts are session-shared while parallel, so per-task nags are off: judge each task at return time (build step 4 tool_uses audit) and stop any worker that is clearly thrashing." >&2
+    rc=2
+    _emit ",\"detail\":{\"wave\":true,\"armed\":$armed,\"count\":$wave_n,\"budget\":$wave_b,\"level\":$new}"
+  fi
+else
+  rm -f "$wf" 2>/dev/null
+fi
 exit "$rc"

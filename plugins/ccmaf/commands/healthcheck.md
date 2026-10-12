@@ -84,9 +84,10 @@ Unset values fall through to auto-detect.
 Priority order:
 1. Parse `CLAUDE.md` "Commands" section for `cd <dir>` patterns —
    that's the canonical project root.
-2. Common layouts to probe: `01_Project/`, `01_Project/src/`,
-   `01_Project/tests/`, `02_src/`, `02_src/*/`, `03_tests/`,
-   `src/`, `tests/`, `app/`, `lib/`.
+2. Common layouts to probe, in this order (first match wins): `src/`,
+   `tests/`, `app/`, `lib/`, then the framework's `01_Project/`,
+   `01_Project/src/`, `01_Project/tests/`. Legacy layouts last:
+   `02_src/`, `02_src/*/`, `03_tests/`.
 3. If two or more plausible layouts exist and it's genuinely ambiguous,
    use AskUserQuestion to confirm with the detected options as choices.
    Offer to save the confirmed selection to `.claude/healthcheck.conf`

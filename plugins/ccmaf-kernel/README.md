@@ -16,8 +16,26 @@ Install once per machine; every repo gets:
   plus fork bombs. It also judges strings re-run through `eval`, `bash -c`,
   `pwsh -Command` and `cmd /c`. It deliberately does NOT judge git
   (`push --force`, `reset --hard`, `clean -fdx`) or deletes of deeper or
-  project paths (`rm -rf build`, `/usr/local/src/app`). Heuristic
+  project paths (`rm -rf build`, `/usr/local/src/app`) — opt-in wave mode,
+  below, is the one git exception. Heuristic
   defence in depth, not a security boundary.
+- **Opt-in wave mode** (off by default) — for parallel build waves that share
+  one working tree. Set `CCMAF_WAVE_GUARD=1` (for one project: its
+  `.claude/settings.json` → `"env": {"CCMAF_WAVE_GUARD": "1"}`). While more
+  than one `/ccmaf:build` dispatch marker
+  (`.claude/telemetry/.task-dispatch.<ID>`, younger than 2 days) is armed,
+  `scripts/wave-guard.sh` (chained from the guard wrapper only when the flag
+  is set) blocks a subset of the git commands that sweep the shared tree:
+  `git stash` (except `list`/`show`), `git checkout -- <paths>` /
+  `git checkout .`, `git restore` (except `--staged`-only), `git reset
+  --hard`, `git clean` (except `-n`), `git add -A` / `--all` / `-u` / `.`,
+  and `git commit -a` / `--all`. Heredoc bodies are not screened. With zero
+  or one marker armed it does nothing; a block it should not have made
+  usually means stale `.claude/telemetry/.task-dispatch.*` markers. It applies to every
+  caller (it cannot tell a worker from the orchestrator) and screens only
+  `;`/`&&`/`||`/`|`-separated segments that start with `git`; git run
+  inside `bash -c` or a script is not seen. Defence in depth, not a
+  boundary.
 - **A spend bound** — a PostToolUse tool-call counter that reminds the model
   at 30/60/120+ calls to stop and report if the stated done-check isn't green.
 - **The kernel discipline** — injected at session start ([KERNEL.md](KERNEL.md)):

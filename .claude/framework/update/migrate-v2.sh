@@ -62,6 +62,22 @@ done
 say()  { echo "migrate-v2: $*"; }
 fail() { echo "migrate-v2: ERROR — $1" >&2; exit "${2:-2}"; }
 
+# Prose mentions of CLAUDE.framework.md (markdown links, "see CLAUDE.framework.md")
+# survive the import rewrite below and point at a file this migration deletes.
+# Free prose can't be rewritten safely, so list them with line numbers for a
+# manual edit (audit U5). Bare-import lines and our own retirement markers are
+# skipped — the rewrite handles those.
+_warn_framework_md_mentions() {
+  local hits
+  [ -f "$PROJECT_ROOT/CLAUDE.md" ] || return 0
+  hits="$(tr -d '\r' < "$PROJECT_ROOT/CLAUDE.md" | grep -n 'CLAUDE\.framework\.md' \
+    | grep -v -e 'retired by migrate-v2' -e '^[0-9]*:[[:space:]]*@CLAUDE\.framework\.md[[:space:]]*$' || true)"
+  [ -n "$hits" ] || return 0
+  say "WARNING — CLAUDE.md still mentions CLAUDE.framework.md, which this migration deletes."
+  say "  Edit these lines by hand (the always-on rules now live in the ccmaf plugin digest):"
+  printf '%s\n' "$hits" | sed 's/^/    CLAUDE.md:/'
+}
+
 # python resolution with a RUN-probe — `command -v` alone accepts the
 # Windows Store python.exe app-execution alias, which resolves on PATH but
 # exits non-zero without running anything (the kernel guard-wrapper's
@@ -213,6 +229,7 @@ if [ "$DRY" = 1 ] && [ "$FINALIZE" = 0 ]; then
   echo "    (rewrite) .claude/.framework-version: FRAMEWORK_LINE=v2 + SCAFFOLD_REV=1"
   [ -f "$PROJECT_ROOT/CLAUDE.md" ] && grep -q "@CLAUDE.framework.md" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null \
     && echo "    (rewrite) CLAUDE.md: comment out the @CLAUDE.framework.md import"
+  _warn_framework_md_mentions
   say "DRY RUN — no changes made. Plugin-floor check is skipped in dry-run; a real run requires ccmaf-kernel + ccmaf installed."
   exit 0
 fi
@@ -446,6 +463,7 @@ os.replace(tmp, p)
 print("migrate-v2:   CLAUDE.md — commented out the @CLAUDE.framework.md import (rest of the line kept).")
 PYEOF
   fi
+  _warn_framework_md_mentions
 
   # Tombstone EVERY retired path — present or already absent — so the
   # tombstone is the canonical retirement set, then delete what exists.

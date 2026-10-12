@@ -61,7 +61,7 @@ earlier turns — the fresh agent has no memory of them.
 Spawn a FRESH Fable agent (`model: fable`) with a prompt that:
 - pastes the **mandatory guard clause** from `${CLAUDE_PLUGIN_ROOT}/fable/PROTOCOL.md` (skip cold
   start; make no STATE/BOARD edits — but DO use the Skill tool; write ONLY the one response
-  file; echo the nonce),
+  file, written EARLY; no background work; the nonce as the FIRST LINE OF THE RESPONSE FILE),
 - points it at `_advisors/<topic>/conversation.md`,
 - names its output `_advisors/<topic>/turns/<NNN>-fable.md` (zero-padded next N; when invoked by
   `/advisors:consult`, use the panel round's shared NNN),
@@ -71,7 +71,8 @@ Do NOT resume a prior Fable agent — resuming drops the model to Opus. Every tu
 ## Step 4 — Verify + promote  ⟵ the Fable "driver" (by-reference from /advisors:consult)
 Run `FABLE_MODEL=claude-fable-5 bash _advisors/verify-turn.sh <topic> <NONCE> _advisors/<topic>/turns/<NNN>-fable.md`.
 - **PASS** → append the response into `_advisors/<topic>/conversation.md` (promote) and relay
-  Fable's take to the user.
+  Fable's take to the user. If a hard capability claim ("tool X can't do Y") gates the design,
+  test it with one cheap probe before designing around it — advisors assert from priors.
 - **FAIL** → discard the turn, tell the user it could not be verified as Fable, and offer to
   retry or fall back per Step 1's disclosed-Opus option. NEVER promote an unverified turn.
 

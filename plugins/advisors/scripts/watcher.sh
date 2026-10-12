@@ -76,6 +76,12 @@ degrade() {  # <reason>
 task_re="$(printf '%s' "$task_id" | sed 's/[][\.*^$+?(){}|/]/\\&/g')([^0-9]|\$)"
 diff="$(cd "$repo" && git log -p --no-color -E --grep="$task_re" -- . ':(exclude).claude' 2>/dev/null || true)"
 files="$(cd "$repo" && git log --name-only --oneline -E --grep="$task_re" -- . ':(exclude).claude' 2>/dev/null || true)"
+# The evidence is COMMIT-PINNED (git log -p), not the working tree — a later commit or an
+# uncommitted fix may already have changed a file. Record which commits (and HEAD) it covers so
+# every claim cites them and is refuted against the working tree before anyone acts on it.
+commits="$(cd "$repo" && git log --format=%h -E --grep="$task_re" -- . ':(exclude).claude' 2>/dev/null | tr '\n' ' ' || true)"
+commits="${commits% }"
+head_sha="$(cd "$repo" && git rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
 if [[ -z "${diff// }" ]]; then
   degrade "no evidence — no commits/diff found for $task_id (excluding .claude/). Cannot review without evidence."
   exit 4
@@ -93,7 +99,8 @@ evidence is insufficient to judge something, say so explicitly ("INSUFFICIENT EV
 do NOT guess, and do NOT assume unseen code is correct or incorrect.
 
 Report findings by severity — P0 (blocker) / P1 (major) / P2 (minor) / P3 (nit) — each with the
-file and (where visible) the line, a one-line description, and why it matters. If you find
+file, the COMMIT it appears in (the evidence is commit-pinned — later commits may have changed
+the file), and (where visible) the line, a one-line description, and why it matters. If you find
 nothing, say exactly: "No issues found in the evidence provided." Be terse and specific — this is
 a cross-check, not a tutorial.
 TXT
@@ -105,8 +112,9 @@ You are an adversarial VERIFIER cross-checking a primary verifier. Below are one
 For EACH claim return a verdict: CONFIRMED (the evidence supports it), REFUTED (the evidence
 contradicts it), or UNVERIFIABLE (the evidence shown is insufficient to decide — prefer this over
 a confident guess). You have NO repository access — judge ONLY from the evidence here; fail loud
-on incomplete evidence rather than confirming or refuting on assumption. Be terse: claim ->
-verdict -> one-line reason.
+on incomplete evidence rather than confirming or refuting on assumption. The evidence is
+commit-pinned: cite the commit for any file-content verdict. Be terse: claim -> verdict ->
+commit -> one-line reason.
 TXT
 )"
 fi
@@ -114,6 +122,7 @@ fi
 {
   printf '%s\n\n' "$instruction"
   printf '## Task\n%s\n\n' "$task_id"
+  printf '## Evidence commits\n%s (HEAD at review time: %s)\n\n' "$commits" "$head_sha"
   if [[ -n "$claims_file" && -f "$claims_file" ]]; then
     printf '## Claims to verify\n\n'
     cat "$claims_file"
@@ -150,8 +159,10 @@ model="$(registry_get "advisors.$advisor" model)"
 last="$topic_dir/.run-$advisor/last.txt"
 {
   printf '# Watcher finding — %s / %s\n\n' "$role" "$task_id"
-  printf '- advisor: `%s`  ·  model: `%s`  ·  mode: `%s`  ·  attestation: **client**-attested\n' "$advisor" "$model" "$mode"
-  printf '- augment: this CROSS-CHECKS the Claude %s; a codex-only finding is a claim to VERIFY, not an auto task-mover.\n\n' "$role"
+  printf -- '- advisor: `%s`  ·  model: `%s`  ·  mode: `%s`  ·  attestation: **client**-attested\n' "$advisor" "$model" "$mode"
+  # shellcheck disable=SC2016  # literal markdown backticks, not an expansion
+  printf -- '- evidence: commits `%s` (HEAD `%s`) — file-content claims describe THOSE commits; refute each against the current working tree before acting on it.\n' "$commits" "$head_sha"
+  printf -- '- augment: this CROSS-CHECKS the Claude %s; a codex-only finding is a claim to VERIFY, not an auto task-mover.\n\n' "$role"
   printf -- '---\n\n'
   # Drop the first line if it is exactly the nonce echo (codex-run guard asks for it first).
   if [[ -s "$last" ]]; then

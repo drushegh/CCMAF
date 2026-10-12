@@ -30,7 +30,7 @@ procedure) and the `contract:board-coherence` + `contract:verify-handback` block
 
 ## When this runs
 - From a doctor obstruction: cold-start step 3 raised a `board-coherence` WARNING (missing seeds /
-  orphan seeds / a base ID in two columns / an RfR pile-up) or a Check-13 SUFFIXED-ID warning, and
+  orphan seeds / malformed seeds / a base ID in two columns / an RfR pile-up) or a Check-13 SUFFIXED-ID warning, and
   the user chose *fix now*. Or on demand.
 - Typical trigger: a consumer opted into the Console, or pulled a framework update, and the next
   cold start's doctor flagged the drift. (The update itself never mutates the board — it delivers
@@ -39,7 +39,9 @@ procedure) and the `contract:board-coherence` + `contract:verify-handback` block
 ## Guardrails (NON-NEGOTIABLE)
 - This command MUTATES `.claude/TASKS.md` and WRITES seed files. It **never touches a recorded
   human verdict** — an existing `.claude/console/verify/<ID>.json` is left byte-for-byte alone
-  (WRITE-ONCE). Only missing seeds are created.
+  (WRITE-ONCE). Only missing seeds are created. The single exception is Step 3.5: a seed that
+  doctor flags as breaking `contract:verify-handback` may be repaired, and a repair always keeps
+  every recorded verdict.
 - **Baseline first (git is the dry-run):** if the working tree has uncommitted `.claude/` changes,
   commit them (or stop and surface them) so the ENTIRE heal is one reviewable `git diff`. Revert is
   `git checkout`. No bespoke backup.
@@ -106,6 +108,22 @@ decision per ambiguous cluster: *fast-track to Verify (it shipped; acceptance is
 *walk it back through review→test* / *leave as-is*. **Never silently fast-track a task past a gate**
 — whatever the human decides is recorded in Step 5.
 
+## Step 2.5 — Triage long-lived Verify items: walk the supersession chain
+A task that has sat in **Verify** for a long time is not automatically still owed a human review.
+Its work may have been ported, split up, or replaced by a later task. Before you treat it as
+pending, walk the WHOLE chain:
+- Follow every successor link (`Superseded by`, `Was:`, "ported to", "split into", the decisions
+  log) to the end of the chain. A successor can itself have been superseded.
+- Check what still uses the delivered work: `grep -rl` for its files or symbols outside `.claude/`,
+  and `git log -1 -- <path>` for the last commit that touched them. If the successor replaced it,
+  the review is owed against the successor, not this task.
+- Close a superseded Verify task **against its successor by name**: move it to Done with a body line
+  `- **Superseded by:** TASK-<n> (/board-heal <YYYY-MM-DD>)`. Don't ask the human to verify work
+  that no longer ships. Leave its seed alone; when the task is archived, the seed moves to
+  `.claude/console/verify/archive/` (never deleted).
+- If the chain ends at live, unreviewed work, the task stays in Verify. If the evidence is unclear,
+  ask the human, as in Step 2.
+
 ## Step 3 — Backfill verify seeds (gated on `.claude/console/` existing; WRITE-ONCE)
 If `.claude/console/` does NOT exist → SKIP this entire step (zero coupling — the project isn't
 using a verify UI). Otherwise, for every task now in **Verify** (Feature lane) with NO
@@ -123,6 +141,28 @@ using a verify UI). Otherwise, for every task now in **Verify** (Feature lane) w
 - If a task genuinely exposes no distinct use-cases, emit ONE item (title = the task title) rather
   than an empty `items[]` — an empty checklist is not reviewable.
 
+## Step 3.5 — Repair malformed seeds (doctor's `contract:verify-handback` finding)
+Doctor names each top-level seed that breaks the contract and gives the reason: invalid JSON,
+`schemaVersion` is not 1, `task` is not the filename ID, `status` is outside
+`in-review|processing-fixes|done`, `items` is not an array, or an item lacks `id`, `kind` or
+`title`, has a verdict outside the enum, or reuses an id. The Console rejects these seeds, so the
+story is invisible in the Verify tab. Repair each one in place:
+- **Not valid JSON:** first search the raw text for a recorded verdict (`grep -E
+  '"verdict"[[:space:]]*:[[:space:]]*"(pass|fail|cr|blocked|warn)"'`). Any hit → never
+  regenerate: make the smallest syntax repair that parses (a trailing comma, a missing bracket or
+  quote) and leave every other byte as it was. If no small repair parses, stop and ask the human.
+  No hit → treat it as the no-verdict case below.
+- **No recorded verdict** (every item is `pending` or has no verdict): rewrite the seed in the
+  Step 3 shape. Keep every item `id` and `title` you can recover and fill in only what is missing.
+- **Carries a recorded verdict** (any item is `pass`/`fail`/`cr`/`blocked`/`warn`): patch the
+  structure only. Set `schemaVersion: 1`, set `task` to the filename ID, map a stray `status` to the
+  nearest enum value, and add a missing `kind` (`"use-case"`) or a stable slug `id`. Keep every
+  item's `verdict`, `severity`, `round`, `bugId`, `noteRounds` and `notes` exactly as they are. If a
+  recorded verdict is itself outside the enum, or two items with verdicts share an id, ask the
+  human. Never guess a human's verdict.
+- Seeds under `verify/archive/` are retired. Doctor skips them, and so does this step.
+- Check each repaired file with `jq -e . <file>` before moving on.
+
 ## Step 4 — Decompose genuine umbrella tasks (ONLY if bundled)
 If a SINGLE task bundles multiple independently-verifiable features (an "implement the app"
 umbrella), follow verify-handback.md's retroactive path: create one `#### [TASK-N]` per feature in
@@ -138,7 +178,7 @@ decompose — skip this step.**
   human authorised it. This is what stops the heal itself from becoming the next board-vs-reality
   drift.
 - Update `STATUS.md` + `claude-progress.txt` with what the heal changed (renumbers, seeds, advances,
-  decompositions).
+  supersession closes, seed repairs, decompositions).
 - Commit everything under the Step-0 task id, e.g.
   `fix: board heal — <N seeds backfilled, M IDs renumbered, K tasks advanced> (TASK-N)`.
 - Re-run `bash ${CLAUDE_PLUGIN_ROOT}/doctor/doctor.sh` and confirm the `board-coherence` / suffixed-ID
